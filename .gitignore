@@ -35,3 +35,7 @@ Thumbs.db
 # Deploy script (contains server details)
 deploy.sh
 .worktrees/
+
+# Firebase service account key
+firebase-service-account.json
+server/firebase-service-account.json

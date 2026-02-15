@@ -3,6 +3,8 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import db from '../db/connection';
 import { GAME_CONFIG } from '../config/game';
+import { signJwt } from '../middleware/jwt';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -69,6 +71,7 @@ router.post('/register', async (req, res) => {
 
     req.session.playerId = playerId;
     res.status(201).json({
+      token: signJwt(playerId),
       player: {
         id: playerId,
         username,
@@ -112,6 +115,7 @@ router.post('/login', async (req, res) => {
 
     req.session.playerId = player.id;
     res.json({
+      token: signJwt(player.id),
       player: {
         id: player.id,
         username: player.username,
@@ -122,6 +126,41 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/fcm-token', requireAuth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: 'Missing FCM token' });
+    }
+
+    const playerId = req.session.playerId!;
+
+    // Upsert: update timestamp if token exists, otherwise insert
+    const existing = await db('player_devices')
+      .where({ player_id: playerId, fcm_token: token })
+      .first();
+
+    if (existing) {
+      await db('player_devices')
+        .where({ id: existing.id })
+        .update({ updated_at: new Date() });
+    } else {
+      await db('player_devices').insert({
+        id: crypto.randomUUID(),
+        player_id: playerId,
+        fcm_token: token,
+        platform: 'android',
+        updated_at: new Date(),
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('FCM token registration error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

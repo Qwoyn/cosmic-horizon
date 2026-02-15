@@ -1,6 +1,7 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { sectorRoom, playerRoom } from './events';
 import db from '../db/connection';
+import { verifyJwt } from '../middleware/jwt';
 
 // Track connected players: socketId -> playerId
 const connectedPlayers = new Map<string, string>();
@@ -9,8 +10,19 @@ export function setupWebSocket(io: SocketIOServer): void {
   io.on('connection', (socket: Socket) => {
     console.log(`Socket connected: ${socket.id}`);
 
-    socket.on('join', async (data: { playerId: string }) => {
-      const { playerId } = data;
+    socket.on('join', async (data: { playerId?: string; token?: string }) => {
+      let playerId = data.playerId;
+
+      // If token provided, verify and extract playerId
+      if (data.token) {
+        try {
+          const payload = verifyJwt(data.token);
+          playerId = payload.playerId;
+        } catch {
+          return;
+        }
+      }
+
       if (!playerId) return;
 
       const player = await db('players').where({ id: playerId }).first();

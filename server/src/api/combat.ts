@@ -4,6 +4,7 @@ import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { resolveCombatVolley, attemptFlee, CombatState } from '../engine/combat';
 import { SHIP_TYPES } from '../config/ship-types';
 import db from '../db/connection';
+import { sendPushToPlayer } from '../services/push';
 
 const router = Router();
 
@@ -124,6 +125,21 @@ router.post('/fire', requireAuth, async (req, res) => {
         // Award bounty rewards to attacker
         await db('players').where({ id: player.id }).increment('credits', totalBountyReward);
       }
+    }
+
+    // Push notification to defender
+    if (result.defenderDestroyed) {
+      sendPushToPlayer(target.id, {
+        title: 'Ship Destroyed!',
+        body: `${player.username} destroyed your ship in sector ${player.current_sector_id}`,
+        type: 'combat',
+      });
+    } else {
+      sendPushToPlayer(target.id, {
+        title: 'Under Attack!',
+        body: `${player.username} hit you for ${result.damageDealt} damage in sector ${player.current_sector_id}`,
+        type: 'combat',
+      });
     }
 
     res.json({
