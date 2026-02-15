@@ -1,0 +1,102 @@
+import { Server as SocketIOServer, Socket } from 'socket.io';
+import { sectorRoom, playerRoom } from './events';
+import db from '../db/connection';
+
+// Track connected players: socketId -> playerId
+const connectedPlayers = new Map<string, string>();
+
+export function setupWebSocket(io: SocketIOServer): void {
+  io.on('connection', (socket: Socket) => {
+    console.log(`Socket connected: ${socket.id}`);
+
+    socket.on('join', async (data: { playerId: string }) => {
+      const { playerId } = data;
+      if (!playerId) return;
+
+      const player = await db('players').where({ id: playerId }).first();
+      if (!player) return;
+
+      connectedPlayers.set(socket.id, playerId);
+
+      // Join personal room and current sector room
+      socket.join(playerRoom(playerId));
+      socket.join(sectorRoom(player.current_sector_id));
+
+      // Notify sector
+      socket.to(sectorRoom(player.current_sector_id)).emit('player:entered', {
+        playerId,
+        username: player.username,
+        sectorId: player.current_sector_id,
+      });
+    });
+
+    socket.on('chat:sector', async (data: { message: string }) => {
+      const playerId = connectedPlayers.get(socket.id);
+      if (!playerId || !data.message) return;
+
+      const player = await db('players').where({ id: playerId }).first();
+      if (!player) return;
+
+      // Broadcast to sector
+      io.to(sectorRoom(player.current_sector_id)).emit('chat:sector', {
+        senderId: playerId,
+        senderName: player.username,
+        message: data.message.slice(0, 500), // limit message length
+        timestamp: Date.now(),
+      });
+    });
+
+    socket.on('disconnect', async () => {
+      const playerId = connectedPlayers.get(socket.id);
+      if (playerId) {
+        const player = await db('players').where({ id: playerId }).first();
+        if (player) {
+          socket.to(sectorRoom(player.current_sector_id)).emit('player:left', {
+            playerId,
+            sectorId: player.current_sector_id,
+          });
+        }
+        connectedPlayers.delete(socket.id);
+      }
+      console.log(`Socket disconnected: ${socket.id}`);
+    });
+  });
+}
+
+// Utility: notify a player via their personal room
+export function notifyPlayer(io: SocketIOServer, playerId: string, event: string, data: any): void {
+  io.to(playerRoom(playerId)).emit(event, data);
+}
+
+// Utility: broadcast to a sector
+export function notifySector(io: SocketIOServer, sectorId: number, event: string, data: any): void {
+  io.to(sectorRoom(sectorId)).emit(event, data);
+}
+
+// Utility: handle player sector change (leave old room, join new)
+export function handleSectorChange(
+  io: SocketIOServer,
+  playerId: string,
+  oldSectorId: number,
+  newSectorId: number,
+  username: string
+): void {
+  const room = playerRoom(playerId);
+  const sockets = io.sockets.adapter.rooms.get(room);
+  if (sockets) {
+    for (const socketId of sockets) {
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) {
+        socket.leave(sectorRoom(oldSectorId));
+        socket.join(sectorRoom(newSectorId));
+      }
+    }
+  }
+
+  io.to(sectorRoom(oldSectorId)).emit('player:left', { playerId, sectorId: oldSectorId });
+  io.to(sectorRoom(newSectorId)).emit('player:entered', { playerId, username, sectorId: newSectorId });
+}
+
+export function getConnectedPlayers(): Map<string, string> {
+  return connectedPlayers;
+}

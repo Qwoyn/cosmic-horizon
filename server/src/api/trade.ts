@@ -1,0 +1,229 @@
+import { Router } from 'express';
+import { requireAuth } from '../middleware/auth';
+import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
+import { calculatePrice, executeTrade, CommodityType, OutpostState } from '../engine/trading';
+import db from '../db/connection';
+
+const router = Router();
+
+// View outpost prices
+router.get('/outpost/:id', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const outpost = await db('outposts').where({ id: req.params.id }).first();
+    if (!outpost) return res.status(404).json({ error: 'Outpost not found' });
+    if (outpost.sector_id !== player.current_sector_id) {
+      return res.status(400).json({ error: 'Outpost is not in your sector' });
+    }
+
+    const prices = {
+      cyrillium: {
+        price: calculatePrice('cyrillium', outpost.cyrillium_stock, outpost.cyrillium_capacity),
+        stock: outpost.cyrillium_stock,
+        capacity: outpost.cyrillium_capacity,
+        mode: outpost.cyrillium_mode,
+      },
+      food: {
+        price: calculatePrice('food', outpost.food_stock, outpost.food_capacity),
+        stock: outpost.food_stock,
+        capacity: outpost.food_capacity,
+        mode: outpost.food_mode,
+      },
+      tech: {
+        price: calculatePrice('tech', outpost.tech_stock, outpost.tech_capacity),
+        stock: outpost.tech_stock,
+        capacity: outpost.tech_capacity,
+        mode: outpost.tech_mode,
+      },
+    };
+
+    res.json({ outpostId: outpost.id, name: outpost.name, treasury: outpost.treasury, prices });
+  } catch (err) {
+    console.error('Outpost view error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Buy commodity from outpost
+router.post('/buy', requireAuth, async (req, res) => {
+  try {
+    const { outpostId, commodity, quantity } = req.body;
+    if (!outpostId || !commodity || !quantity || quantity < 1) {
+      return res.status(400).json({ error: 'Missing or invalid fields' });
+    }
+    if (!['cyrillium', 'food', 'tech'].includes(commodity)) {
+      return res.status(400).json({ error: 'Invalid commodity' });
+    }
+
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    if (!canAffordAction(player.energy, 'trade')) {
+      return res.status(400).json({ error: 'Not enough energy', cost: getActionCost('trade') });
+    }
+
+    const outpost = await db('outposts').where({ id: outpostId }).first();
+    if (!outpost) return res.status(404).json({ error: 'Outpost not found' });
+    if (outpost.sector_id !== player.current_sector_id) {
+      return res.status(400).json({ error: 'Outpost is not in your sector' });
+    }
+
+    const ship = await db('ships').where({ id: player.current_ship_id }).first();
+    if (!ship) return res.status(400).json({ error: 'No active ship' });
+
+    // Check cargo space
+    const currentCargo = (ship.cyrillium_cargo || 0) + (ship.food_cargo || 0) + (ship.tech_cargo || 0) + (ship.colonist_cargo || 0);
+    const freeSpace = ship.max_cargo_holds - currentCargo;
+    const maxBuyable = Math.min(quantity, freeSpace);
+    if (maxBuyable <= 0) {
+      return res.status(400).json({ error: 'No cargo space available' });
+    }
+
+    const outpostState: OutpostState = {
+      cyrilliumStock: outpost.cyrillium_stock,
+      cyrilliumCapacity: outpost.cyrillium_capacity,
+      cyrilliumMode: outpost.cyrillium_mode,
+      foodStock: outpost.food_stock,
+      foodCapacity: outpost.food_capacity,
+      foodMode: outpost.food_mode,
+      techStock: outpost.tech_stock,
+      techCapacity: outpost.tech_capacity,
+      techMode: outpost.tech_mode,
+      treasury: outpost.treasury,
+    };
+
+    const result = executeTrade(outpostState, commodity as CommodityType, maxBuyable, 'buy');
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    // Check player can afford
+    if (result.totalCost > Number(player.credits)) {
+      return res.status(400).json({ error: 'Not enough credits' });
+    }
+
+    const newEnergy = deductEnergy(player.energy, 'trade');
+
+    // Update player credits and energy
+    await db('players').where({ id: player.id }).update({
+      credits: Number(player.credits) - result.totalCost,
+      energy: newEnergy,
+    });
+
+    // Update ship cargo
+    const cargoField = `${commodity}_cargo`;
+    await db('ships').where({ id: ship.id }).update({
+      [cargoField]: (ship[cargoField] || 0) + result.quantity,
+    });
+
+    // Update outpost stock and treasury
+    const stockField = `${commodity}_stock`;
+    await db('outposts').where({ id: outpost.id }).update({
+      [stockField]: result.newStock,
+      treasury: result.newTreasury,
+    });
+
+    res.json({
+      commodity,
+      quantity: result.quantity,
+      pricePerUnit: result.pricePerUnit,
+      totalCost: result.totalCost,
+      newCredits: Number(player.credits) - result.totalCost,
+      energy: newEnergy,
+    });
+  } catch (err) {
+    console.error('Buy error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Sell commodity to outpost
+router.post('/sell', requireAuth, async (req, res) => {
+  try {
+    const { outpostId, commodity, quantity } = req.body;
+    if (!outpostId || !commodity || !quantity || quantity < 1) {
+      return res.status(400).json({ error: 'Missing or invalid fields' });
+    }
+    if (!['cyrillium', 'food', 'tech'].includes(commodity)) {
+      return res.status(400).json({ error: 'Invalid commodity' });
+    }
+
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    if (!canAffordAction(player.energy, 'trade')) {
+      return res.status(400).json({ error: 'Not enough energy', cost: getActionCost('trade') });
+    }
+
+    const ship = await db('ships').where({ id: player.current_ship_id }).first();
+    if (!ship) return res.status(400).json({ error: 'No active ship' });
+
+    const cargoField = `${commodity}_cargo`;
+    const availableCargo = ship[cargoField] || 0;
+    if (availableCargo <= 0) {
+      return res.status(400).json({ error: 'No cargo of this type' });
+    }
+
+    const outpost = await db('outposts').where({ id: outpostId }).first();
+    if (!outpost) return res.status(404).json({ error: 'Outpost not found' });
+    if (outpost.sector_id !== player.current_sector_id) {
+      return res.status(400).json({ error: 'Outpost is not in your sector' });
+    }
+
+    const sellQuantity = Math.min(quantity, availableCargo);
+
+    const outpostState: OutpostState = {
+      cyrilliumStock: outpost.cyrillium_stock,
+      cyrilliumCapacity: outpost.cyrillium_capacity,
+      cyrilliumMode: outpost.cyrillium_mode,
+      foodStock: outpost.food_stock,
+      foodCapacity: outpost.food_capacity,
+      foodMode: outpost.food_mode,
+      techStock: outpost.tech_stock,
+      techCapacity: outpost.tech_capacity,
+      techMode: outpost.tech_mode,
+      treasury: outpost.treasury,
+    };
+
+    const result = executeTrade(outpostState, commodity as CommodityType, sellQuantity, 'sell');
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    const newEnergy = deductEnergy(player.energy, 'trade');
+
+    // Update player credits and energy
+    await db('players').where({ id: player.id }).update({
+      credits: Number(player.credits) + result.totalCost,
+      energy: newEnergy,
+    });
+
+    // Update ship cargo
+    await db('ships').where({ id: ship.id }).update({
+      [cargoField]: availableCargo - result.quantity,
+    });
+
+    // Update outpost
+    const stockField = `${commodity}_stock`;
+    await db('outposts').where({ id: outpost.id }).update({
+      [stockField]: result.newStock,
+      treasury: result.newTreasury,
+    });
+
+    res.json({
+      commodity,
+      quantity: result.quantity,
+      pricePerUnit: result.pricePerUnit,
+      totalCost: result.totalCost,
+      newCredits: Number(player.credits) + result.totalCost,
+      energy: newEnergy,
+    });
+  } catch (err) {
+    console.error('Sell error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default router;

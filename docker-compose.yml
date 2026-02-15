@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: coho
+      POSTGRES_PASSWORD: coho
+      POSTGRES_DB: cosmic_horizon
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coho -d cosmic_horizon"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build: ./server
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://coho:coho@postgres:5432/cosmic_horizon
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      CLIENT_URL: http://localhost
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  client:
+    build: ./client
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  pgdata:

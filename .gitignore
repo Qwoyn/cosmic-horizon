@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Databases
+*.sqlite
+server/data/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.sw?
+*.suo
+
+# PM2
+.pm2/
+
+# Deploy script (contains server details)
+deploy.sh

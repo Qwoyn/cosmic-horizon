@@ -1,0 +1,168 @@
+import { Router } from 'express';
+import crypto from 'crypto';
+import { requireAuth } from '../middleware/auth';
+import { SHIP_TYPES } from '../config/ship-types';
+import db from '../db/connection';
+
+const router = Router();
+
+// List ships at current star mall
+router.get('/dealer', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const sector = await db('sectors').where({ id: player.current_sector_id }).first();
+    if (!sector?.has_star_mall) {
+      return res.status(400).json({ error: 'No star mall in this sector' });
+    }
+
+    res.json({
+      ships: SHIP_TYPES.filter(s => s.id !== 'dodge_pod').map(s => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        price: s.price,
+        baseWeaponEnergy: s.baseWeaponEnergy,
+        baseCargoHolds: s.baseCargoHolds,
+        baseEngineEnergy: s.baseEngineEnergy,
+        attackRatio: s.attackRatio,
+        defenseRatio: s.defenseRatio,
+        canCloak: s.canCloak,
+        canCarryMines: s.canCarryMines,
+        hasJumpDriveSlot: s.hasJumpDriveSlot,
+        hasPlanetaryScanner: s.hasPlanetaryScanner,
+      })),
+    });
+  } catch (err) {
+    console.error('Dealer error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Purchase a ship
+router.post('/buy/:shipTypeId', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const sector = await db('sectors').where({ id: player.current_sector_id }).first();
+    if (!sector?.has_star_mall) {
+      return res.status(400).json({ error: 'Must be at a star mall to buy ships' });
+    }
+
+    const shipType = SHIP_TYPES.find(s => s.id === req.params.shipTypeId);
+    if (!shipType) return res.status(404).json({ error: 'Unknown ship type' });
+    if (shipType.id === 'dodge_pod') return res.status(400).json({ error: 'Cannot purchase dodge pods' });
+
+    if (Number(player.credits) < shipType.price) {
+      return res.status(400).json({ error: 'Not enough credits' });
+    }
+
+    const shipId = crypto.randomUUID();
+    await db('ships').insert({
+      id: shipId,
+      ship_type_id: shipType.id,
+      owner_id: player.id,
+      sector_id: player.current_sector_id,
+      weapon_energy: shipType.baseWeaponEnergy,
+      max_weapon_energy: shipType.baseWeaponEnergy,
+      engine_energy: shipType.baseEngineEnergy,
+      max_engine_energy: shipType.baseEngineEnergy,
+      cargo_holds: shipType.baseCargoHolds,
+      max_cargo_holds: shipType.baseCargoHolds,
+    });
+
+    await db('players').where({ id: player.id }).update({
+      credits: Number(player.credits) - shipType.price,
+      current_ship_id: shipId,
+    });
+
+    res.json({
+      shipId,
+      shipType: shipType.id,
+      newCredits: Number(player.credits) - shipType.price,
+    });
+  } catch (err) {
+    console.error('Ship buy error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Switch active ship
+router.post('/switch/:shipId', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const ship = await db('ships').where({ id: req.params.shipId, owner_id: player.id }).first();
+    if (!ship) return res.status(404).json({ error: 'Ship not found or not owned by you' });
+    if (ship.sector_id !== player.current_sector_id) {
+      return res.status(400).json({ error: 'Ship is not in your current sector' });
+    }
+
+    await db('players').where({ id: player.id }).update({ current_ship_id: ship.id });
+
+    res.json({ currentShipId: ship.id, shipType: ship.ship_type_id });
+  } catch (err) {
+    console.error('Ship switch error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Toggle cloaking
+router.post('/cloak', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const ship = await db('ships').where({ id: player.current_ship_id }).first();
+    if (!ship) return res.status(400).json({ error: 'No active ship' });
+
+    const shipType = SHIP_TYPES.find(s => s.id === ship.ship_type_id);
+    if (!shipType?.canCloak) {
+      return res.status(400).json({ error: 'Ship cannot cloak' });
+    }
+
+    const newCloaked = !ship.is_cloaked;
+    await db('ships').where({ id: ship.id }).update({ is_cloaked: newCloaked });
+
+    res.json({ cloaked: newCloaked });
+  } catch (err) {
+    console.error('Cloak error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Jettison cargo
+router.post('/eject-cargo', requireAuth, async (req, res) => {
+  try {
+    const { commodity, quantity } = req.body;
+    if (!commodity || !quantity || quantity < 1) {
+      return res.status(400).json({ error: 'Missing or invalid fields' });
+    }
+    if (!['cyrillium', 'food', 'tech', 'colonist'].includes(commodity)) {
+      return res.status(400).json({ error: 'Invalid commodity' });
+    }
+
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const ship = await db('ships').where({ id: player.current_ship_id }).first();
+    if (!ship) return res.status(400).json({ error: 'No active ship' });
+
+    const cargoField = `${commodity}_cargo`;
+    const current = ship[cargoField] || 0;
+    const toEject = Math.min(quantity, current);
+    if (toEject <= 0) return res.status(400).json({ error: 'No cargo to eject' });
+
+    await db('ships').where({ id: ship.id }).update({ [cargoField]: current - toEject });
+
+    res.json({ commodity, ejected: toEject, remaining: current - toEject });
+  } catch (err) {
+    console.error('Eject cargo error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default router;

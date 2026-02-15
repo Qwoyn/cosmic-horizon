@@ -1,0 +1,106 @@
+.terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #0a0e14;
+  border: 1px solid #1a3a2a;
+  border-radius: 4px;
+  font-family: 'IBM Plex Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: #0d1117;
+  border-bottom: 1px solid #1a3a2a;
+  color: #3fb950;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.terminal-header .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.terminal-header .dot.red { background: #f85149; }
+.terminal-header .dot.yellow { background: #d29922; }
+.terminal-header .dot.green { background: #3fb950; }
+
+.terminal-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #1a3a2a #0a0e14;
+}
+
+.terminal-output::-webkit-scrollbar {
+  width: 6px;
+}
+
+.terminal-output::-webkit-scrollbar-track {
+  background: #0a0e14;
+}
+
+.terminal-output::-webkit-scrollbar-thumb {
+  background: #1a3a2a;
+  border-radius: 3px;
+}
+
+.terminal-line {
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-line.info { color: #8b949e; }
+.terminal-line.success { color: #3fb950; }
+.terminal-line.error { color: #f85149; }
+.terminal-line.warning { color: #d29922; }
+.terminal-line.system { color: #58a6ff; }
+.terminal-line.combat { color: #f0883e; }
+.terminal-line.trade { color: #a371f7; }
+
+.terminal-input-area {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid #1a3a2a;
+  background: #0d1117;
+}
+
+.terminal-prompt {
+  color: #3fb950;
+  margin-right: 8px;
+  user-select: none;
+}
+
+.terminal-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: #c9d1d9;
+  font-family: inherit;
+  font-size: inherit;
+  caret-color: #3fb950;
+}
+
+.terminal-input::placeholder {
+  color: #30363d;
+}
+
+.clickable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.clickable:hover {
+  text-decoration-style: solid;
+}
