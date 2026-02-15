@@ -191,4 +191,4 @@ See [docs/testing-guide.md](docs/testing-guide.md) for 15 structured test scenar
 
 ## License
 
-All rights reserved. See whitepaper for project background.
+[CC BY-NC 4.0](LICENSE) — free to use, modify, and share for non-commercial purposes with attribution.
