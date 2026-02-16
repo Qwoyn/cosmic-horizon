@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { AUDIO_TRACKS, type AudioTrack } from '../config/audio-tracks';
+import { AUDIO_TRACKS, GAMEPLAY_TRACKS, type AudioTrack } from '../config/audio-tracks';
 
 const FADE_DURATION = 1000; // ms
 const FADE_STEPS = 20;
@@ -23,11 +23,29 @@ function getStoredVolume(): number {
   }
 }
 
+function pickRandom(tracks: AudioTrack[], lastId: string | null): AudioTrack {
+  if (tracks.length === 1) return tracks[0];
+  const candidates = tracks.filter(t => t.id !== lastId);
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function resolveTrack(trackId: string): { track: AudioTrack; isPlaylist: false } | { track: AudioTrack; isPlaylist: true } | null {
+  if (trackId === 'gameplay') {
+    if (GAMEPLAY_TRACKS.length === 0) return null;
+    const picked = pickRandom(GAMEPLAY_TRACKS, null);
+    return { track: picked, isPlaylist: true };
+  }
+  const found = AUDIO_TRACKS.find(t => t.id === trackId);
+  return found ? { track: found, isPlaylist: false } : null;
+}
+
 export function useAudio() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const currentTrackRef = useRef<string | null>(null);
+  const currentContextRef = useRef<string | null>(null);
+  const currentTrackIdRef = useRef<string | null>(null);
   const pendingPlayRef = useRef<boolean>(false);
   const fadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onEndedRef = useRef<(() => void) | null>(null);
   const [muted, setMuted] = useState(getStoredMuted);
   const [volume, setVolumeState] = useState(getStoredVolume);
 
@@ -36,6 +54,7 @@ export function useAudio() {
     return () => {
       if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
       if (audioRef.current) {
+        if (onEndedRef.current) audioRef.current.removeEventListener('ended', onEndedRef.current);
         audioRef.current.pause();
         audioRef.current = null;
       }
@@ -88,47 +107,67 @@ export function useAudio() {
     });
   }, []);
 
-  const play = useCallback(async (trackId: string) => {
-    if (currentTrackRef.current === trackId && audioRef.current && !audioRef.current.paused) return;
+  const startTrack = useCallback(async (track: AudioTrack, isPlaylist: boolean, mutedVal: boolean, volumeVal: number) => {
+    // Clean up previous ended listener
+    if (audioRef.current && onEndedRef.current) {
+      audioRef.current.removeEventListener('ended', onEndedRef.current);
+      onEndedRef.current = null;
+    }
 
-    const track: AudioTrack | undefined = AUDIO_TRACKS.find(t => t.id === trackId);
-    if (!track) return;
-
-    // Fade out current track
-    await fadeOut();
-
-    currentTrackRef.current = trackId;
-
-    // Create new audio element
     const audio = new Audio(track.src);
     audio.loop = track.loop;
     audio.volume = 0;
-    audio.muted = muted;
+    audio.muted = mutedVal;
     audioRef.current = audio;
+    currentTrackIdRef.current = track.id;
 
-    const targetVolume = track.volume * volume;
+    const targetVolume = track.volume * volumeVal;
+
+    // For playlist tracks, listen for 'ended' to crossfade to next
+    if (isPlaylist) {
+      const onEnded = () => {
+        const next = pickRandom(GAMEPLAY_TRACKS, track.id);
+        startTrack(next, true, mutedVal, volumeVal);
+      };
+      onEndedRef.current = onEnded;
+      audio.addEventListener('ended', onEnded);
+    }
 
     try {
       await audio.play();
       pendingPlayRef.current = false;
     } catch {
-      // Autoplay blocked — mark as pending so resume() can retry on user gesture
       pendingPlayRef.current = true;
       return;
     }
 
     fadeIn(audio, targetVolume);
-  }, [muted, volume, fadeOut, fadeIn]);
+  }, [fadeIn]);
+
+  const play = useCallback(async (contextId: string) => {
+    // Already playing this context and audio is active
+    if (currentContextRef.current === contextId && audioRef.current && !audioRef.current.paused) return;
+
+    const resolved = resolveTrack(contextId);
+    if (!resolved) return;
+
+    // Fade out current track
+    await fadeOut();
+
+    currentContextRef.current = contextId;
+    await startTrack(resolved.track, resolved.isPlaylist, muted, volume);
+  }, [muted, volume, fadeOut, startTrack]);
 
   // Call resume() from a user interaction (click) to unblock autoplay
   const resume = useCallback(async () => {
     if (!pendingPlayRef.current) return;
 
     const audio = audioRef.current;
-    const trackId = currentTrackRef.current;
+    const trackId = currentTrackIdRef.current;
     if (!audio || !trackId) return;
 
-    const track = AUDIO_TRACKS.find(t => t.id === trackId);
+    // Find the track in either list
+    const track = AUDIO_TRACKS.find(t => t.id === trackId) || GAMEPLAY_TRACKS.find(t => t.id === trackId);
     if (!track) return;
 
     try {
@@ -136,13 +175,18 @@ export function useAudio() {
       pendingPlayRef.current = false;
       fadeIn(audio, track.volume * volume);
     } catch {
-      // Still blocked — nothing to do
+      // Still blocked
     }
   }, [volume, fadeIn]);
 
   const stop = useCallback(async () => {
+    if (audioRef.current && onEndedRef.current) {
+      audioRef.current.removeEventListener('ended', onEndedRef.current);
+      onEndedRef.current = null;
+    }
     await fadeOut();
-    currentTrackRef.current = null;
+    currentContextRef.current = null;
+    currentTrackIdRef.current = null;
     audioRef.current = null;
     pendingPlayRef.current = false;
   }, [fadeOut]);
@@ -151,8 +195,9 @@ export function useAudio() {
     const clamped = Math.max(0, Math.min(1, v));
     setVolumeState(clamped);
     try { localStorage.setItem(STORAGE_KEY_VOLUME, String(clamped)); } catch {}
-    if (audioRef.current && currentTrackRef.current) {
-      const track = AUDIO_TRACKS.find(t => t.id === currentTrackRef.current);
+    if (audioRef.current && currentTrackIdRef.current) {
+      const track = AUDIO_TRACKS.find(t => t.id === currentTrackIdRef.current)
+        || GAMEPLAY_TRACKS.find(t => t.id === currentTrackIdRef.current);
       if (track) {
         audioRef.current.volume = track.volume * clamped;
       }
