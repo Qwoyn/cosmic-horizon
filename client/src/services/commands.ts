@@ -12,6 +12,7 @@ interface CommandContext {
   refreshStatus: () => void;
   refreshSector: () => void;
   emit: (event: string, data: any) => void;
+  advanceTutorial: (action: string) => void;
 }
 
 interface ParsedCommand {
@@ -51,7 +52,8 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     case 'status': {
       const p = ctx.player;
       if (!p) { ctx.addLine('Not logged in', 'error'); break; }
-      ctx.addLine(`=== ${p.username} ===`, 'system');
+      const raceLabel = p.race ? ` [${p.race.charAt(0).toUpperCase() + p.race.slice(1)}]` : '';
+      ctx.addLine(`=== ${p.username}${raceLabel} ===`, 'system');
       ctx.addLine(`Sector: ${p.currentSectorId} | Energy: ${p.energy}/${p.maxEnergy} | Credits: ${p.credits.toLocaleString()}`, 'info');
       if (p.currentShip) {
         const c = p.currentShip;
@@ -59,6 +61,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         const total = c.cyrilliumCargo + c.foodCargo + c.techCargo + c.colonistsCargo;
         ctx.addLine(`Cargo: Cyr=${c.cyrilliumCargo} Food=${c.foodCargo} Tech=${c.techCargo} Col=${c.colonistsCargo} [${total}/${c.maxCargoHolds}]`, 'info');
       }
+      ctx.advanceTutorial('status');
       break;
     }
 
@@ -73,6 +76,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         ctx.addLine(`Planets: ${s.planets.map((p: any) => `${p.name} [${p.planetClass}]${p.ownerId ? '' : ' *unclaimed*'}`).join(', ')}`, 'info');
       }
       if (s.hasStarMall) ctx.addLine('★ Star Mall available - type "dealer" to see ships', 'success');
+      ctx.advanceTutorial('look');
       break;
     }
 
@@ -116,6 +120,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           ctx.addLine(`  ${commodity.padEnd(12)} ${String(info.price).padStart(5)} cr  [${info.stock}/${info.capacity}]  ${info.mode}`, modeColor as any);
         }
         ctx.addLine('Use "buy <commodity> <qty>" or "sell <commodity> <qty>"', 'info');
+        ctx.advanceTutorial('dock');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Dock failed', 'error'));
       break;
     }
@@ -263,7 +268,6 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       if (args.length < 2) { ctx.addLine('Usage: bounty <player_name> <amount>', 'error'); break; }
       const amount = parseInt(args[args.length - 1]);
       if (isNaN(amount)) { ctx.addLine('Amount must be a number', 'error'); break; }
-      const targetName = args.slice(0, -1).join(' ');
       // Find the player - they need to be known somehow. For now just pass the name.
       ctx.addLine(`Placing bounty... (TODO: resolve player by name)`, 'warning');
       break;

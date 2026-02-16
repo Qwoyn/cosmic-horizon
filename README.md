@@ -189,6 +189,14 @@ See [docs/testing-guide.md](docs/testing-guide.md) for 15 structured test scenar
 - [ ] Terraforming with ecocredit integration
 - [ ] On-chain $COHO token mechanics
 
+## Audio Credits
+
+| Track | File | Artist | Source |
+|-------|------|--------|--------|
+| Intro | `intro.mp3` | "Galactic Arcade Music" by [kissan4](https://pixabay.com/users/kissan4-10387284/) | [Pixabay](https://pixabay.com/music/441548/) |
+
+Audio files are not included in the repository. Place MP3 files in `client/public/audio/` using the filenames defined in `client/src/config/audio-tracks.ts`.
+
 ## License
 
 [CC BY-NC 4.0](LICENSE) — free to use, modify, and share for non-commercial purposes with attribution.

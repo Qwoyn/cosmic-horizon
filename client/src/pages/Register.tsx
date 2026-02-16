@@ -1,20 +1,61 @@
-import { useState, FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 
 interface RegisterProps {
-  onRegister: (username: string, email: string, password: string) => Promise<any>;
+  onRegister: (username: string, email: string, password: string, race: string) => Promise<any>;
 }
 
+const RACES = [
+  {
+    id: 'muscarian',
+    name: 'Muscarian',
+    nickname: 'Muskie',
+    ship: 'Corvette',
+    trait: '+5% attack',
+    bonus: '+2,000 credits',
+    desc: 'Military fungoid warriors. Lightning reflexes in combat and mycelial trade networks that bankroll new pilots.',
+  },
+  {
+    id: 'vedic',
+    name: 'Vedic',
+    nickname: 'Scholar',
+    ship: 'Cruiser',
+    trait: '+10% scan range',
+    bonus: '+100 max energy (72h)',
+    desc: 'Ancient seekers channeling psionic resonance to perceive distant star systems. Unmatched inner energy reserves.',
+  },
+  {
+    id: 'kalin',
+    name: 'Kalin',
+    nickname: 'Raider',
+    ship: 'Battleship',
+    trait: '+5% defense',
+    bonus: '+10 weapon/engine on starter',
+    desc: 'Silicon-armored warriors forged in crushing gravity. Their ships are nearly impervious, outfitted with superior hardware.',
+  },
+  {
+    id: 'tarri',
+    name: "Tar'ri",
+    nickname: 'Trader',
+    ship: 'Freighter',
+    trait: '+5% trade profit',
+    bonus: '+5,000 credits',
+    desc: 'Nomadic merchants with generations of barter instinct. No other species can rival their eye for profit.',
+  },
+];
+
 export default function Register({ onRegister }: RegisterProps) {
+  const [step, setStep] = useState<1 | 2>(1);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [selectedRace, setSelectedRace] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleStep1 = (e: FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -23,9 +64,19 @@ export default function Register({ onRegister }: RegisterProps) {
       return;
     }
 
+    setStep(2);
+  };
+
+  const handleStep2 = async () => {
+    if (!selectedRace) {
+      setError('Choose your race');
+      return;
+    }
+
+    setError('');
     setLoading(true);
     try {
-      await onRegister(username, email, password);
+      await onRegister(username, email, password, selectedRace);
       navigate('/game');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Registration failed');
@@ -36,55 +87,102 @@ export default function Register({ onRegister }: RegisterProps) {
 
   return (
     <div className="auth-page">
-      <div className="auth-container">
+      <div className="auth-container" style={step === 2 ? { maxWidth: '720px' } : undefined}>
         <h1 className="auth-title">COSMIC HORIZON</h1>
-        <p className="auth-subtitle">New Pilot Registration</p>
-        <form onSubmit={handleSubmit} className="auth-form">
-          {error && <div className="auth-error">{error}</div>}
-          <div className="auth-field">
-            <label>Username (3-32 chars)</label>
-            <input
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              required
-              minLength={3}
-              maxLength={32}
-              autoFocus
-            />
+        <p className="auth-subtitle">{step === 1 ? 'New Pilot Registration' : 'Choose Your Race'}</p>
+
+        {step === 1 && (
+          <form onSubmit={handleStep1} className="auth-form">
+            {error && <div className="auth-error">{error}</div>}
+            <div className="auth-field">
+              <label>Username (3-32 chars)</label>
+              <input
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                required
+                minLength={3}
+                maxLength={32}
+                autoFocus
+              />
+            </div>
+            <div className="auth-field">
+              <label>Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="auth-field">
+              <label>Password (min 8 chars)</label>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                minLength={8}
+              />
+            </div>
+            <div className="auth-field">
+              <label>Confirm Password</label>
+              <input
+                type="password"
+                value={confirm}
+                onChange={e => setConfirm(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" className="btn btn-primary">
+              NEXT
+            </button>
+          </form>
+        )}
+
+        {step === 2 && (
+          <div className="race-selection">
+            {error && <div className="auth-error">{error}</div>}
+            <div className="race-grid">
+              {RACES.map(race => (
+                <div
+                  key={race.id}
+                  className={`race-card ${selectedRace === race.id ? 'race-card--selected' : ''}`}
+                  onClick={() => setSelectedRace(race.id)}
+                >
+                  <div className="race-card__header">
+                    <span className="race-card__name">{race.name}</span>
+                    <span className="race-card__nickname">{race.nickname}</span>
+                  </div>
+                  <p className="race-card__desc">{race.desc}</p>
+                  <div className="race-card__stats">
+                    <div className="race-card__stat">
+                      <span className="race-card__label">Ship</span>
+                      <span className="race-card__value">{race.ship}</span>
+                    </div>
+                    <div className="race-card__stat">
+                      <span className="race-card__label">Trait</span>
+                      <span className="race-card__value race-card__value--trait">{race.trait}</span>
+                    </div>
+                    <div className="race-card__stat">
+                      <span className="race-card__label">Bonus</span>
+                      <span className="race-card__value race-card__value--bonus">{race.bonus}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="race-actions">
+              <button className="btn btn-secondary" onClick={() => setStep(1)}>
+                BACK
+              </button>
+              <button className="btn btn-primary" onClick={handleStep2} disabled={loading || !selectedRace}>
+                {loading ? 'Launching...' : 'LAUNCH'}
+              </button>
+            </div>
           </div>
-          <div className="auth-field">
-            <label>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="auth-field">
-            <label>Password (min 8 chars)</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              minLength={8}
-            />
-          </div>
-          <div className="auth-field">
-            <label>Confirm Password</label>
-            <input
-              type="password"
-              value={confirm}
-              onChange={e => setConfirm(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Registering...' : 'REGISTER'}
-          </button>
-        </form>
+        )}
+
         <p className="auth-link">
           Already a pilot? <Link to="/login">Login here</Link>
         </p>

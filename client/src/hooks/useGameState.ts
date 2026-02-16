@@ -1,13 +1,18 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import * as api from '../services/api';
 
 export interface PlayerState {
   id: string;
   username: string;
+  race: string | null;
   energy: number;
   maxEnergy: number;
   credits: number;
   currentSectorId: number;
+  tutorialStep: number;
+  tutorialCompleted: boolean;
+  hasSeenIntro: boolean;
+  hasSeenPostTutorial: boolean;
   currentShip: {
     id: string;
     shipTypeId: string;
@@ -48,6 +53,9 @@ export function useGameState() {
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+  // Track action counts for multi-count tutorial steps (e.g., step 4 requires 2 moves)
+  const tutorialActionCount = useRef<Record<string, number>>({});
+
   const addLine = useCallback((text: string, type: TerminalLine['type'] = 'info') => {
     setLines(prev => [...prev, { id: lineIdCounter++, text, type }]);
   }, []);
@@ -66,6 +74,84 @@ export function useGameState() {
     } catch { /* ignore */ }
   }, []);
 
+  const advanceTutorial = useCallback(async (action: string) => {
+    // Only attempt if player has an active tutorial
+    setPlayer(prev => {
+      if (!prev || prev.tutorialCompleted) return prev;
+
+      // Increment action count
+      const counts = tutorialActionCount.current;
+      counts[action] = (counts[action] || 0) + 1;
+
+      // Fire and forget the API call
+      api.advanceTutorial(action, counts[action]).then(({ data }) => {
+        if (data.advanced) {
+          // Reset action counts for the next step
+          tutorialActionCount.current = {};
+
+          setPlayer(p => p ? {
+            ...p,
+            tutorialStep: data.currentStep,
+            tutorialCompleted: !!data.completed,
+            credits: data.reward ? p.credits + data.reward : p.credits,
+          } : null);
+
+          if (data.completed) {
+            setLines(l => [...l,
+              { id: lineIdCounter++, text: 'TUTORIAL COMPLETE! You earned 5,000 credits.', type: 'success' },
+              { id: lineIdCounter++, text: 'The galaxy is yours to explore, pilot.', type: 'system' },
+            ]);
+          } else if (data.nextStep) {
+            setLines(l => [...l,
+              { id: lineIdCounter++, text: `[Tutorial ${data.currentStep}/${8}] ${data.nextStep.title}`, type: 'system' },
+              { id: lineIdCounter++, text: data.nextStep.description, type: 'info' },
+            ]);
+          }
+        }
+      }).catch(() => { /* tutorial advance failed silently */ });
+
+      return prev;
+    });
+  }, []);
+
+  const refreshTutorial = useCallback(async () => {
+    try {
+      const { data } = await api.getTutorialStatus();
+      setPlayer(prev => prev ? {
+        ...prev,
+        tutorialStep: data.currentStep,
+        tutorialCompleted: data.completed,
+      } : null);
+      return data;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const markIntroSeen = useCallback(async () => {
+    try {
+      await api.markIntroSeen();
+      setPlayer(prev => prev ? { ...prev, hasSeenIntro: true } : null);
+    } catch { /* ignore */ }
+  }, []);
+
+  const markPostTutorialSeen = useCallback(async () => {
+    try {
+      await api.markPostTutorialSeen();
+      setPlayer(prev => prev ? { ...prev, hasSeenPostTutorial: true } : null);
+    } catch { /* ignore */ }
+  }, []);
+
+  const skipTutorial = useCallback(async () => {
+    try {
+      await api.skipTutorial();
+      setPlayer(prev => prev ? { ...prev, tutorialCompleted: true, tutorialStep: 8 } : null);
+      addLine('Tutorial skipped.', 'system');
+    } catch {
+      addLine('Failed to skip tutorial', 'error');
+    }
+  }, [addLine]);
+
   const doLogin = useCallback(async (username: string, password: string) => {
     const { data } = await api.login(username, password);
     setPlayer(data.player);
@@ -75,12 +161,12 @@ export function useGameState() {
     return data.player;
   }, [addLine, refreshSector]);
 
-  const doRegister = useCallback(async (username: string, email: string, password: string) => {
-    const { data } = await api.register(username, email, password);
+  const doRegister = useCallback(async (username: string, email: string, password: string, race: string) => {
+    const { data } = await api.register(username, email, password, race);
     setPlayer(data.player);
     setIsLoggedIn(true);
     addLine(`Welcome to Cosmic Horizon, ${data.player.username}!`, 'system');
-    addLine('You have been given a Calvatian Scout and placed at a Star Mall.', 'system');
+    addLine(`You are a ${data.player.race ? data.player.race.charAt(0).toUpperCase() + data.player.race.slice(1) : 'pilot'} stationed at a Star Mall.`, 'system');
     addLine('Type "help" for a list of commands.', 'info');
     await refreshSector();
     return data.player;
@@ -92,6 +178,7 @@ export function useGameState() {
     setSector(null);
     setIsLoggedIn(false);
     setLines([]);
+    tutorialActionCount.current = {};
   }, []);
 
   const doMove = useCallback(async (sectorId: number) => {
@@ -110,10 +197,11 @@ export function useGameState() {
         addLine(`Planets: ${data.planets.map((p: any) => p.name).join(', ')}`, 'info');
       }
       await refreshSector();
+      advanceTutorial('move');
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Move failed', 'error');
     }
-  }, [addLine, refreshSector]);
+  }, [addLine, refreshSector, advanceTutorial]);
 
   const doBuy = useCallback(async (outpostId: string, commodity: string, quantity: number) => {
     try {
@@ -121,10 +209,11 @@ export function useGameState() {
       setPlayer(prev => prev ? { ...prev, credits: data.newCredits, energy: data.energy } : null);
       addLine(`Bought ${data.quantity} ${commodity} at ${data.pricePerUnit} cr/unit (total: ${data.totalCost} cr)`, 'trade');
       await refreshStatus();
+      advanceTutorial('buy');
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Purchase failed', 'error');
     }
-  }, [addLine, refreshStatus]);
+  }, [addLine, refreshStatus, advanceTutorial]);
 
   const doSell = useCallback(async (outpostId: string, commodity: string, quantity: number) => {
     try {
@@ -132,10 +221,11 @@ export function useGameState() {
       setPlayer(prev => prev ? { ...prev, credits: data.newCredits, energy: data.energy } : null);
       addLine(`Sold ${data.quantity} ${commodity} at ${data.pricePerUnit} cr/unit (total: ${data.totalCost} cr)`, 'trade');
       await refreshStatus();
+      advanceTutorial('sell');
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Sale failed', 'error');
     }
-  }, [addLine, refreshStatus]);
+  }, [addLine, refreshStatus, advanceTutorial]);
 
   const doFire = useCallback(async (targetPlayerId: string, energy: number) => {
     try {
@@ -172,5 +262,7 @@ export function useGameState() {
     doLogin, doRegister, doLogout,
     doMove, doBuy, doSell, doFire, doFlee,
     setPlayer, setSector,
+    advanceTutorial, refreshTutorial, skipTutorial,
+    markIntroSeen, markPostTutorialSeen,
   };
 }

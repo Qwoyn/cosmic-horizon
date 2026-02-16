@@ -34,3 +34,13 @@ Thumbs.db
 
 # Deploy script (contains server details)
 deploy.sh
+.worktrees/
+
+# Audio files (large binary assets)
+client/public/audio/*.mp3
+client/public/audio/*.ogg
+client/public/audio/*.wav
+
+# Firebase service account key
+firebase-service-account.json
+server/firebase-service-account.json

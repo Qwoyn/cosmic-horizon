@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, KeyboardEvent } from 'react';
+import { useRef, useEffect, useState, type KeyboardEvent } from 'react';
 import type { TerminalLine } from '../hooks/useGameState';
 import './Terminal.css';
 

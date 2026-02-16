@@ -8,8 +8,8 @@ const api = axios.create({
 });
 
 // Auth
-export const register = (username: string, email: string, password: string) =>
-  api.post('/auth/register', { username, email, password });
+export const register = (username: string, email: string, password: string, race: string) =>
+  api.post('/auth/register', { username, email, password, race });
 
 export const login = (username: string, password: string) =>
   api.post('/auth/login', { username, password });
@@ -99,5 +99,15 @@ export const getSalvageOptions = () => api.get('/starmall/salvage');
 export const salvageShip = (shipId: string) => api.post(`/starmall/salvage/sell/${shipId}`);
 export const getCantina = () => api.get('/starmall/cantina');
 export const buyCantineIntel = () => api.post('/starmall/cantina/intel');
+
+// Lore sequences
+export const markIntroSeen = () => api.post('/game/seen-intro');
+export const markPostTutorialSeen = () => api.post('/game/seen-post-tutorial');
+
+// Tutorial
+export const getTutorialStatus = () => api.get('/tutorial/status');
+export const advanceTutorial = (action: string, count?: number) =>
+  api.post('/tutorial/advance', { action, count });
+export const skipTutorial = () => api.post('/tutorial/skip');
 
 export default api;

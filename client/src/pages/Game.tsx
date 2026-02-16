@@ -4,18 +4,44 @@ import StatusBar from '../components/StatusBar';
 import MapPanel from '../components/MapPanel';
 import TradeTable from '../components/TradeTable';
 import CombatView from '../components/CombatView';
+import TutorialOverlay from '../components/TutorialOverlay';
+import IntroSequence, { INTRO_BEATS, POST_TUTORIAL_BEATS } from '../components/IntroSequence';
 import { useGameState } from '../hooks/useGameState';
 import { useSocket } from '../hooks/useSocket';
+import { useAudio } from '../hooks/useAudio';
 import { handleCommand } from '../services/commands';
 
 export default function Game() {
   const game = useGameState();
   const { on, emit } = useSocket(game.player?.id ?? null);
+  const audio = useAudio();
 
   useEffect(() => {
     game.refreshStatus();
     game.refreshSector();
+    game.refreshTutorial();
   }, []);
+
+  // Switch audio track based on game context
+  useEffect(() => {
+    if (!game.player) return;
+
+    if (!game.player.hasSeenIntro) {
+      audio.play('intro');
+    } else if (game.player.tutorialCompleted && !game.player.hasSeenPostTutorial) {
+      audio.play('post-tutorial');
+    } else if (game.sector?.outposts?.length) {
+      // At a sector with an outpost — could be star mall
+      const hasStarMall = game.sector.outposts.length > 0;
+      if (hasStarMall) {
+        audio.play('starmall');
+      } else {
+        audio.play('gameplay');
+      }
+    } else {
+      audio.play('gameplay');
+    }
+  }, [game.player?.hasSeenIntro, game.player?.hasSeenPostTutorial, game.player?.tutorialCompleted, game.sector?.sectorId]);
 
   // Listen for WebSocket events
   useEffect(() => {
@@ -65,6 +91,7 @@ export default function Game() {
       refreshStatus: game.refreshStatus,
       refreshSector: game.refreshSector,
       emit,
+      advanceTutorial: game.advanceTutorial,
     });
   }, [game, emit]);
 
@@ -73,15 +100,56 @@ export default function Game() {
     if (game.sector && game.lines.length === 0) {
       game.addLine('=== COSMIC HORIZON ===', 'system');
       game.addLine('A text-based space trading game', 'system');
-      game.addLine('Type "help" for commands or "look" to view your sector.', 'info');
+      if (game.player && !game.player.tutorialCompleted) {
+        game.addLine('Follow the tutorial bar above to learn the basics.', 'info');
+        game.addLine('Start by typing "look" to survey your sector.', 'info');
+      } else {
+        game.addLine('Type "help" for commands or "look" to view your sector.', 'info');
+      }
     }
   }, [game.sector]);
 
   const activeOutpost = game.sector?.outposts[0]?.id ?? null;
 
+  const handleTrackRequest = useCallback((trackId: string) => {
+    audio.play(trackId);
+  }, [audio.play]);
+
+  // Show intro lore sequence on first login (before tutorial)
+  if (game.player && !game.player.hasSeenIntro) {
+    return (
+      <IntroSequence
+        beats={INTRO_BEATS}
+        onComplete={game.markIntroSeen}
+        title="THE AGARICALIS SAGA"
+        trackId="intro"
+        onTrackRequest={handleTrackRequest}
+      />
+    );
+  }
+
+  // Show post-tutorial lore sequence after tutorial completion
+  if (game.player && game.player.tutorialCompleted && !game.player.hasSeenPostTutorial) {
+    return (
+      <IntroSequence
+        beats={POST_TUTORIAL_BEATS}
+        onComplete={game.markPostTutorialSeen}
+        title="THE FRONTIER AWAITS"
+        buttonLabel="BEGIN YOUR JOURNEY"
+        trackId="post-tutorial"
+        onTrackRequest={handleTrackRequest}
+      />
+    );
+  }
+
   return (
     <div className="game-layout">
-      <StatusBar player={game.player} />
+      <TutorialOverlay
+        tutorialStep={game.player?.tutorialStep ?? 0}
+        tutorialCompleted={game.player?.tutorialCompleted ?? true}
+        onSkip={game.skipTutorial}
+      />
+      <StatusBar player={game.player} muted={audio.muted} onToggleMute={audio.toggleMute} />
       <div className="game-main">
         <div className="game-terminal">
           <Terminal

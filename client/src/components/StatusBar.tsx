@@ -2,9 +2,11 @@ import type { PlayerState } from '../hooks/useGameState';
 
 interface StatusBarProps {
   player: PlayerState | null;
+  muted?: boolean;
+  onToggleMute?: () => void;
 }
 
-export default function StatusBar({ player }: StatusBarProps) {
+export default function StatusBar({ player, muted, onToggleMute }: StatusBarProps) {
   if (!player) return null;
 
   const ship = player.currentShip;
@@ -54,6 +56,15 @@ export default function StatusBar({ player }: StatusBarProps) {
             <div className="status-value">{totalCargo}/{ship.maxCargoHolds}</div>
           </div>
         </>
+      )}
+      {onToggleMute && (
+        <button
+          className={`audio-toggle${muted ? ' audio-toggle--muted' : ''}`}
+          onClick={onToggleMute}
+          title={muted ? 'Unmute audio' : 'Mute audio'}
+        >
+          {muted ? 'SOUND OFF' : 'SOUND ON'}
+        </button>
       )}
     </div>
   );
