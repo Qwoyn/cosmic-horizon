@@ -20,6 +20,7 @@ interface IntroSequenceProps {
   buttonLabel?: string;
   trackId?: string;
   onTrackRequest?: (trackId: string) => void;
+  onAudioResume?: () => void;
 }
 
 const CHAR_DELAY = 30;
@@ -91,7 +92,7 @@ export const POST_TUTORIAL_BEATS: LoreBeat[] = [
   },
 ];
 
-export default function IntroSequence({ beats, onComplete, title, buttonLabel, trackId, onTrackRequest }: IntroSequenceProps) {
+export default function IntroSequence({ beats, onComplete, title, buttonLabel, trackId, onTrackRequest, onAudioResume }: IntroSequenceProps) {
   const [currentBeat, setCurrentBeat] = useState(0);
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(true);
@@ -152,7 +153,7 @@ export default function IntroSequence({ beats, onComplete, title, buttonLabel, t
   const activeBeat = !isFinished ? beats[currentBeat] : null;
 
   return (
-    <div className="intro-sequence" onClick={!isFinished ? advance : undefined}>
+    <div className="intro-sequence" onClick={!isFinished ? () => { onAudioResume?.(); advance(); } : undefined}>
       <div className="intro-sequence__container">
         {title && <h2 className="intro-sequence__title">{title}</h2>}
         <div className="intro-sequence__text">

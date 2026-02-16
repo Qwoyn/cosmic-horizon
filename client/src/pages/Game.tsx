@@ -124,6 +124,7 @@ export default function Game() {
         title="THE AGARICALIS SAGA"
         trackId="intro"
         onTrackRequest={handleTrackRequest}
+        onAudioResume={audio.resume}
       />
     );
   }
@@ -138,6 +139,7 @@ export default function Game() {
         buttonLabel="BEGIN YOUR JOURNEY"
         trackId="post-tutorial"
         onTrackRequest={handleTrackRequest}
+        onAudioResume={audio.resume}
       />
     );
   }

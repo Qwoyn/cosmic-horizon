@@ -26,6 +26,7 @@ function getStoredVolume(): number {
 export function useAudio() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentTrackRef = useRef<string | null>(null);
+  const pendingPlayRef = useRef<boolean>(false);
   const fadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [muted, setMuted] = useState(getStoredMuted);
   const [volume, setVolumeState] = useState(getStoredVolume);
@@ -39,6 +40,25 @@ export function useAudio() {
         audioRef.current = null;
       }
     };
+  }, []);
+
+  const fadeIn = useCallback((audio: HTMLAudioElement, targetVolume: number) => {
+    if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
+
+    const stepTime = FADE_DURATION / FADE_STEPS;
+    const volumeStep = targetVolume / FADE_STEPS;
+    let currentVol = 0;
+
+    fadeTimerRef.current = setInterval(() => {
+      currentVol += volumeStep;
+      if (currentVol >= targetVolume) {
+        audio.volume = targetVolume;
+        if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
+        fadeTimerRef.current = null;
+      } else {
+        audio.volume = currentVol;
+      }
+    }, stepTime);
   }, []);
 
   const fadeOut = useCallback((): Promise<void> => {
@@ -69,7 +89,7 @@ export function useAudio() {
   }, []);
 
   const play = useCallback(async (trackId: string) => {
-    if (currentTrackRef.current === trackId) return;
+    if (currentTrackRef.current === trackId && audioRef.current && !audioRef.current.paused) return;
 
     const track: AudioTrack | undefined = AUDIO_TRACKS.find(t => t.id === trackId);
     if (!track) return;
@@ -90,34 +110,41 @@ export function useAudio() {
 
     try {
       await audio.play();
+      pendingPlayRef.current = false;
     } catch {
-      // Autoplay blocked — silently ignore
+      // Autoplay blocked — mark as pending so resume() can retry on user gesture
+      pendingPlayRef.current = true;
       return;
     }
 
-    // Fade in
-    const stepTime = FADE_DURATION / FADE_STEPS;
-    const volumeStep = targetVolume / FADE_STEPS;
-    let currentVol = 0;
+    fadeIn(audio, targetVolume);
+  }, [muted, volume, fadeOut, fadeIn]);
 
-    if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
+  // Call resume() from a user interaction (click) to unblock autoplay
+  const resume = useCallback(async () => {
+    if (!pendingPlayRef.current) return;
 
-    fadeTimerRef.current = setInterval(() => {
-      currentVol += volumeStep;
-      if (currentVol >= targetVolume) {
-        audio.volume = targetVolume;
-        if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
-        fadeTimerRef.current = null;
-      } else {
-        audio.volume = currentVol;
-      }
-    }, stepTime);
-  }, [muted, volume, fadeOut]);
+    const audio = audioRef.current;
+    const trackId = currentTrackRef.current;
+    if (!audio || !trackId) return;
+
+    const track = AUDIO_TRACKS.find(t => t.id === trackId);
+    if (!track) return;
+
+    try {
+      await audio.play();
+      pendingPlayRef.current = false;
+      fadeIn(audio, track.volume * volume);
+    } catch {
+      // Still blocked — nothing to do
+    }
+  }, [volume, fadeIn]);
 
   const stop = useCallback(async () => {
     await fadeOut();
     currentTrackRef.current = null;
     audioRef.current = null;
+    pendingPlayRef.current = false;
   }, [fadeOut]);
 
   const setVolume = useCallback((v: number) => {
@@ -143,5 +170,5 @@ export function useAudio() {
     });
   }, []);
 
-  return { play, stop, setVolume, muted, toggleMute, volume };
+  return { play, stop, resume, setVolume, muted, toggleMute, volume };
 }
