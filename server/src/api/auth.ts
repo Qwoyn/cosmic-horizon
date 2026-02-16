@@ -3,6 +3,8 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import db from '../db/connection';
 import { GAME_CONFIG } from '../config/game';
+import { SHIP_TYPES } from '../config/ship-types';
+import { getRace, VALID_RACE_IDS, RaceId } from '../config/races';
 import { signJwt } from '../middleware/jwt';
 import { requireAuth } from '../middleware/auth';
 
@@ -10,15 +12,24 @@ const router = Router();
 
 router.post('/register', async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, race } = req.body;
     if (!username || !email || !password) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+    if (!race || !VALID_RACE_IDS.includes(race)) {
+      return res.status(400).json({ error: 'Invalid race. Choose: ' + VALID_RACE_IDS.join(', ') });
     }
     if (username.length < 3 || username.length > 32) {
       return res.status(400).json({ error: 'Username must be 3-32 characters' });
     }
     if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const raceConfig = getRace(race as RaceId);
+    const shipTypeConfig = SHIP_TYPES.find(s => s.id === raceConfig.starterShipType);
+    if (!shipTypeConfig) {
+      return res.status(500).json({ error: 'Invalid starter ship configuration' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -34,6 +45,8 @@ router.post('/register', async (req, res) => {
     }
 
     const bonusUntil = new Date(Date.now() + GAME_CONFIG.ENERGY_REGEN_BONUS_DURATION_HOURS * 60 * 60 * 1000);
+    const startingCredits = GAME_CONFIG.STARTING_CREDITS + raceConfig.startingCreditsBonus;
+    const startingMaxEnergy = GAME_CONFIG.MAX_ENERGY + raceConfig.startingMaxEnergyBonus;
 
     // SQLite doesn't support .returning(), so generate ID and insert
     const playerId = crypto.randomUUID();
@@ -43,28 +56,32 @@ router.post('/register', async (req, res) => {
       username,
       email,
       password_hash: passwordHash,
+      race,
       current_sector_id: starMallSector.id,
-      energy: GAME_CONFIG.MAX_ENERGY,
-      max_energy: GAME_CONFIG.MAX_ENERGY,
-      credits: GAME_CONFIG.STARTING_CREDITS,
+      energy: startingMaxEnergy,
+      max_energy: startingMaxEnergy,
+      credits: startingCredits,
       explored_sectors: JSON.stringify([starMallSector.id]),
       energy_regen_bonus_until: bonusUntil,
       last_login: new Date(),
     });
 
-    // Create starter ship
+    // Create starter ship with racial bonuses
     const shipId = crypto.randomUUID();
+    const starterWeapon = shipTypeConfig.baseWeaponEnergy + raceConfig.starterWeaponBonus;
+    const starterEngine = shipTypeConfig.baseEngineEnergy + raceConfig.starterEngineBonus;
+
     await db('ships').insert({
       id: shipId,
-      ship_type_id: GAME_CONFIG.STARTER_SHIP_TYPE,
+      ship_type_id: raceConfig.starterShipType,
       owner_id: playerId,
       sector_id: starMallSector.id,
-      weapon_energy: 25,
-      max_weapon_energy: 25,
-      engine_energy: 50,
-      max_engine_energy: 50,
-      cargo_holds: 10,
-      max_cargo_holds: 10,
+      weapon_energy: starterWeapon,
+      max_weapon_energy: shipTypeConfig.maxWeaponEnergy,
+      engine_energy: starterEngine,
+      max_engine_energy: shipTypeConfig.maxEngineEnergy,
+      cargo_holds: shipTypeConfig.baseCargoHolds,
+      max_cargo_holds: shipTypeConfig.maxCargoHolds,
     });
 
     await db('players').where({ id: playerId }).update({ current_ship_id: shipId });
@@ -76,10 +93,15 @@ router.post('/register', async (req, res) => {
         id: playerId,
         username,
         email,
+        race,
         currentSectorId: starMallSector.id,
-        energy: GAME_CONFIG.MAX_ENERGY,
-        credits: GAME_CONFIG.STARTING_CREDITS,
+        energy: startingMaxEnergy,
+        credits: startingCredits,
         currentShipId: shipId,
+        tutorialStep: 0,
+        tutorialCompleted: false,
+        hasSeenIntro: false,
+        hasSeenPostTutorial: false,
       },
     });
   } catch (err: any) {
@@ -119,9 +141,14 @@ router.post('/login', async (req, res) => {
       player: {
         id: player.id,
         username: player.username,
+        race: player.race,
         currentSectorId: player.current_sector_id,
         energy: player.energy,
         credits: player.credits,
+        tutorialStep: player.tutorial_step || 0,
+        tutorialCompleted: !!player.tutorial_completed,
+        hasSeenIntro: !!player.has_seen_intro,
+        hasSeenPostTutorial: !!player.has_seen_post_tutorial,
       },
     });
   } catch (err) {

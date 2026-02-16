@@ -274,3 +274,27 @@ cosmic-horizon-companion/
 ```
 
 Pattern: Single-activity Compose, MVVM, offline-first with Room caching, Hilt DI.
+
+---
+
+## Future Companion App Features
+
+### Tier 1 — Alerts & Awareness
+- **Bounties on you** — `GET /api/social/bounties/on-me` — show active bounties targeting the player with amount and who placed them
+- **Combat log** — `GET /api/social/combat-log` — recent attacks, who attacked/defended, damage dealt, outcomes
+- **Planet production** — `GET /api/planets/:id` — colonist counts, resource stocks, production rates for owned planets
+
+### Tier 2 — Economic Tracking
+- **Deployable status** — `GET /api/deployables/mine` — health, sector, type for all active mines/drones/buoys
+- **Syndicate dashboard** — `GET /api/social/syndicate` — treasury, members, roles, shared planets
+- **Bounty board** — `GET /api/social/bounties` — active bounties available to claim
+
+### Tier 3 — Strategic Planning
+- **Explored map** — `GET /api/game/map` — visual sector map of discovered universe
+- **Outpost prices** — `GET /api/trade/outpost/:id` — market price tracking and trends
+- **Cantina intel** — `POST /api/starmall/cantina/intel` — rich outposts, top planets, dangerous sectors
+
+### Tier 4 — Management
+- **Ship dealer** — `GET /api/ships/dealer` — compare ship specs and prices
+- **Store catalog** — `GET /api/store/catalog` — equipment and consumables
+- **Fleet storage** — `GET /api/starmall/garage` — stored ships inventory

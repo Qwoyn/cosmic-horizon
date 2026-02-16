@@ -14,8 +14,8 @@ function App() {
     return data.player;
   }, []);
 
-  const handleRegister = useCallback(async (username: string, email: string, password: string) => {
-    const { data } = await api.register(username, email, password);
+  const handleRegister = useCallback(async (username: string, email: string, password: string, race: string) => {
+    const { data } = await api.register(username, email, password, race);
     setIsLoggedIn(true);
     return data.player;
   }, []);

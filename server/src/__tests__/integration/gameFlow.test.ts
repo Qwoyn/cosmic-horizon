@@ -61,6 +61,55 @@ beforeAll(async () => {
     max_drones: 0, tow_fuel_multiplier: 1,
   });
 
+  // Race starter ships
+  await testDb('ship_types').insert({
+    id: 'corvette', name: 'Muscarian Corvette', description: 'Balanced warship',
+    base_weapon_energy: 50, max_weapon_energy: 150,
+    base_cargo_holds: 15, max_cargo_holds: 30,
+    base_engine_energy: 75, max_engine_energy: 150,
+    attack_ratio: 1.2, defense_ratio: 1.0,
+    recharge_delay_ms: 5000, fuel_per_sector: 2, price: 30000,
+    can_cloak: false, can_carry_pgd: false, can_carry_mines: true,
+    can_tow: true, has_jump_drive_slot: false, has_planetary_scanner: false,
+    max_drones: 2, tow_fuel_multiplier: 1.8,
+  });
+
+  await testDb('ship_types').insert({
+    id: 'cruiser', name: 'Vedic Cruiser', description: 'Multi-role vessel',
+    base_weapon_energy: 75, max_weapon_energy: 200,
+    base_cargo_holds: 20, max_cargo_holds: 40,
+    base_engine_energy: 100, max_engine_energy: 200,
+    attack_ratio: 1.5, defense_ratio: 1.2,
+    recharge_delay_ms: 5000, fuel_per_sector: 3, price: 75000,
+    can_cloak: false, can_carry_pgd: true, can_carry_mines: true,
+    can_tow: true, has_jump_drive_slot: true, has_planetary_scanner: true,
+    max_drones: 2, tow_fuel_multiplier: 1.5,
+  });
+
+  await testDb('ship_types').insert({
+    id: 'battleship', name: 'Kalin Battleship', description: 'Heavy warship',
+    base_weapon_energy: 100, max_weapon_energy: 300,
+    base_cargo_holds: 10, max_cargo_holds: 25,
+    base_engine_energy: 80, max_engine_energy: 180,
+    attack_ratio: 2.0, defense_ratio: 1.0,
+    recharge_delay_ms: 7000, fuel_per_sector: 4, price: 150000,
+    can_cloak: false, can_carry_pgd: true, can_carry_mines: true,
+    can_tow: true, has_jump_drive_slot: true, has_planetary_scanner: true,
+    max_drones: 3, tow_fuel_multiplier: 1.5,
+  });
+
+  await testDb('ship_types').insert({
+    id: 'freighter', name: "Tar'ri Freighter", description: 'Cargo hauler',
+    base_weapon_energy: 15, max_weapon_energy: 50,
+    base_cargo_holds: 40, max_cargo_holds: 80,
+    base_engine_energy: 60, max_engine_energy: 120,
+    attack_ratio: 0.5, defense_ratio: 0.8,
+    recharge_delay_ms: 8000, fuel_per_sector: 2, price: 15000,
+    can_cloak: false, can_carry_pgd: false, can_carry_mines: false,
+    can_tow: true, has_jump_drive_slot: false, has_planetary_scanner: false,
+    max_drones: 1, tow_fuel_multiplier: 2.0,
+  });
+
   await testDb('sectors').insert([
     { id: 1, type: 'protected', has_star_mall: true, has_seed_planet: false, region_id: 1 },
     { id: 2, type: 'standard', has_star_mall: false, has_seed_planet: false, region_id: 1 },
@@ -118,7 +167,7 @@ describe('Integration: Registration & Login', () => {
   test('register creates a new player at star mall', async () => {
     const res = await agent()
       .post('/api/auth/register')
-      .send({ username: 'testpilot', email: 'test@test.com', password: 'password123' });
+      .send({ username: 'testpilot', email: 'test@test.com', password: 'password123', race: 'muscarian' });
 
     expect(res.status).toBe(201);
     expect(res.body.player).toBeDefined();
@@ -130,7 +179,7 @@ describe('Integration: Registration & Login', () => {
   test('rejects duplicate username', async () => {
     const res = await agent()
       .post('/api/auth/register')
-      .send({ username: 'testpilot', email: 'other@test.com', password: 'password123' });
+      .send({ username: 'testpilot', email: 'other@test.com', password: 'password123', race: 'muscarian' });
 
     expect(res.status).toBe(409);
     expect(res.body.error).toContain('Username already taken');
@@ -139,7 +188,7 @@ describe('Integration: Registration & Login', () => {
   test('rejects short password', async () => {
     const res = await agent()
       .post('/api/auth/register')
-      .send({ username: 'newpilot', email: 'new@test.com', password: 'short' });
+      .send({ username: 'newpilot', email: 'new@test.com', password: 'short', race: 'muscarian' });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('8 characters');
@@ -295,7 +344,7 @@ describe('Integration: Planet Claiming', () => {
   test('cannot claim already claimed planet', async () => {
     // Register second player
     const b = agent();
-    await b.post('/api/auth/register').send({ username: 'pilot2', email: 'p2@test.com', password: 'password123' });
+    await b.post('/api/auth/register').send({ username: 'pilot2', email: 'p2@test.com', password: 'password123', race: 'muscarian' });
     await b.post('/api/game/move/2');
 
     const res = await b.post('/api/planets/planet-1/claim');

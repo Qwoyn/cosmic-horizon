@@ -175,6 +175,86 @@ export async function seed(knex: Knex): Promise<void> {
     });
   }
 
+  // 4b. Guarantee tutorial outpost path — every star mall must have an adjacent sector with an outpost
+  console.log('Ensuring tutorial outpost paths...');
+  // Build adjacency lookup from edges
+  const adjacency = new Map<number, number[]>();
+  for (const [, edges] of universe.edges) {
+    for (const edge of edges) {
+      if (!adjacency.has(edge.from)) adjacency.set(edge.from, []);
+      adjacency.get(edge.from)!.push(edge.to);
+      if (!edge.oneWay) {
+        if (!adjacency.has(edge.to)) adjacency.set(edge.to, []);
+        adjacency.get(edge.to)!.push(edge.from);
+      }
+    }
+  }
+
+  let forcedOutposts = 0;
+  for (const sm of starMallSectors) {
+    const neighbors = adjacency.get(sm.id) || [];
+    const hasAdjacentOutpost = neighbors.some(n => outpostSectors.has(n));
+
+    if (!hasAdjacentOutpost && neighbors.length > 0) {
+      // Pick the first neighbor and force-place an outpost there
+      const targetSector = neighbors[0];
+      outpostSectors.add(targetSector);
+      forcedOutposts++;
+
+      const name = `${OUTPOST_NAMES[outpostNameIdx % OUTPOST_NAMES.length]} ${Math.floor(outpostNameIdx / OUTPOST_NAMES.length) + 1}`.replace(/ 1$/, '');
+      outpostNameIdx++;
+
+      // Complementary commodities: this outpost BUYS what the star mall outpost SELLS
+      // Star mall outpost sells food, this adjacent one buys food and sells tech
+      await knex('outposts').insert({
+        id: crypto.randomUUID(),
+        name,
+        sector_id: targetSector,
+        sells_fuel: true,
+        cyrillium_stock: 0,
+        food_stock: Math.floor(rng() * 1500),
+        tech_stock: 3000 + Math.floor(rng() * 5000),
+        cyrillium_capacity: 10000,
+        food_capacity: 10000,
+        tech_capacity: 10000,
+        cyrillium_mode: 'none',
+        food_mode: 'buy',
+        tech_mode: 'sell',
+        treasury: GAME_CONFIG.OUTPOST_BASE_TREASURY + Math.floor(rng() * 50000),
+      });
+    }
+  }
+
+  // Also ensure star mall outposts themselves sell at least one commodity
+  // Update existing star mall outposts to guarantee they sell food if they don't sell anything
+  for (const sm of starMallSectors) {
+    const existing = await knex('outposts').where({ sector_id: sm.id }).first();
+    if (existing) {
+      const sellsSomething = existing.cyrillium_mode === 'sell' ||
+                             existing.food_mode === 'sell' ||
+                             existing.tech_mode === 'sell';
+      if (!sellsSomething) {
+        await knex('outposts').where({ id: existing.id }).update({
+          food_mode: 'sell',
+          food_stock: 3000 + Math.floor(rng() * 5000),
+        });
+      }
+    }
+  }
+
+  if (forcedOutposts > 0) {
+    console.log(`  Force-placed ${forcedOutposts} outposts for tutorial paths`);
+  }
+
+  // Verification: confirm every star mall has at least one adjacent outpost
+  for (const sm of starMallSectors) {
+    const neighbors = adjacency.get(sm.id) || [];
+    const hasAdjacentOutpost = neighbors.some(n => outpostSectors.has(n));
+    if (!hasAdjacentOutpost) {
+      console.warn(`  WARNING: Star mall sector ${sm.id} has no adjacent outpost!`);
+    }
+  }
+
   // 5. Create starting planets (scattered, mostly unclaimed)
   console.log(`Seeding ${GAME_CONFIG.NUM_STARTING_PLANETS} starting planets...`);
   const planetClasses = Object.keys(PLANET_TYPES).filter(c => c !== 'S'); // exclude seed planets

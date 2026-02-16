@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { resolveCombatVolley, attemptFlee, CombatState } from '../engine/combat';
 import { SHIP_TYPES } from '../config/ship-types';
+import { getRace, RaceId } from '../config/races';
 import db from '../db/connection';
 import { sendPushToPlayer } from '../services/push';
 
@@ -46,17 +47,20 @@ router.post('/fire', requireAuth, async (req, res) => {
       return res.status(500).json({ error: 'Invalid ship type' });
     }
 
+    const attackerRace = player.race ? getRace(player.race as RaceId) : null;
+    const defenderRace = target.race ? getRace(target.race as RaceId) : null;
+
     const attackerState: CombatState = {
       weaponEnergy: attackerShip.weapon_energy,
       engineEnergy: attackerShip.engine_energy,
-      attackRatio: attackerType.attackRatio,
-      defenseRatio: attackerType.defenseRatio,
+      attackRatio: attackerType.attackRatio * (1 + (attackerRace?.attackRatioBonus ?? 0)),
+      defenseRatio: attackerType.defenseRatio * (1 + (attackerRace?.defenseRatioBonus ?? 0)),
     };
     const defenderState: CombatState = {
       weaponEnergy: defenderShip.weapon_energy,
       engineEnergy: defenderShip.engine_energy,
-      attackRatio: defenderType.attackRatio,
-      defenseRatio: defenderType.defenseRatio,
+      attackRatio: defenderType.attackRatio * (1 + (defenderRace?.attackRatioBonus ?? 0)),
+      defenseRatio: defenderType.defenseRatio * (1 + (defenderRace?.defenseRatioBonus ?? 0)),
     };
 
     const result = resolveCombatVolley(attackerState, defenderState, energyToExpend);

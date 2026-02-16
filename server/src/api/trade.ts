@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { calculatePrice, executeTrade, CommodityType, OutpostState } from '../engine/trading';
+import { getRace, RaceId } from '../config/races';
 import db from '../db/connection';
 
 const router = Router();
@@ -99,8 +100,13 @@ router.post('/buy', requireAuth, async (req, res) => {
       return res.status(400).json({ error: result.error });
     }
 
+    // Apply racial trade bonus (discount on buy for Tar'ri)
+    const playerRace = player.race ? getRace(player.race as RaceId) : null;
+    const tradeDiscount = Math.floor(result.totalCost * (playerRace?.tradeBonus ?? 0));
+    const adjustedCost = result.totalCost - tradeDiscount;
+
     // Check player can afford
-    if (result.totalCost > Number(player.credits)) {
+    if (adjustedCost > Number(player.credits)) {
       return res.status(400).json({ error: 'Not enough credits' });
     }
 
@@ -108,7 +114,7 @@ router.post('/buy', requireAuth, async (req, res) => {
 
     // Update player credits and energy
     await db('players').where({ id: player.id }).update({
-      credits: Number(player.credits) - result.totalCost,
+      credits: Number(player.credits) - adjustedCost,
       energy: newEnergy,
     });
 
@@ -129,8 +135,9 @@ router.post('/buy', requireAuth, async (req, res) => {
       commodity,
       quantity: result.quantity,
       pricePerUnit: result.pricePerUnit,
-      totalCost: result.totalCost,
-      newCredits: Number(player.credits) - result.totalCost,
+      totalCost: adjustedCost,
+      tradeBonus: tradeDiscount,
+      newCredits: Number(player.credits) - adjustedCost,
       energy: newEnergy,
     });
   } catch (err) {
@@ -192,11 +199,16 @@ router.post('/sell', requireAuth, async (req, res) => {
       return res.status(400).json({ error: result.error });
     }
 
+    // Apply racial trade bonus (boost on sell for Tar'ri)
+    const playerRace = player.race ? getRace(player.race as RaceId) : null;
+    const tradeBoost = Math.floor(result.totalCost * (playerRace?.tradeBonus ?? 0));
+    const adjustedRevenue = result.totalCost + tradeBoost;
+
     const newEnergy = deductEnergy(player.energy, 'trade');
 
     // Update player credits and energy
     await db('players').where({ id: player.id }).update({
-      credits: Number(player.credits) + result.totalCost,
+      credits: Number(player.credits) + adjustedRevenue,
       energy: newEnergy,
     });
 
@@ -216,8 +228,9 @@ router.post('/sell', requireAuth, async (req, res) => {
       commodity,
       quantity: result.quantity,
       pricePerUnit: result.pricePerUnit,
-      totalCost: result.totalCost,
-      newCredits: Number(player.credits) + result.totalCost,
+      totalCost: adjustedRevenue,
+      tradeBonus: tradeBoost,
+      newCredits: Number(player.credits) + adjustedRevenue,
       energy: newEnergy,
     });
   } catch (err) {

@@ -32,6 +32,18 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       .whereRaw('energy > max_energy')
       .update({ energy: db.ref('max_energy') });
 
+    // Expire Vedic max_energy bonus after the regen bonus period ends
+    await db('players')
+      .where({ race: 'vedic' })
+      .where('max_energy', '>', GAME_CONFIG.MAX_ENERGY)
+      .where('energy_regen_bonus_until', '<=', now.toISOString())
+      .update({ max_energy: GAME_CONFIG.MAX_ENERGY });
+
+    // Cap energy at new max_energy after bonus expiry
+    await db('players')
+      .whereRaw('energy > max_energy')
+      .update({ energy: db.ref('max_energy') });
+
     // 2. Planet production (fetch all owned planets, calculate, batch update)
     const planets = await db('planets').whereNotNull('owner_id').where('colonists', '>', 0);
     for (const planet of planets) {

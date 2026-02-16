@@ -16,6 +16,7 @@ import socialRouter from './api/social';
 import deployablesRouter from './api/deployables';
 import storeRouter from './api/store';
 import starmallRouter from './api/starmall';
+import tutorialRouter from './api/tutorial';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
 
@@ -73,6 +74,7 @@ app.use('/api/social', socialRouter);
 app.use('/api/deployables', deployablesRouter);
 app.use('/api/store', storeRouter);
 app.use('/api/starmall', starmallRouter);
+app.use('/api/tutorial', tutorialRouter);
 
 // WebSocket
 setupWebSocket(io);
