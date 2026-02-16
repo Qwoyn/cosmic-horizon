@@ -17,6 +17,11 @@ import deployablesRouter from './api/deployables';
 import storeRouter from './api/store';
 import starmallRouter from './api/starmall';
 import tutorialRouter from './api/tutorial';
+import missionsRouter from './api/missions';
+import eventsRouter from './api/events';
+import leaderboardsRouter from './api/leaderboards';
+import messagesRouter from './api/messages';
+import warpGatesRouter from './api/warp-gates';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
 
@@ -75,6 +80,11 @@ app.use('/api/deployables', deployablesRouter);
 app.use('/api/store', storeRouter);
 app.use('/api/starmall', starmallRouter);
 app.use('/api/tutorial', tutorialRouter);
+app.use('/api/missions', missionsRouter);
+app.use('/api/events', eventsRouter);
+app.use('/api/leaderboards', leaderboardsRouter);
+app.use('/api/messages', messagesRouter);
+app.use('/api/warp-gates', warpGatesRouter);
 
 // WebSocket
 setupWebSocket(io);

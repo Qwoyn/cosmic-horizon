@@ -99,6 +99,16 @@ npm run build
 pm2 restart cosmic-horizon
 ```
 
+To nuke the database and start fresh (wipes all players):
+
+```bash
+cd server
+rm -f data/cosmic_horizon.sqlite data/sessions.sqlite
+npx knex migrate:latest --knexfile knexfile.ts
+npx knex seed:run --knexfile knexfile.ts
+pm2 restart cosmic-horizon
+```
+
 ### 6. Caddyfile
 
 The mobile app hits `https://coho.mabus.ai/api/*` and `https://coho.mabus.ai/socket.io/*`. Your current Caddyfile sends everything to the client on port 5973, so API requests from the mobile app would fail. Update to:

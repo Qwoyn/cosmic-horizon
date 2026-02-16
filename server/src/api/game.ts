@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
+import { checkAndUpdateMissions } from '../services/mission-tracker';
 import db from '../db/connection';
 
 const router = Router();
@@ -97,6 +98,9 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     const outpostsInSector = await db('outposts').where({ sector_id: targetSectorId });
     const planetsInSector = await db('planets').where({ sector_id: targetSectorId });
 
+    // Mission progress: move
+    checkAndUpdateMissions(player.id, 'move', { sectorId: targetSectorId });
+
     res.json({
       sectorId: targetSectorId,
       sectorType: sector?.type,
@@ -128,6 +132,31 @@ router.get('/sector', requireAuth, async (req, res) => {
     const planetsInSector = await db('planets').where({ sector_id: sectorId });
     const deployablesInSector = await db('deployables').where({ sector_id: sectorId });
 
+    // Sector events
+    let events: any[] = [];
+    try {
+      events = await db('sector_events')
+        .where({ sector_id: sectorId, status: 'active' })
+        .select('id', 'event_type', 'created_at', 'expires_at');
+    } catch { /* table may not exist yet */ }
+
+    // Warp gates
+    let warpGates: any[] = [];
+    try {
+      const gates = await db('warp_gates')
+        .where(function() {
+          this.where({ sector_a_id: sectorId }).orWhere({ sector_b_id: sectorId });
+        })
+        .where({ status: 'active' });
+      warpGates = gates.map(g => ({
+        id: g.id,
+        destinationSectorId: g.sector_a_id === sectorId ? g.sector_b_id : g.sector_a_id,
+        tollAmount: g.toll_amount,
+        syndicateFree: !!g.syndicate_free,
+        syndicateId: g.syndicate_id,
+      }));
+    } catch { /* table may not exist yet */ }
+
     res.json({
       sectorId,
       type: sector?.type,
@@ -141,6 +170,8 @@ router.get('/sector', requireAuth, async (req, res) => {
         ownerId: p.owner_id, upgradeLevel: p.upgrade_level,
       })),
       deployables: deployablesInSector.map(d => ({ id: d.id, type: d.type, ownerId: d.owner_id })),
+      events: events.map(e => ({ id: e.id, eventType: e.event_type })),
+      warpGates,
     });
   } catch (err) {
     console.error('Sector error:', err);
@@ -211,6 +242,9 @@ router.post('/scan', requireAuth, async (req, res) => {
     const adjacentPlayers = adjacentIds.length > 0
       ? await db('players').whereIn('current_sector_id', adjacentIds).select('id', 'username', 'current_sector_id')
       : [];
+
+    // Mission progress: scan
+    checkAndUpdateMissions(player.id, 'scan', {});
 
     res.json({
       scannedSectors: adjacentSectors.map(s => ({

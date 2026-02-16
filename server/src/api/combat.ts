@@ -4,6 +4,8 @@ import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { resolveCombatVolley, attemptFlee, CombatState } from '../engine/combat';
 import { SHIP_TYPES } from '../config/ship-types';
 import { getRace, RaceId } from '../config/races';
+import { checkAndUpdateMissions } from '../services/mission-tracker';
+import { applyUpgradesToShip } from '../engine/upgrades';
 import db from '../db/connection';
 import { sendPushToPlayer } from '../services/push';
 
@@ -50,15 +52,23 @@ router.post('/fire', requireAuth, async (req, res) => {
     const attackerRace = player.race ? getRace(player.race as RaceId) : null;
     const defenderRace = target.race ? getRace(target.race as RaceId) : null;
 
+    // Load ship upgrades
+    let attackerUpgrades = { weaponBonus: 0, engineBonus: 0, cargoBonus: 0, shieldBonus: 0 };
+    let defenderUpgrades = { weaponBonus: 0, engineBonus: 0, cargoBonus: 0, shieldBonus: 0 };
+    try {
+      attackerUpgrades = await applyUpgradesToShip(attackerShip.id);
+      defenderUpgrades = await applyUpgradesToShip(defenderShip.id);
+    } catch { /* upgrades table may not exist yet */ }
+
     const attackerState: CombatState = {
-      weaponEnergy: attackerShip.weapon_energy,
-      engineEnergy: attackerShip.engine_energy,
+      weaponEnergy: attackerShip.weapon_energy + attackerUpgrades.weaponBonus,
+      engineEnergy: attackerShip.engine_energy + attackerUpgrades.engineBonus,
       attackRatio: attackerType.attackRatio * (1 + (attackerRace?.attackRatioBonus ?? 0)),
       defenseRatio: attackerType.defenseRatio * (1 + (attackerRace?.defenseRatioBonus ?? 0)),
     };
     const defenderState: CombatState = {
-      weaponEnergy: defenderShip.weapon_energy,
-      engineEnergy: defenderShip.engine_energy,
+      weaponEnergy: defenderShip.weapon_energy + defenderUpgrades.weaponBonus,
+      engineEnergy: defenderShip.engine_energy + defenderUpgrades.engineBonus,
       attackRatio: defenderType.attackRatio * (1 + (defenderRace?.attackRatioBonus ?? 0)),
       defenseRatio: defenderType.defenseRatio * (1 + (defenderRace?.defenseRatioBonus ?? 0)),
     };
@@ -129,6 +139,11 @@ router.post('/fire', requireAuth, async (req, res) => {
         // Award bounty rewards to attacker
         await db('players').where({ id: player.id }).increment('credits', totalBountyReward);
       }
+    }
+
+    // Mission progress: combat
+    if (result.defenderDestroyed) {
+      checkAndUpdateMissions(player.id, 'combat_destroy', {});
     }
 
     // Push notification to defender

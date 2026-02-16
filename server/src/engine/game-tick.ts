@@ -4,8 +4,11 @@ import { GAME_CONFIG } from '../config/game';
 import { calculateProduction, calculateColonistGrowth } from './planets';
 import { processDecay, processDefenseDecay, isDeployableExpired } from './decay';
 import { notifyPlayer, getConnectedPlayers } from '../ws/handlers';
+import { spawnSectorEvents, expireSectorEvents } from './events';
+import { refreshLeaderboardCache } from './leaderboards';
 
 let tickInterval: ReturnType<typeof setInterval> | null = null;
+let tickCount = 0;
 
 export async function gameTick(io: SocketIOServer): Promise<void> {
   const now = new Date();
@@ -95,6 +98,29 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       if (isDeployableExpired(new Date(dep.created_at), new Date(dep.last_maintained_at || dep.created_at), now)) {
         await db('deployables').where({ id: dep.id }).del();
       }
+    }
+
+    // Expire timed missions
+    try {
+      await db('player_missions')
+        .where({ status: 'active' })
+        .whereNotNull('expires_at')
+        .where('expires_at', '<', now.toISOString())
+        .update({ status: 'failed' });
+    } catch { /* table may not exist yet */ }
+
+    // Sector events: spawn new events and expire old ones
+    try {
+      await spawnSectorEvents();
+      await expireSectorEvents();
+    } catch { /* table may not exist yet */ }
+
+    // Leaderboards: refresh cache every 5 ticks
+    tickCount++;
+    if (tickCount % 5 === 0) {
+      try {
+        await refreshLeaderboardCache();
+      } catch { /* table may not exist yet */ }
     }
 
     // 4. Outpost economy - inject treasury

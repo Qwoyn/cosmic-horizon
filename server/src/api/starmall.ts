@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth';
 import { SHIP_TYPES } from '../config/ship-types';
+import { calculateEffectiveBonus, canInstallUpgrade } from '../engine/upgrades';
 import db from '../db/connection';
 
 const router = Router();
@@ -121,6 +122,143 @@ router.get('/garage', requireAuth, async (req, res) => {
     res.json({ ships });
   } catch (err) {
     console.error('Garage list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// === SHIP UPGRADES ===
+
+// List available upgrade types
+router.get('/garage/upgrades', requireAuth, async (req, res) => {
+  try {
+    const { player, error, status } = await requireStarMall(req.session.playerId!);
+    if (error) return res.status(status).json({ error });
+
+    const upgrades = await db('upgrade_types').select('*');
+
+    res.json({
+      upgrades: upgrades.map(u => ({
+        id: u.id,
+        name: u.name,
+        description: u.description,
+        slot: u.slot,
+        statBonus: u.stat_bonus,
+        price: u.price,
+        maxStack: u.max_stack,
+      })),
+    });
+  } catch (err) {
+    console.error('Garage upgrades list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List upgrades installed on current ship
+router.get('/garage/ship-upgrades', requireAuth, async (req, res) => {
+  try {
+    const { player, error, status } = await requireStarMall(req.session.playerId!);
+    if (error) return res.status(status).json({ error });
+
+    if (!player!.current_ship_id) return res.json({ upgrades: [] });
+
+    const upgrades = await db('ship_upgrades')
+      .join('upgrade_types', 'ship_upgrades.upgrade_type_id', 'upgrade_types.id')
+      .where({ 'ship_upgrades.ship_id': player!.current_ship_id })
+      .select(
+        'ship_upgrades.id as installId',
+        'upgrade_types.id as typeId',
+        'upgrade_types.name',
+        'upgrade_types.slot',
+        'ship_upgrades.stack_position as stackPosition',
+        'ship_upgrades.effective_bonus as effectiveBonus'
+      );
+
+    res.json({ upgrades });
+  } catch (err) {
+    console.error('Ship upgrades list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Install an upgrade on current ship
+router.post('/garage/install/:id', requireAuth, async (req, res) => {
+  try {
+    const { player, error, status } = await requireStarMall(req.session.playerId!);
+    if (error) return res.status(status).json({ error });
+
+    const upgradeTypeId = req.params.id;
+    const upgradeType = await db('upgrade_types').where({ id: upgradeTypeId }).first();
+    if (!upgradeType) return res.status(404).json({ error: 'Upgrade type not found' });
+
+    if (!player!.current_ship_id) return res.status(400).json({ error: 'No active ship' });
+
+    // Check affordability
+    if (Number(player!.credits) < upgradeType.price) {
+      return res.status(400).json({ error: 'Not enough credits' });
+    }
+
+    // Check if can install
+    const check = await canInstallUpgrade(player!.current_ship_id, upgradeTypeId);
+    if (!check.allowed) return res.status(400).json({ error: check.reason });
+
+    // Determine stack position
+    const existingCount = await db('ship_upgrades')
+      .where({ ship_id: player!.current_ship_id, upgrade_type_id: upgradeTypeId })
+      .count('* as count')
+      .first();
+    const stackPosition = Number(existingCount?.count || 0);
+    const effectiveBonus = calculateEffectiveBonus(upgradeType.stat_bonus, stackPosition);
+
+    // Deduct credits
+    await db('players').where({ id: player!.id }).update({
+      credits: Number(player!.credits) - upgradeType.price,
+    });
+
+    // Install
+    const installId = crypto.randomUUID();
+    await db('ship_upgrades').insert({
+      id: installId,
+      ship_id: player!.current_ship_id,
+      upgrade_type_id: upgradeTypeId,
+      stack_position: stackPosition,
+      effective_bonus: effectiveBonus,
+    });
+
+    res.json({
+      installed: true,
+      installId,
+      name: upgradeType.name,
+      slot: upgradeType.slot,
+      effectiveBonus,
+      newCredits: Number(player!.credits) - upgradeType.price,
+    });
+  } catch (err) {
+    console.error('Install upgrade error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Uninstall an upgrade (no refund)
+router.post('/garage/uninstall/:id', requireAuth, async (req, res) => {
+  try {
+    const { player, error, status } = await requireStarMall(req.session.playerId!);
+    if (error) return res.status(status).json({ error });
+
+    const upgrade = await db('ship_upgrades')
+      .where({ id: req.params.id })
+      .first();
+
+    if (!upgrade) return res.status(404).json({ error: 'Upgrade not found' });
+
+    // Verify the ship belongs to the player
+    const ship = await db('ships').where({ id: upgrade.ship_id, owner_id: player!.id }).first();
+    if (!ship) return res.status(403).json({ error: 'Not your ship' });
+
+    await db('ship_upgrades').where({ id: upgrade.id }).del();
+
+    res.json({ uninstalled: true, upgradeId: upgrade.id });
+  } catch (err) {
+    console.error('Uninstall upgrade error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

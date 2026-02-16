@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { calculateProduction, canUpgrade } from '../engine/planets';
+import { checkAndUpdateMissions } from '../services/mission-tracker';
 import db from '../db/connection';
 
 const router = Router();
@@ -100,6 +101,9 @@ router.post('/:id/colonize', requireAuth, async (req, res) => {
     await db('planets').where({ id: planet.id }).update({
       colonists: (planet.colonists || 0) + toDeposit,
     });
+
+    // Mission progress: colonize
+    checkAndUpdateMissions(player.id, 'colonize', { quantity: toDeposit });
 
     res.json({
       deposited: toDeposit,

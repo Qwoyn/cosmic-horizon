@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { calculatePrice, executeTrade, CommodityType, OutpostState } from '../engine/trading';
 import { getRace, RaceId } from '../config/races';
+import { checkAndUpdateMissions } from '../services/mission-tracker';
 import db from '../db/connection';
 
 const router = Router();
@@ -131,6 +132,9 @@ router.post('/buy', requireAuth, async (req, res) => {
       treasury: result.newTreasury,
     });
 
+    // Mission progress: trade (buy)
+    checkAndUpdateMissions(player.id, 'trade', { quantity: result.quantity, tradeType: 'buy', commodity });
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -223,6 +227,9 @@ router.post('/sell', requireAuth, async (req, res) => {
       [stockField]: result.newStock,
       treasury: result.newTreasury,
     });
+
+    // Mission progress: trade (sell) + deliver_cargo
+    checkAndUpdateMissions(player.id, 'trade', { quantity: result.quantity, tradeType: 'sell', commodity });
 
     res.json({
       commodity,

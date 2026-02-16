@@ -51,4 +51,35 @@ export const GAME_CONFIG = {
 
   // New player
   STARTER_SHIP_TYPE: 'scout',
+
+  // Missions
+  MAX_ACTIVE_MISSIONS: 5,
+  MISSION_POOL_SIZE: 6,
+  MISSION_POOL_REFRESH_MINUTES: 30,
+
+  // Sector Events
+  EVENT_SPAWN_CHANCE_PER_TICK: 0.02,
+  MAX_ACTIVE_EVENTS: 50,
+  EVENT_DEFAULT_LIFETIME_MINUTES: 120,
+  AP_COST_INVESTIGATE: 1,
+
+  // Leaderboards
+  LEADERBOARD_TOP_N: 20,
+  LEADERBOARD_CACHE_TTL_MS: 300000,
+  LEADERBOARD_CATEGORIES: ['credits', 'planets', 'combat', 'explored', 'trade', 'syndicate'] as readonly string[],
+
+  // Messages
+  MAX_MESSAGES_PER_PLAYER: 50,
+  MAX_MESSAGE_BODY_LENGTH: 1000,
+
+  // Ship Upgrades
+  MAX_UPGRADES_PER_SHIP: 6,
+  UPGRADE_DIMINISHING_BASE: 0.8,
+
+  // Warp Gates
+  WARP_GATE_COST_CREDITS: 100000,
+  WARP_GATE_COST_TECH: 500,
+  WARP_GATE_COST_CYRILLIUM: 200,
+  WARP_GATE_MAX_PER_SYNDICATE: 3,
+  AP_COST_WARP: 2,
 } as const;

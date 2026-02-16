@@ -1,6 +1,6 @@
 import { GAME_CONFIG } from '../config/game';
 
-export type ActionType = 'move' | 'trade' | 'combat_volley' | 'deploy' | 'planet_management';
+export type ActionType = 'move' | 'trade' | 'combat_volley' | 'deploy' | 'planet_management' | 'investigate' | 'warp';
 
 const AP_COSTS: Record<ActionType, number> = {
   move: GAME_CONFIG.AP_COST_MOVE,
@@ -8,6 +8,8 @@ const AP_COSTS: Record<ActionType, number> = {
   combat_volley: GAME_CONFIG.AP_COST_COMBAT_VOLLEY,
   deploy: GAME_CONFIG.AP_COST_DEPLOY,
   planet_management: 0,
+  investigate: GAME_CONFIG.AP_COST_INVESTIGATE,
+  warp: GAME_CONFIG.AP_COST_WARP,
 };
 
 export function calculateEnergyRegen(

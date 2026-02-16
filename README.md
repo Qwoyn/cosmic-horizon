@@ -194,6 +194,11 @@ See [docs/testing-guide.md](docs/testing-guide.md) for 15 structured test scenar
 | Track | File | Artist | Source |
 |-------|------|--------|--------|
 | Intro | `intro.mp3` | "Galactic Arcade Music" by [kissan4](https://pixabay.com/users/kissan4-10387284/) | [Pixabay](https://pixabay.com/music/441548/) |
+| Gameplay | `gameplay-1.mp3` | "In 3025" by [Paul Winter](https://pixabay.com/users/kaazoom-448850/) | [Pixabay](https://pixabay.com/music/384511/) |
+| Gameplay | `gameplay-2.mp3` | "Synthwave Soundscape" by [Tunetank](https://pixabay.com/users/tunetank-50201703/) | [Pixabay](https://pixabay.com/music/348458/) |
+| Gameplay | `gameplay-3.mp3` | "Ghost Coast 2030" by [Eidunn](https://pixabay.com/users/eidunn-25617524/) | [Pixabay](https://pixabay.com/music/20822/) |
+| Gameplay | `gameplay-4.mp3` | "Moebius" by [Eidunn](https://pixabay.com/users/eidunn-25617524/) | [Pixabay](https://pixabay.com/music/21329/) |
+| Gameplay | `gameplay-5.mp3` | "Pulsar" by [Marco Belloni](https://pixabay.com/users/marcobellonimusic-42487602/) | [Pixabay](https://pixabay.com/music/193764/) |
 
 Audio files are not included in the repository. Place MP3 files in `client/public/audio/` using the filenames defined in `client/src/config/audio-tracks.ts`.
 
