@@ -12,13 +12,15 @@
   --bg-primary: #0a0e14;
   --bg-secondary: #0d1117;
   --bg-tertiary: #161b22;
-  --border: #1a3a2a;
-  --border-bright: #238636;
+  --border: #2a1a2a;
+  --border-bright: #c23a87;
   --text-primary: #c9d1d9;
   --text-secondary: #8b949e;
   --text-muted: #30363d;
   --green: #3fb950;
   --green-dim: #1a3a2a;
+  --magenta: #e847a0;
+  --magenta-dim: #2a1a2a;
   --blue: #58a6ff;
   --red: #f85149;
   --yellow: #d29922;
@@ -59,7 +61,7 @@ body {
 
 .auth-title {
   text-align: center;
-  color: var(--green);
+  color: var(--magenta);
   font-size: 24px;
   font-weight: 700;
   letter-spacing: 4px;
@@ -104,7 +106,7 @@ body {
 }
 
 .auth-field input:focus {
-  border-color: var(--green);
+  border-color: var(--magenta);
 }
 
 .auth-error {
@@ -155,9 +157,9 @@ body {
 }
 
 .btn-primary {
-  background: var(--green-dim);
-  border-color: var(--green);
-  color: var(--green);
+  background: var(--magenta-dim);
+  border-color: var(--magenta);
+  color: var(--magenta);
 }
 
 .btn-primary:hover {
@@ -268,7 +270,7 @@ body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--green);
+  color: var(--magenta);
 }
 
 .panel-body {
@@ -400,7 +402,7 @@ body {
 }
 
 .qty-input:focus {
-  border-color: var(--green);
+  border-color: var(--magenta);
 }
 
 /* === Text Colors === */
@@ -452,9 +454,9 @@ body {
 }
 
 .race-card--selected {
-  border-color: var(--green);
-  background: var(--green-dim);
-  box-shadow: 0 0 12px rgba(63, 185, 80, 0.15);
+  border-color: var(--magenta);
+  background: var(--magenta-dim);
+  box-shadow: 0 0 12px rgba(232, 71, 160, 0.15);
 }
 
 .race-card__header {
@@ -467,7 +469,7 @@ body {
 .race-card__name {
   font-size: 14px;
   font-weight: 700;
-  color: var(--green);
+  color: var(--magenta);
 }
 
 .race-card__nickname {
@@ -595,7 +597,7 @@ body {
 }
 
 .tutorial-overlay__hint {
-  color: var(--green);
+  color: var(--magenta);
   font-size: 11px;
 }
 
@@ -653,7 +655,7 @@ body {
 }
 
 .intro-sequence__title {
-  color: var(--green);
+  color: var(--magenta);
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 4px;
@@ -691,7 +693,7 @@ body {
 
 .intro-sequence__ascii {
   font-family: 'IBM Plex Mono', 'Consolas', monospace;
-  color: var(--green-dim);
+  color: var(--magenta-dim);
   font-size: 10px;
   line-height: 1.2;
   margin-bottom: 16px;
@@ -701,7 +703,7 @@ body {
 }
 
 .intro-sequence__cursor {
-  color: var(--green);
+  color: var(--magenta);
   animation: cursor-blink 0.8s step-end infinite;
 }
 
@@ -743,10 +745,10 @@ body {
 .intro-sequence__continue {
   width: 100%;
   padding: 12px 24px;
-  background: var(--green-dim);
-  border: 1px solid var(--green);
+  background: var(--magenta-dim);
+  border: 1px solid var(--magenta);
   border-radius: 4px;
-  color: var(--green);
+  color: var(--magenta);
   font-family: inherit;
   font-size: 14px;
   font-weight: 700;
@@ -756,7 +758,7 @@ body {
 }
 
 .intro-sequence__continue:hover {
-  background: var(--green);
+  background: var(--magenta);
   color: var(--bg-primary);
 }
 
@@ -826,9 +828,9 @@ body {
 
 /* Current sector */
 .sector-map-node--current circle {
-  stroke: var(--green);
+  stroke: var(--magenta);
   stroke-width: 2;
-  fill: var(--green-dim);
+  fill: var(--magenta-dim);
 }
 
 /* Adjacent sectors */
@@ -857,7 +859,7 @@ body {
 /* Pulse animation for current sector */
 .sector-node-pulse {
   fill: none;
-  stroke: var(--green);
+  stroke: var(--magenta);
   stroke-width: 1.5;
   opacity: 0;
   animation: sector-pulse 2s ease-out infinite;
@@ -877,7 +879,7 @@ body {
 }
 
 .sector-node-label--current {
-  fill: var(--green);
+  fill: var(--magenta);
   font-weight: 700;
 }
 
@@ -916,8 +918,8 @@ body {
 }
 
 .sector-map-zoom-btn:hover:not(:disabled) {
-  border-color: var(--green);
-  color: var(--green);
+  border-color: var(--magenta);
+  color: var(--magenta);
 }
 
 .sector-map-zoom-btn:disabled {

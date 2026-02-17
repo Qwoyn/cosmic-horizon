@@ -1,319 +1,425 @@
-# Cosmic Horizon - Manual Testing Guide
+# Cosmic Horizon - Public Beta Testing Guide
 
-Use this guide to walk through all major game systems. Open two browser windows to test multiplayer features.
-
----
-
-## Setup
-
-- **Player 1**: Register as `testpilot1` in browser window 1
-- **Player 2**: Register as `testpilot2` in browser window 2
-
-Both players will spawn at a random star mall sector.
+Welcome to Cosmic Horizon, a persistent multiplayer space trading game inspired by TradeWars 2002. This guide will help you get set up, learn the basics, and know what to test.
 
 ---
 
-## Test 1: Registration & Login
+## Getting Started
 
-### Steps
+### Prerequisites
+
+- **Node.js 20+** and **npm**
+- A modern web browser (Chrome, Firefox, Edge, Safari)
+- (Optional) **Docker** and **Docker Compose** for containerized setup
+
+### Option A: Local Setup
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/Qwoyn/cosmic-horizon.git
+   cd cosmic-horizon
+   ```
+
+2. **Install dependencies**
+   ```bash
+   cd server && npm install
+   cd ../client && npm install
+   ```
+
+3. **Initialize the database**
+   ```bash
+   cd ../server
+   npx knex migrate:latest --knexfile knexfile.ts
+   npx knex seed:run --knexfile knexfile.ts
+   ```
+   This generates 5,000 sectors, 200 outposts, 306 planets, 8 ship types, 25 mission templates, and more.
+
+4. **Start the server** (Terminal 1)
+   ```bash
+   cd server
+   npm run dev
+   ```
+
+5. **Start the client** (Terminal 2)
+   ```bash
+   cd client
+   npm run dev
+   ```
+
+6. **Open the game** at `http://localhost:5173`
+
+### Option B: Docker Compose
+
+```bash
+git clone https://github.com/Qwoyn/cosmic-horizon.git
+cd cosmic-horizon
+docker-compose up --build
+```
+
+This starts PostgreSQL, the server (port 3000), and the client (port 80). Open `http://localhost` in your browser.
+
+### Environment Variables (Optional)
+
+Copy the example config if you want to customize ports or secrets:
+```bash
+cp .env.example server/.env
+```
+
+Key variables:
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | Server port |
+| `CLIENT_URL` | `http://localhost:5173` | Client origin for CORS |
+| `SESSION_SECRET` | dev default | Session signing key |
+| `JWT_SECRET` | dev default | JWT signing key |
+
+---
+
+## Creating Your Account
+
 1. Go to the registration page
-2. Register with username `testpilot1`, any email, password 8+ chars
-3. Verify you land on the game screen
-4. Check the status bar shows: username, sector, energy 500/500, credits 10,000
-5. Log out (refresh and go to login)
-6. Log back in with the same credentials
-
-### Expected
-- Registration succeeds, player appears at a star mall sector
-- Status bar populates correctly
-- Login with correct password works
-- Login with wrong password is rejected
-
-### Red flags
-- Blank status bar after login
-- Energy showing 0
-- No sector data loading
+2. Choose a **username** (3-32 characters), enter your **email** and a **password** (8+ characters)
+3. Pick a **race** — each has different starting bonuses:
+   - **Muscarian** — extra combat strength
+   - **Vedic** — extra energy capacity
+   - **Kalin** — extra starting credits
+   - **Tar'ri** — extra cargo space
+4. You'll spawn at a random Star Mall sector with a starter ship and 10,000 credits
+5. You can log in later with either your **username or email**
 
 ---
 
-## Test 2: Navigation & Exploration
+## How to Play
 
-### Steps
-1. Type `look` - note your current sector and adjacent sectors
-2. Type `move <adjacent_sector_id>` using one of the listed sectors
-3. Type `status` to verify sector changed
-4. Type `move <original_sector>` to go back
-5. Type `map` to see explored sectors
-6. Try `move 99999` (non-adjacent) - should fail
+Cosmic Horizon uses a terminal-style interface. Type commands in the input bar at the bottom of the screen. Type `help` at any time to see all available commands.
 
-### Expected
-- `look` shows sector type, adjacent sectors, outposts, planets, players
-- Moving costs 1 energy (499/500 after first move)
-- Map shows at least 2 explored sectors
-- Moving to non-adjacent sector returns error
+### Core Commands
 
-### Red flags
-- Energy not decreasing on move
-- Sector not updating in status bar
-- Map panel not reflecting visited sectors
+| Command | What it does |
+|---|---|
+| `help` | List all commands |
+| `status` | Show your stats (energy, credits, cargo, ship) |
+| `look` | See current sector contents (players, outposts, planets, events) |
+| `move <sector_id>` | Travel to an adjacent sector (costs 1 energy) |
+| `map` | View your explored sector map |
+| `scan` | Scan adjacent sectors (requires planetary scanner) |
 
----
+### Trading
 
-## Test 3: Star Mall Services
+| Command | What it does |
+|---|---|
+| `dock` | View outpost prices and stock |
+| `buy <commodity> <qty>` | Buy cargo from outpost |
+| `sell <commodity> <qty>` | Sell cargo to outpost |
+| `eject <commodity> <qty>` | Jettison cargo into space |
 
-### Steps (must be at a star mall sector)
-1. `mall` - view all available services
-2. `dealer` - view ships for sale
-3. `store` - browse general store items
-4. `cantina` - get a random rumor
-5. `intel` - buy sector intelligence (costs 500 cr)
-6. `refuel 10` - buy 10 energy (costs 100 cr)
-7. `garage` - should be empty initially
+Commodities: **cyrillium**, **food**, **tech**
 
-### Expected
-- Mall overview lists all services as OPEN
-- Dealer shows 7 ship types with prices
-- Store shows ~15 items across categories
-- Cantina returns a flavor text rumor
-- Intel returns rich outposts, top planets, dangerous sectors
-- Refuel increases energy and deducts credits
-- Garage shows no stored ships
+### Star Mall (must be at a Star Mall sector)
 
-### Red flags
-- "Not at a star mall" error when you are at one
-- Dealer showing dodge pods
-- Credits not deducting after purchases
+| Command | What it does |
+|---|---|
+| `mall` | View all Star Mall services |
+| `dealer` | Browse ships for sale |
+| `buyship <type>` | Purchase a ship |
+| `store` | Browse the general store |
+| `refuel <qty>` | Buy energy (10 credits per unit) |
+| `garage` | View stored ships |
+| `storeship` | Store current ship in garage |
+| `retrieve <ship_id>` | Retrieve a stored ship |
+| `cantina` | Hear a rumor |
+| `intel` | Buy sector intelligence (500 credits) |
+| `upgrades` | Browse ship upgrades |
+| `install <upgrade_id>` | Install an upgrade |
+| `shipupgrades` | View installed upgrades |
+| `uninstall <install_id>` | Remove an upgrade |
 
----
+### Planets
 
-## Test 4: Ship Purchase & Management
+| Command | What it does |
+|---|---|
+| `land <planet_name>` | View planet details |
+| `claim <planet_name>` | Claim an unclaimed planet |
+| `colonize <planet_name> <qty>` | Deposit colonists |
+| `collect <planet_name> <qty>` | Pick up colonists from seed planets |
 
-### Steps
-1. `dealer` - note corvette price (30,000 cr)
-2. You only have 10,000 cr so `buyship corvette` should fail
-3. `buyship scout` - buy another scout (5,000 cr)
-4. `status` - verify new ship and 5,000 credits remaining
-5. If at star mall: `storeship` - store current ship in garage
-6. `garage` - verify ship is listed
-7. `retrieve <ship_id>` - get it back
+### Combat (standard sectors only)
 
-### Expected
-- Cannot buy ship you can't afford
-- Buying a ship switches you to it automatically
-- Credits deducted correctly
-- Garage store/retrieve cycle works
+| Command | What it does |
+|---|---|
+| `fire <player> <energy>` | Attack another player |
+| `flee` | Attempt to escape combat |
+| `cloak` | Toggle cloaking (Shadow Runner only) |
+| `combatlog` | View recent combat history |
+| `bounties` | View active bounties |
 
-### Red flags
-- Ship purchase succeeding with insufficient credits
-- Status not reflecting new ship stats
-- Garage retrieve failing
+### Social
 
----
+| Command | What it does |
+|---|---|
+| `ally <player>` | Toggle alliance with a player |
+| `syndicate create <name>` | Create a syndicate |
+| `syndicate` | View your syndicate |
+| `mail` | View inbox |
+| `mail send <player> <subject> \| <body>` | Send a message |
+| `leaderboard` | View rankings |
 
-## Test 5: Trading
+### Missions
 
-### Steps
-1. Navigate to a sector with an outpost (your starting star mall sector likely has one, or `look` to find one)
-2. `dock` - view outpost prices and stock levels
-3. Note which commodities have mode "sell" (you can buy these)
-4. `buy cyrillium 5` (or whichever is in sell mode)
-5. `status` - verify cargo updated
-6. Navigate to another outpost that buys that commodity
-7. `sell cyrillium 5`
-8. `status` - verify cargo empty and credits increased
+| Command | What it does |
+|---|---|
+| `missionboard` | Browse available missions (at Star Mall) |
+| `accept <template_id>` | Accept a mission |
+| `missions` | View active missions |
+| `abandon <mission_id>` | Abandon a mission |
 
-### Expected
-- Dock shows commodity prices, stock, capacity, and mode
-- Buying adds to cargo and deducts credits
-- Selling removes from cargo and adds credits
-- Cannot buy commodities the outpost doesn't sell (mode = "buy")
-- Cannot buy more than cargo space allows
+### Other
 
-### Red flags
-- Buying a commodity the outpost has in "buy" mode
-- Cargo not updating in status
-- Credits math incorrect
+| Command | What it does |
+|---|---|
+| `investigate` | Interact with a sector event/anomaly |
+| `deploy <item>` | Deploy a mine, drone, buoy, or probe |
+| `warp` | View warp gates in current sector |
+| `warp build <sector_id>` | Build a warp gate (syndicate officers) |
 
 ---
 
-## Test 6: Planet Claiming & Colonization
+## What to Test
 
-### Steps
-1. Navigate around until you find a sector with planets (`look` in each sector)
-2. Find an unclaimed planet: `land <planet_name>`
-3. `claim <planet_name>`
-4. `land <planet_name>` again - verify you're the owner
-5. Navigate to find a seed planet (class S) - these are in sectors marked has_seed_planet
-6. `collect <seed_planet_name> 5` - pick up 5 colonists
-7. `status` - verify colonist cargo
-8. Navigate back to your planet
-9. `colonize <planet_name> 5` - deposit colonists
-10. `land <planet_name>` - verify colonist count
+### Test 1: Registration & Login
 
-### Expected
-- Claiming sets you as owner
-- Collecting from seed planets adds to colonist cargo
-- Colonizing transfers from cargo to planet
-- Planet shows production rates based on class
-- Cannot claim an already-claimed planet
+1. Register a new account
+2. Verify you land on the game screen with status bar showing your username, sector, energy 500/500, credits
+3. Log out (refresh and go to login page)
+4. Log back in with your **username** — should work
+5. Log out and log back in with your **email** — should also work
+6. Try logging in with a wrong password — should be rejected
 
-### Red flags
-- Claim succeeding on owned planet
-- Colonist cargo not updating
-- Production showing 0 for a planet with colonists
+**Watch for:** Blank status bar, energy showing 0, no sector data loading.
 
 ---
 
-## Test 7: Combat (Two Players)
+### Test 2: Navigation & Exploration
 
-### Steps
+1. Type `look` — note your current sector and adjacent sectors
+2. Type `move <adjacent_sector_id>` to travel
+3. Type `status` to verify sector changed and energy decreased by 1
+4. Type `map` to see explored sectors on the visual map
+5. Try `move 99999` (non-adjacent) — should fail with an error
+6. Try the +/- zoom buttons on the map panel and drag to pan when zoomed
+
+**Watch for:** Energy not decreasing, sector not updating, map not showing visited sectors, zoom/pan not working.
+
+---
+
+### Test 3: Star Mall Services
+
+Must be at a Star Mall sector (your starting sector is one).
+
+1. `mall` — view available services
+2. `dealer` — view ships for sale (7 types)
+3. `store` — browse general store items
+4. `cantina` — get a rumor
+5. `intel` — buy sector intelligence (costs 500 credits)
+6. `refuel 10` — buy 10 energy
+7. `garage` — should be empty initially
+
+**Watch for:** "Not at a star mall" error when you are at one, credits not deducting after purchases.
+
+---
+
+### Test 4: Ship Purchase & Management
+
+1. `dealer` — note prices
+2. Try buying a ship you can't afford — should fail
+3. `buyship scout` — buy a scout (5,000 credits)
+4. `status` — verify new ship and credits deducted
+5. `storeship` — store ship in garage (at Star Mall)
+6. `garage` — verify ship is listed
+7. `retrieve <ship_id>` — get it back
+
+**Watch for:** Buying with insufficient credits succeeding, status not reflecting new ship.
+
+---
+
+### Test 5: Trading
+
+1. Navigate to a sector with an outpost (`look` to find one)
+2. `dock` — view outpost prices and stock
+3. Buy a commodity that's in "sell" mode: `buy cyrillium 5`
+4. `status` — verify cargo updated and credits deducted
+5. Navigate to another outpost and sell: `sell cyrillium 5`
+6. `status` — verify cargo empty and credits increased
+
+**Watch for:** Cargo not updating, incorrect credit math, buying commodities the outpost doesn't sell.
+
+---
+
+### Test 6: Planet Claiming & Colonization
+
+1. Navigate around and find a sector with planets (`look` in each)
+2. `land <planet_name>` — view planet details
+3. `claim <planet_name>` — claim an unclaimed planet
+4. Find a seed planet (class S) and `collect <name> 5` to pick up colonists
+5. Navigate back to your planet and `colonize <planet_name> 5`
+6. `land <planet_name>` — verify colonist count
+
+**Watch for:** Claiming already-owned planets succeeding, colonist cargo not updating.
+
+---
+
+### Test 7: Combat (Two Players)
+
+Open two browser windows and register two separate accounts.
+
 1. **Player 1**: Navigate to a standard (non-protected) sector
 2. **Player 2**: Navigate to the same sector
-3. Both type `look` - should see each other listed
-4. **Player 1**: `fire testpilot2 5` - fire 5 weapon energy at player 2
-5. **Player 2**: Check for combat notification in terminal
-6. **Player 2**: `status` - verify damage taken (weapon or engine energy reduced)
-7. **Player 2**: `flee` - attempt to escape
-8. If flee succeeded, player 2 is now in a random adjacent sector
+3. Both type `look` — should see each other
+4. **Player 1**: `fire <player2_name> 5`
+5. **Player 2**: Check for combat notification, then `status` to verify damage
+6. **Player 2**: `flee` — attempt to escape
+7. Try firing in a **protected** sector — should be blocked
 
-### Expected
-- Both players visible in sector via `look`
-- Fire deals damage (shown in response)
-- Costs 2 energy to fire
-- Defender receives notification of attack
-- Flee has a success chance (shown in response)
-- Successful flee moves to random adjacent sector
-
-### Red flags
-- Fire working in protected sectors
-- No damage being dealt
-- Flee always succeeding or always failing
-- Energy not deducting for combat
+**Watch for:** Fire working in protected sectors, no damage being dealt, flee always succeeding/failing.
 
 ---
 
-## Test 8: Combat - Ship Destruction
+### Test 8: Ship Destruction
 
-### Steps
 1. Get both players in the same standard sector
-2. **Player 1**: Repeatedly fire at Player 2 with high energy: `fire testpilot2 25`
-3. Continue until Player 2's ship is destroyed
-4. **Player 2**: Should see "ship destroyed" message, now in a dodge pod
-5. **Player 2**: `status` - verify dodge pod (0 weapons, 0 cargo, 20 engine)
+2. Repeatedly fire at a player until their ship is destroyed
+3. Destroyed player should end up in a dodge pod (0 weapons, 0 cargo, 20 engine)
+4. Check `combatlog` for the engagement record
 
-### Expected
-- Ship destruction triggers dodge pod creation
-- Destroyed player gets notification
-- Combat log created (check with `combatlog`)
-- If there were bounties on Player 2, Player 1 receives the reward
-
-### Red flags
-- Ship never getting destroyed
-- No dodge pod after destruction
-- Player unable to move after destruction
+**Watch for:** Ship never getting destroyed, no dodge pod spawning, player unable to move after destruction.
 
 ---
 
-## Test 9: Protected Sector Safety
+### Test 9: Deployables
 
-### Steps
-1. Both players navigate to a protected sector (type shown in `look`)
-2. **Player 1**: `fire testpilot2 5`
-3. Should receive "Combat not allowed" error
+1. Purchase a deployable at the Star Mall store: `store` then buy a mine or drone
+2. Navigate to a standard sector
+3. `deploy <item_type>` — deploy it
+4. Navigate away and back, `look` — deployable should still be there
 
-### Expected
-- Fire command rejected in protected/harmony sectors
-- No damage dealt, no energy spent
+**Watch for:** Deploying in protected sectors, no energy cost, deploying without purchasing.
 
 ---
 
-## Test 10: Deployables
+### Test 10: Bounties
 
-### Steps
-1. Navigate to a standard sector
-2. `purchase mine_halberd` (must be at star mall first to buy)
-3. `deploy mine_halberd`
-4. Verify deployment confirmation
-5. Navigate away and back
-6. `look` or check sector for deployable presence
+1. `bounties` — view active bounties
+2. Place a bounty on another player (via the bounty system)
+3. The other player should see the bounty listed
+4. Destroy the target's ship — bounty should auto-claim
+5. Check `combatlog` for the record
 
-### Expected
-- Purchase deducts credits
-- Deploy costs 1 energy
-- Cannot deploy in protected sectors
-- Mine types require ship with `canCarryMines` capability
-
-### Red flags
-- Deploying without purchasing
-- Deploy working in protected sectors
-- No energy cost
+**Watch for:** Bounty not appearing, reward not paying out on kill.
 
 ---
 
-## Test 11: Bounties
+### Test 11: Missions & Quests
 
-### Steps
-1. **Player 1**: Navigate to star mall
-2. `bounties` - view active bounties (may be empty)
-3. Register a bounty by interacting with bounty API (current terminal command is placeholder)
-4. **Player 2**: `bounties` - should see the bounty listed
-5. Destroy the bounty target's ship
-6. Check that bounty reward was automatically claimed
+1. Navigate to a Star Mall sector
+2. `missionboard` — browse available missions
+3. `accept <template_id>` — accept a mission
+4. `missions` — verify it appears as active with progress
+5. Complete the objective (e.g., move to a specific sector, trade a commodity)
+6. Check that rewards are granted on completion
+7. Try accepting more than 5 missions — should fail
 
-### Expected
-- Bounties list shows target, reward, placer
-- Destroying a bounty target auto-claims all active bounties on them
-- Reward added to destroyer's credits
-- `combatlog` shows the engagement
+**Watch for:** Empty mission board, progress not updating, rewards not paying.
 
 ---
 
-## Test 12: Cargo Jettison
+### Test 12: Sector Events
 
-### Steps
-1. Buy some cargo from an outpost
-2. `status` - note cargo
-3. `eject cyrillium 3` - jettison 3 units
-4. `status` - verify cargo reduced
+1. Navigate through sectors, checking `look` in each
+2. Find a sector with an event/anomaly listed
+3. `investigate` — interact with the event
+4. Note the outcome (credits, cargo, or energy change)
+5. `look` — event should be gone
+6. `investigate` again — should fail
 
-### Expected
-- Cargo count decreases
-- Cannot eject more than you have
-
----
-
-## Test 13: Cloaking (Shadow Runner only)
-
-### Steps
-1. Purchase a Shadow Runner at star mall (`buyship stealth`)
-2. `cloak` - toggle cloaking on
-3. `cloak` - toggle cloaking off
-4. Try cloaking in a non-stealth ship - should fail
-
-### Expected
-- Only Shadow Runner can cloak
-- Cloak toggles on/off
-- Other ships get "Ship cannot cloak" error
+**Watch for:** Events persisting after investigation, no energy cost.
 
 ---
 
-## Test 14: Energy Regeneration
+### Test 13: Leaderboards
 
-### Steps
-1. Note current energy via `status`
-2. Spend some energy (move around, trade)
+1. `leaderboard` — view overview (top 5 per category)
+2. `leaderboard credits` — view top 20 by credits
+3. Try other categories: `planets`, `combat`, `explored`, `trade`, `syndicate`
+
+**Watch for:** Empty leaderboards after activity, incorrect rankings, duplicate entries.
+
+---
+
+### Test 14: Player Messaging
+
+1. `mail` — view inbox (should be empty)
+2. `mail send <player> Hello | Testing the mail system!`
+3. Other player: `mail` — should see the message
+4. `mail read <message_id>` — read it
+5. `mail sent` — view sent messages
+6. `mail delete <message_id>` — delete a message
+
+**Watch for:** Messages not arriving, read status not updating, deleted messages still showing.
+
+---
+
+### Test 15: Ship Upgrades
+
+1. Navigate to a Star Mall
+2. `upgrades` — browse available upgrades
+3. `install <upgrade_id>` — install one
+4. `shipupgrades` — verify it's listed
+5. `status` — verify stats reflect the bonus
+6. `uninstall <install_id>` — remove it
+
+**Watch for:** Stats not changing after install, exceeding max upgrades.
+
+---
+
+### Test 16: Warp Gates
+
+1. Create or join a syndicate
+2. Navigate to a standard sector
+3. `warp build <destination_sector_id>` — build a gate (requires credits + cargo)
+4. Use the warp gate to travel
+5. `warp toll <gate_id> 500` — set a toll
+6. Have a non-syndicate player use the gate — toll should be charged
+
+**Watch for:** Building without resources succeeding, toll not charging non-members.
+
+---
+
+### Test 17: Cloaking (Shadow Runner Only)
+
+1. Purchase a Shadow Runner: `buyship stealth`
+2. `cloak` — toggle on
+3. `cloak` — toggle off
+4. Try cloaking in a different ship type — should fail
+
+**Watch for:** Cloaking working on non-stealth ships.
+
+---
+
+### Test 18: Energy Regeneration
+
+1. Note energy via `status`
+2. Spend some energy moving around
 3. Wait 2-3 minutes
-4. `status` again - energy should have increased
+4. `status` — energy should have increased (1/min, or 2/min for new players in first 72 hours)
 
-### Expected
-- Energy increases by 1 per minute (2/min for new players in first 72 hours)
-- Energy never exceeds max (500)
+**Watch for:** Energy exceeding max, no regeneration happening.
 
 ---
 
-## Test 15: Edge Cases
+### Test 19: Edge Cases
 
-### Try each of these:
+Try each of these and verify you get a helpful error (not a crash):
+
 - `move` with no argument
 - `buy` with no arguments
 - `fire` with no target
@@ -321,205 +427,56 @@ Both players will spawn at a random star mall sector.
 - `buy cyrillium 999999` (more than cargo space)
 - Register with a duplicate username
 - Register with a 3-character password
-- Access game endpoints without logging in (open incognito, go to game URL)
-
-### Expected
-- All return helpful error messages
-- No server crashes
-- No data corruption
-
----
-
-## Test 16: Missions & Quests
-
-### Steps
-1. Navigate to a Star Mall sector
-2. `missionboard` - browse available missions
-3. Note a mission template ID from the list
-4. `accept <template_id>` - accept a mission
-5. `missions` - verify mission appears as active with progress
-6. Complete the mission objective (e.g., move to a sector for visit_sector type)
-7. `missions` - verify progress updated or mission completed
-8. Try accepting a 6th mission (should fail if you already have 5)
-9. `abandon <mission_id>` - abandon an active mission
-
-### Expected
-- Mission board shows up to 6 available missions with difficulty, rewards, and time limits
-- Accept adds mission to active list
-- Progress updates automatically as you perform relevant actions
-- Completion awards credits
-- Cannot exceed 5 active missions
-- Abandon removes mission from active list
-
-### Red flags
-- Mission board empty at Star Mall
-- Progress not updating after relevant actions
-- Credits not awarded on completion
-- Accepting missions outside Star Mall
-
----
-
-## Test 17: Sector Events & Anomalies
-
-### Steps
-1. Navigate through several sectors, using `look` in each
-2. Find a sector with an event/anomaly listed (or wait for game ticks to spawn them)
-3. `investigate` - interact with the event
-4. Note the outcome (credits, cargo, energy change)
-5. `look` - verify the event is resolved/gone
-6. Try `investigate` again - should fail (no event)
-
-### Expected
-- Events appear in `look` output with type
-- Investigating costs 1 energy
-- Outcome varies by event type (cargo, credits, or energy gain/loss)
-- Event removed after investigation
-- Cannot investigate an already-resolved event
-
-### Red flags
-- Investigating with no event in sector
-- No energy cost
-- Event still showing after resolution
-- Server error on investigate
-
----
-
-## Test 18: Leaderboards
-
-### Steps
-1. `leaderboard` - view overview (top 5 per category)
-2. `leaderboard credits` - view top 20 by credits
-3. `leaderboard planets` - view top 20 by planets owned
-4. `leaderboard combat` - view top 20 by combat kills
-5. `leaderboard explored` - view top 20 by sectors explored
-6. `leaderboard trade` - view top 20 by trade volume
-7. `leaderboard syndicate` - view top 20 syndicates
-
-### Expected
-- Overview shows 6 categories with top 5 each
-- Category view shows up to 20 entries with rank, name, score
-- Your player appears in relevant categories after activity
-- Data refreshes periodically (every ~5 minutes)
-
-### Red flags
-- Empty leaderboards after player activity
-- Incorrect ranking order
-- Duplicate entries
-- Server error on category lookup
-
----
-
-## Test 19: Player Messaging
-
-### Steps
-1. **Player 1**: `mail` - view inbox (should be empty)
-2. **Player 1**: `mail send testpilot2 Greetings | Hello from Player 1!`
-3. **Player 2**: `mail` - should see 1 unread message
-4. **Player 2**: `mail read <message_id>` - read the message
-5. **Player 2**: `mail` - message should now show as read
-6. **Player 2**: `mail send testpilot1 Reply | Got your message!`
-7. **Player 1**: `mail` - should see reply
-8. **Player 1**: `mail sent` - view sent messages
-9. **Player 1**: `mail delete <message_id>` - delete a message
-
-### Expected
-- Inbox shows messages newest first with read/unread status
-- Reading a message marks it as read
-- Sent view shows outgoing messages
-- Delete removes message from inbox
-- Cannot send to nonexistent player
-- Message body limited to 1,000 characters
-
-### Red flags
-- Messages not appearing in recipient's inbox
-- Read status not updating
-- Deleted messages still showing
-- Sending to self or nonexistent player not handled
-
----
-
-## Test 20: Ship Upgrades
-
-### Steps
-1. Navigate to a Star Mall sector
-2. `upgrades` - browse available upgrade types
-3. Note an upgrade ID (e.g., `weapon_mk1`)
-4. `install weapon_mk1` - install the upgrade
-5. `shipupgrades` - verify upgrade is listed on your ship
-6. `status` - verify ship stats reflect the bonus
-7. Install the same upgrade again (stacking)
-8. `shipupgrades` - verify two entries, second with diminished bonus
-9. `uninstall <install_id>` - remove an upgrade
-10. `shipupgrades` - verify upgrade removed
-
-### Expected
-- Upgrades list shows all 8 types with price, slot, and bonus
-- Installing deducts credits and adds upgrade to ship
-- Stacking same upgrade applies diminishing returns (80% of previous)
-- Maximum 3 stacks of same type, 6 total upgrades per ship
-- Uninstall removes upgrade (no refund)
-- Must be at Star Mall to install/uninstall
-
-### Red flags
-- Stats not reflecting installed upgrades
-- Exceeding max stack or total limits
-- Credits not deducting
-- Upgrades persisting after uninstall
-
----
-
-## Test 21: Warp Gates
-
-### Steps
-1. Create a syndicate: ensure Player 1 is in a syndicate (as leader or officer)
-2. Navigate to a standard sector
-3. `warp` - should show no gates (unless one exists)
-4. `warp build <destination_sector_id>` - build a gate (costs 100,000 credits, 500 tech, 200 cyrillium)
-5. `warp` - verify gate listed with destination and toll
-6. Use the warp gate to travel to the destination sector
-7. `look` - verify you're in the destination sector
-8. `warp toll <gate_id> 500` - set a 500 credit toll
-9. `warp list` - view all syndicate gates
-10. **Player 2** (non-syndicate member): Navigate to the gate sector and use the gate, verify toll is charged
-
-### Expected
-- Building requires syndicate officer+, resources, and credits
-- Gate appears in both sectors (bidirectional)
-- Using gate costs 2 energy + toll amount
-- Syndicate members travel toll-free
-- Maximum 3 gates per syndicate
-- Toll collected goes to syndicate treasury
-
-### Red flags
-- Building without sufficient resources succeeding
-- Gate not appearing in destination sector
-- Toll not charging non-members
-- Energy not deducting on use
-- Exceeding max gate limit
+- Open an incognito window and try to access the game without logging in
 
 ---
 
 ## Quick Smoke Test Checklist
 
-Run through this abbreviated flow to verify the basics work:
+Run through this abbreviated flow to verify the basics:
 
 - [ ] Register a new player
-- [ ] `look` - see sector contents (including events and warp gates)
+- [ ] Log out and log back in (try both username and email)
+- [ ] `look` — see sector contents
 - [ ] `move` to adjacent sector and back
-- [ ] `status` - verify energy decreased
-- [ ] `dock` at outpost, `buy` a commodity
-- [ ] `sell` it at another outpost
-- [ ] `dealer` at star mall
-- [ ] `land` on a planet
-- [ ] `claim` an unclaimed planet
-- [ ] `help` shows all commands
+- [ ] `status` — verify energy decreased
+- [ ] `map` — verify map shows explored sectors, zoom and pan work
+- [ ] `dock` at outpost, `buy` a commodity, `sell` at another
+- [ ] `dealer` at Star Mall, buy a ship
+- [ ] `land` on a planet, `claim` it
 - [ ] Second player can see first player in same sector
 - [ ] `fire` works in standard sector, blocked in protected
-- [ ] `flee` returns success/failure with chance
-- [ ] `missionboard` shows available missions at Star Mall
-- [ ] `accept` and `missions` track mission progress
-- [ ] `investigate` resolves a sector event
-- [ ] `leaderboard` shows player rankings
+- [ ] `flee` returns success/failure
+- [ ] `missionboard` and `accept` a mission
+- [ ] `investigate` a sector event
+- [ ] `leaderboard` shows rankings
 - [ ] `mail send` and `mail` for messaging
-- [ ] `upgrades` and `install` at Star Mall garage
-- [ ] `warp` shows gates, travel works with toll
+- [ ] `upgrades` and `install` at Star Mall
+- [ ] `warp` gates work with tolls
+- [ ] `help` shows all commands
+
+---
+
+## Reporting Bugs
+
+If you find a bug, please open an issue on GitHub:
+
+**https://github.com/Qwoyn/cosmic-horizon/issues**
+
+Include:
+- What you were doing (command or action)
+- What you expected to happen
+- What actually happened
+- Any error messages (check the browser console with F12 for details)
+- Your browser and OS
+
+---
+
+## Tips
+
+- New players get **double energy regeneration** for the first 72 hours
+- Star Mall sectors are safe zones — no combat allowed
+- The sector map in the sidebar shows icons for Star Malls, outposts, and planets
+- You can zoom into the map with the +/- buttons and drag to pan when zoomed
+- Outposts buy and sell different commodities — check the mode column when you `dock`
+- Seed planets (class S) are where you pick up colonists to populate your own planets
