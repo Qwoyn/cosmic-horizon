@@ -393,7 +393,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
           })}
         </svg>
         <div className="sector-map-legend">
-          <span className="sector-map-legend-item"><span style={{ color: 'var(--green)' }}>●</span> You</span>
+          <span className="sector-map-legend-item"><span style={{ color: 'var(--magenta)' }}>●</span> You</span>
           <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)' }}>●</span> Adjacent</span>
           <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)' }}>★</span> Star Mall</span>
           <span className="sector-map-legend-item"><span style={{ color: 'var(--green)' }}>◆</span> Outpost</span>
