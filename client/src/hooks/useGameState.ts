@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import * as api from '../services/api';
+import type { MapData } from '../components/SectorMap';
 
 export interface PlayerState {
   id: string;
@@ -37,6 +38,8 @@ export interface SectorState {
   outposts: { id: string; name: string }[];
   planets: { id: string; name: string; planetClass: string; ownerId: string | null; upgradeLevel: number }[];
   deployables: { id: string; type: string; ownerId: string }[];
+  events: { id: string; eventType: string }[];
+  warpGates: { id: string; destinationSectorId: number; tollAmount: number; syndicateFree: boolean; syndicateId: string }[];
 }
 
 export interface TerminalLine {
@@ -52,6 +55,7 @@ export function useGameState() {
   const [sector, setSector] = useState<SectorState | null>(null);
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [mapData, setMapData] = useState<MapData | null>(null);
 
   // Track action counts for multi-count tutorial steps (e.g., step 4 requires 2 moves)
   const tutorialActionCount = useRef<Record<string, number>>({});
@@ -64,14 +68,27 @@ export function useGameState() {
     try {
       const { data } = await api.getStatus();
       setPlayer(data);
-    } catch { /* not logged in */ }
+    } catch (err: any) {
+      console.error('[refreshStatus] failed:', err.response?.status, err.response?.data || err.message);
+    }
   }, []);
 
   const refreshSector = useCallback(async () => {
     try {
       const { data } = await api.getSector();
       setSector(data);
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      console.error('[refreshSector] failed:', err.response?.status, err.response?.data || err.message);
+    }
+  }, []);
+
+  const refreshMap = useCallback(async () => {
+    try {
+      const { data } = await api.getMap();
+      setMapData(data);
+    } catch (err: any) {
+      console.error('[refreshMap] failed:', err.response?.status, err.response?.data || err.message);
+    }
   }, []);
 
   const advanceTutorial = useCallback(async (action: string) => {
@@ -93,14 +110,18 @@ export function useGameState() {
             ...p,
             tutorialStep: data.currentStep,
             tutorialCompleted: !!data.completed,
-            credits: data.reward ? p.credits + data.reward : p.credits,
+            credits: data.newCredits ?? (data.reward ? p.credits + data.reward : p.credits),
+            currentSectorId: data.newSectorId ?? p.currentSectorId,
           } : null);
 
           if (data.completed) {
             setLines(l => [...l,
               { id: lineIdCounter++, text: 'TUTORIAL COMPLETE! You earned 5,000 credits.', type: 'success' },
-              { id: lineIdCounter++, text: 'The galaxy is yours to explore, pilot.', type: 'system' },
+              { id: lineIdCounter++, text: 'Your ship has been placed at a Star Mall. The galaxy is yours to explore, pilot.', type: 'system' },
             ]);
+            // Refresh sector and status to load the real game state
+            api.getSector().then(({ data: sectorData }) => setSector(sectorData)).catch(() => {});
+            api.getStatus().then(({ data: statusData }) => setPlayer(statusData)).catch(() => {});
           } else if (data.nextStep) {
             setLines(l => [...l,
               { id: lineIdCounter++, text: `[Tutorial ${data.currentStep}/${8}] ${data.nextStep.title}`, type: 'system' },
@@ -123,7 +144,8 @@ export function useGameState() {
         tutorialCompleted: data.completed,
       } : null);
       return data;
-    } catch {
+    } catch (err: any) {
+      console.error('[refreshTutorial] failed:', err.response?.status, err.response?.data || err.message);
       return null;
     }
   }, []);
@@ -144,13 +166,22 @@ export function useGameState() {
 
   const skipTutorial = useCallback(async () => {
     try {
-      await api.skipTutorial();
-      setPlayer(prev => prev ? { ...prev, tutorialCompleted: true, tutorialStep: 8 } : null);
+      const { data } = await api.skipTutorial();
+      setPlayer(prev => prev ? {
+        ...prev,
+        tutorialCompleted: true,
+        tutorialStep: 8,
+        currentSectorId: data.newSectorId ?? prev.currentSectorId,
+        credits: data.newCredits ?? prev.credits,
+      } : null);
       addLine('Tutorial skipped.', 'system');
+      addLine('Your ship has been placed at a Star Mall. The galaxy is yours to explore, pilot.', 'system');
+      await refreshSector();
+      await refreshStatus();
     } catch {
       addLine('Failed to skip tutorial', 'error');
     }
-  }, [addLine]);
+  }, [addLine, refreshSector, refreshStatus]);
 
   const doLogin = useCallback(async (username: string, password: string) => {
     const { data } = await api.login(username, password);
@@ -176,6 +207,7 @@ export function useGameState() {
     await api.logout();
     setPlayer(null);
     setSector(null);
+    setMapData(null);
     setIsLoggedIn(false);
     setLines([]);
     tutorialActionCount.current = {};
@@ -197,11 +229,12 @@ export function useGameState() {
         addLine(`Planets: ${data.planets.map((p: any) => p.name).join(', ')}`, 'info');
       }
       await refreshSector();
+      refreshMap();
       advanceTutorial('move');
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Move failed', 'error');
     }
-  }, [addLine, refreshSector, advanceTutorial]);
+  }, [addLine, refreshSector, refreshMap, advanceTutorial]);
 
   const doBuy = useCallback(async (outpostId: string, commodity: string, quantity: number) => {
     try {
@@ -257,8 +290,8 @@ export function useGameState() {
   }, [addLine, refreshSector, refreshStatus]);
 
   return {
-    player, sector, lines, isLoggedIn,
-    addLine, refreshStatus, refreshSector,
+    player, sector, lines, isLoggedIn, mapData,
+    addLine, refreshStatus, refreshSector, refreshMap,
     doLogin, doRegister, doLogout,
     doMove, doBuy, doSell, doFire, doFlee,
     setPlayer, setSector,

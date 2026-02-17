@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { getTutorialStep, TUTORIAL_STEPS, TUTORIAL_REWARD_CREDITS, TOTAL_TUTORIAL_STEPS } from '../config/tutorial';
+import { resetPlayerForRealGame } from '../services/tutorial-sandbox';
 import db from '../db/connection';
 
 const router = Router();
@@ -76,29 +77,35 @@ router.post('/advance', requireAuth, async (req, res) => {
 
     // Advance
     const newStep = currentStep + 1;
-    const isComplete = newStep >= TOTAL_TUTORIAL_STEPS;
+    const followingStep = getTutorialStep(newStep + 1);
+    const isComplete = newStep >= TOTAL_TUTORIAL_STEPS || followingStep?.triggerAction === 'auto';
 
-    const updateData: any = { tutorial_step: newStep };
+    const updateData: any = { tutorial_step: isComplete ? TOTAL_TUTORIAL_STEPS : newStep };
     if (isComplete) {
       updateData.tutorial_completed = true;
     }
 
     await db('players').where({ id: player.id }).update(updateData);
 
-    // Award credits on completion
+    // On completion, reset player for the real game
     let reward = 0;
+    let newSectorId: number | undefined;
+    let newCredits: number | undefined;
     if (isComplete) {
       reward = TUTORIAL_REWARD_CREDITS;
-      await db('players').where({ id: player.id }).increment('credits', reward);
+      const resetResult = await resetPlayerForRealGame(player.id);
+      newSectorId = resetResult.newSectorId;
+      newCredits = resetResult.newCredits + reward;
+      await db('players').where({ id: player.id }).update({ credits: newCredits });
     }
-
-    const followingStep = getTutorialStep(newStep + 1);
 
     res.json({
       advanced: true,
-      currentStep: newStep,
+      currentStep: isComplete ? TOTAL_TUTORIAL_STEPS : newStep,
       completed: isComplete,
       reward,
+      newSectorId,
+      newCredits,
       nextStep: isComplete ? null : followingStep ? {
         step: followingStep.step,
         title: followingStep.title,
@@ -125,7 +132,14 @@ router.post('/skip', requireAuth, async (req, res) => {
       tutorial_step: TOTAL_TUTORIAL_STEPS,
     });
 
-    res.json({ completed: true, reward: 0 });
+    const resetResult = await resetPlayerForRealGame(player.id);
+
+    res.json({
+      completed: true,
+      reward: 0,
+      newSectorId: resetResult.newSectorId,
+      newCredits: resetResult.newCredits,
+    });
   } catch (err) {
     console.error('Tutorial skip error:', err);
     res.status(500).json({ error: 'Internal server error' });

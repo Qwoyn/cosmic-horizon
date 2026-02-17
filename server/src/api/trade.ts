@@ -3,12 +3,19 @@ import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { calculatePrice, executeTrade, CommodityType, OutpostState } from '../engine/trading';
 import { getRace, RaceId } from '../config/races';
+import { checkAndUpdateMissions } from '../services/mission-tracker';
+import {
+  handleTutorialOutpost,
+  handleTutorialBuy,
+  handleTutorialSell,
+} from '../services/tutorial-sandbox';
 import db from '../db/connection';
 
 const router = Router();
 
 // View outpost prices
 router.get('/outpost/:id', requireAuth, async (req, res) => {
+  if (req.inTutorial) return handleTutorialOutpost(req, res);
   try {
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -49,6 +56,7 @@ router.get('/outpost/:id', requireAuth, async (req, res) => {
 
 // Buy commodity from outpost
 router.post('/buy', requireAuth, async (req, res) => {
+  if (req.inTutorial) return handleTutorialBuy(req, res);
   try {
     const { outpostId, commodity, quantity } = req.body;
     if (!outpostId || !commodity || !quantity || quantity < 1) {
@@ -131,6 +139,9 @@ router.post('/buy', requireAuth, async (req, res) => {
       treasury: result.newTreasury,
     });
 
+    // Mission progress: trade (buy)
+    checkAndUpdateMissions(player.id, 'trade', { quantity: result.quantity, tradeType: 'buy', commodity });
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -148,6 +159,7 @@ router.post('/buy', requireAuth, async (req, res) => {
 
 // Sell commodity to outpost
 router.post('/sell', requireAuth, async (req, res) => {
+  if (req.inTutorial) return handleTutorialSell(req, res);
   try {
     const { outpostId, commodity, quantity } = req.body;
     if (!outpostId || !commodity || !quantity || quantity < 1) {
@@ -223,6 +235,9 @@ router.post('/sell', requireAuth, async (req, res) => {
       [stockField]: result.newStock,
       treasury: result.newTreasury,
     });
+
+    // Mission progress: trade (sell) + deliver_cargo
+    checkAndUpdateMissions(player.id, 'trade', { quantity: result.quantity, tradeType: 'sell', commodity });
 
     res.json({
       commodity,

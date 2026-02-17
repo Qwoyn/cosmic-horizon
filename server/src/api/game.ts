@@ -1,12 +1,21 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
+import { checkAndUpdateMissions } from '../services/mission-tracker';
+import {
+  handleTutorialStatus,
+  handleTutorialSector,
+  handleTutorialMove,
+  handleTutorialMap,
+  handleTutorialScan,
+} from '../services/tutorial-sandbox';
 import db from '../db/connection';
 
 const router = Router();
 
 // Player status
 router.get('/status', requireAuth, async (req, res) => {
+  if (req.inTutorial) return handleTutorialStatus(req, res);
   try {
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -48,6 +57,7 @@ router.get('/status', requireAuth, async (req, res) => {
 
 // Move to adjacent sector
 router.post('/move/:sectorId', requireAuth, async (req, res) => {
+  if (req.inTutorial) return handleTutorialMove(req, res);
   try {
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -97,6 +107,9 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     const outpostsInSector = await db('outposts').where({ sector_id: targetSectorId });
     const planetsInSector = await db('planets').where({ sector_id: targetSectorId });
 
+    // Mission progress: move
+    checkAndUpdateMissions(player.id, 'move', { sectorId: targetSectorId });
+
     res.json({
       sectorId: targetSectorId,
       sectorType: sector?.type,
@@ -113,6 +126,7 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
 
 // Current sector contents
 router.get('/sector', requireAuth, async (req, res) => {
+  if (req.inTutorial) return handleTutorialSector(req, res);
   try {
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -128,6 +142,31 @@ router.get('/sector', requireAuth, async (req, res) => {
     const planetsInSector = await db('planets').where({ sector_id: sectorId });
     const deployablesInSector = await db('deployables').where({ sector_id: sectorId });
 
+    // Sector events
+    let events: any[] = [];
+    try {
+      events = await db('sector_events')
+        .where({ sector_id: sectorId, status: 'active' })
+        .select('id', 'event_type', 'created_at', 'expires_at');
+    } catch { /* table may not exist yet */ }
+
+    // Warp gates
+    let warpGates: any[] = [];
+    try {
+      const gates = await db('warp_gates')
+        .where(function() {
+          this.where({ sector_a_id: sectorId }).orWhere({ sector_b_id: sectorId });
+        })
+        .where({ status: 'active' });
+      warpGates = gates.map(g => ({
+        id: g.id,
+        destinationSectorId: g.sector_a_id === sectorId ? g.sector_b_id : g.sector_a_id,
+        tollAmount: g.toll_amount,
+        syndicateFree: !!g.syndicate_free,
+        syndicateId: g.syndicate_id,
+      }));
+    } catch { /* table may not exist yet */ }
+
     res.json({
       sectorId,
       type: sector?.type,
@@ -141,6 +180,8 @@ router.get('/sector', requireAuth, async (req, res) => {
         ownerId: p.owner_id, upgradeLevel: p.upgrade_level,
       })),
       deployables: deployablesInSector.map(d => ({ id: d.id, type: d.type, ownerId: d.owner_id })),
+      events: events.map(e => ({ id: e.id, eventType: e.event_type })),
+      warpGates,
     });
   } catch (err) {
     console.error('Sector error:', err);
@@ -150,6 +191,7 @@ router.get('/sector', requireAuth, async (req, res) => {
 
 // Player's explored map
 router.get('/map', requireAuth, async (req, res) => {
+  if (req.inTutorial) return handleTutorialMap(req, res);
   try {
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -167,10 +209,22 @@ router.get('/map', requireAuth, async (req, res) => {
           .whereIn('to_sector_id', explored)
       : [];
 
+    // Find which explored sectors have outposts/planets
+    const outpostSectorRows = explored.length > 0
+      ? await db('outposts').distinct('sector_id').whereIn('sector_id', explored)
+      : [];
+    const planetSectorRows = explored.length > 0
+      ? await db('planets').distinct('sector_id').whereIn('sector_id', explored)
+      : [];
+    const outpostSectorIds = new Set(outpostSectorRows.map((r: any) => r.sector_id));
+    const planetSectorIds = new Set(planetSectorRows.map((r: any) => r.sector_id));
+
     res.json({
       currentSectorId: player.current_sector_id,
       sectors: sectors.map(s => ({
         id: s.id, type: s.type, regionId: s.region_id, hasStarMall: s.has_star_mall,
+        hasOutposts: outpostSectorIds.has(s.id),
+        hasPlanets: planetSectorIds.has(s.id),
       })),
       edges: edges.map(e => ({
         from: e.from_sector_id, to: e.to_sector_id, oneWay: e.one_way,
@@ -184,6 +238,7 @@ router.get('/map', requireAuth, async (req, res) => {
 
 // Scan adjacent sectors (requires planetary scanner)
 router.post('/scan', requireAuth, async (req, res) => {
+  if (req.inTutorial) return handleTutorialScan(req, res);
   try {
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -211,6 +266,9 @@ router.post('/scan', requireAuth, async (req, res) => {
     const adjacentPlayers = adjacentIds.length > 0
       ? await db('players').whereIn('current_sector_id', adjacentIds).select('id', 'username', 'current_sector_id')
       : [];
+
+    // Mission progress: scan
+    checkAndUpdateMissions(player.id, 'scan', {});
 
     res.json({
       scannedSectors: adjacentSectors.map(s => ({

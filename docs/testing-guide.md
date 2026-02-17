@@ -330,12 +330,181 @@ Both players will spawn at a random star mall sector.
 
 ---
 
+## Test 16: Missions & Quests
+
+### Steps
+1. Navigate to a Star Mall sector
+2. `missionboard` - browse available missions
+3. Note a mission template ID from the list
+4. `accept <template_id>` - accept a mission
+5. `missions` - verify mission appears as active with progress
+6. Complete the mission objective (e.g., move to a sector for visit_sector type)
+7. `missions` - verify progress updated or mission completed
+8. Try accepting a 6th mission (should fail if you already have 5)
+9. `abandon <mission_id>` - abandon an active mission
+
+### Expected
+- Mission board shows up to 6 available missions with difficulty, rewards, and time limits
+- Accept adds mission to active list
+- Progress updates automatically as you perform relevant actions
+- Completion awards credits
+- Cannot exceed 5 active missions
+- Abandon removes mission from active list
+
+### Red flags
+- Mission board empty at Star Mall
+- Progress not updating after relevant actions
+- Credits not awarded on completion
+- Accepting missions outside Star Mall
+
+---
+
+## Test 17: Sector Events & Anomalies
+
+### Steps
+1. Navigate through several sectors, using `look` in each
+2. Find a sector with an event/anomaly listed (or wait for game ticks to spawn them)
+3. `investigate` - interact with the event
+4. Note the outcome (credits, cargo, energy change)
+5. `look` - verify the event is resolved/gone
+6. Try `investigate` again - should fail (no event)
+
+### Expected
+- Events appear in `look` output with type
+- Investigating costs 1 energy
+- Outcome varies by event type (cargo, credits, or energy gain/loss)
+- Event removed after investigation
+- Cannot investigate an already-resolved event
+
+### Red flags
+- Investigating with no event in sector
+- No energy cost
+- Event still showing after resolution
+- Server error on investigate
+
+---
+
+## Test 18: Leaderboards
+
+### Steps
+1. `leaderboard` - view overview (top 5 per category)
+2. `leaderboard credits` - view top 20 by credits
+3. `leaderboard planets` - view top 20 by planets owned
+4. `leaderboard combat` - view top 20 by combat kills
+5. `leaderboard explored` - view top 20 by sectors explored
+6. `leaderboard trade` - view top 20 by trade volume
+7. `leaderboard syndicate` - view top 20 syndicates
+
+### Expected
+- Overview shows 6 categories with top 5 each
+- Category view shows up to 20 entries with rank, name, score
+- Your player appears in relevant categories after activity
+- Data refreshes periodically (every ~5 minutes)
+
+### Red flags
+- Empty leaderboards after player activity
+- Incorrect ranking order
+- Duplicate entries
+- Server error on category lookup
+
+---
+
+## Test 19: Player Messaging
+
+### Steps
+1. **Player 1**: `mail` - view inbox (should be empty)
+2. **Player 1**: `mail send testpilot2 Greetings | Hello from Player 1!`
+3. **Player 2**: `mail` - should see 1 unread message
+4. **Player 2**: `mail read <message_id>` - read the message
+5. **Player 2**: `mail` - message should now show as read
+6. **Player 2**: `mail send testpilot1 Reply | Got your message!`
+7. **Player 1**: `mail` - should see reply
+8. **Player 1**: `mail sent` - view sent messages
+9. **Player 1**: `mail delete <message_id>` - delete a message
+
+### Expected
+- Inbox shows messages newest first with read/unread status
+- Reading a message marks it as read
+- Sent view shows outgoing messages
+- Delete removes message from inbox
+- Cannot send to nonexistent player
+- Message body limited to 1,000 characters
+
+### Red flags
+- Messages not appearing in recipient's inbox
+- Read status not updating
+- Deleted messages still showing
+- Sending to self or nonexistent player not handled
+
+---
+
+## Test 20: Ship Upgrades
+
+### Steps
+1. Navigate to a Star Mall sector
+2. `upgrades` - browse available upgrade types
+3. Note an upgrade ID (e.g., `weapon_mk1`)
+4. `install weapon_mk1` - install the upgrade
+5. `shipupgrades` - verify upgrade is listed on your ship
+6. `status` - verify ship stats reflect the bonus
+7. Install the same upgrade again (stacking)
+8. `shipupgrades` - verify two entries, second with diminished bonus
+9. `uninstall <install_id>` - remove an upgrade
+10. `shipupgrades` - verify upgrade removed
+
+### Expected
+- Upgrades list shows all 8 types with price, slot, and bonus
+- Installing deducts credits and adds upgrade to ship
+- Stacking same upgrade applies diminishing returns (80% of previous)
+- Maximum 3 stacks of same type, 6 total upgrades per ship
+- Uninstall removes upgrade (no refund)
+- Must be at Star Mall to install/uninstall
+
+### Red flags
+- Stats not reflecting installed upgrades
+- Exceeding max stack or total limits
+- Credits not deducting
+- Upgrades persisting after uninstall
+
+---
+
+## Test 21: Warp Gates
+
+### Steps
+1. Create a syndicate: ensure Player 1 is in a syndicate (as leader or officer)
+2. Navigate to a standard sector
+3. `warp` - should show no gates (unless one exists)
+4. `warp build <destination_sector_id>` - build a gate (costs 100,000 credits, 500 tech, 200 cyrillium)
+5. `warp` - verify gate listed with destination and toll
+6. Use the warp gate to travel to the destination sector
+7. `look` - verify you're in the destination sector
+8. `warp toll <gate_id> 500` - set a 500 credit toll
+9. `warp list` - view all syndicate gates
+10. **Player 2** (non-syndicate member): Navigate to the gate sector and use the gate, verify toll is charged
+
+### Expected
+- Building requires syndicate officer+, resources, and credits
+- Gate appears in both sectors (bidirectional)
+- Using gate costs 2 energy + toll amount
+- Syndicate members travel toll-free
+- Maximum 3 gates per syndicate
+- Toll collected goes to syndicate treasury
+
+### Red flags
+- Building without sufficient resources succeeding
+- Gate not appearing in destination sector
+- Toll not charging non-members
+- Energy not deducting on use
+- Exceeding max gate limit
+
+---
+
 ## Quick Smoke Test Checklist
 
 Run through this abbreviated flow to verify the basics work:
 
 - [ ] Register a new player
-- [ ] `look` - see sector contents
+- [ ] `look` - see sector contents (including events and warp gates)
 - [ ] `move` to adjacent sector and back
 - [ ] `status` - verify energy decreased
 - [ ] `dock` at outpost, `buy` a commodity
@@ -347,3 +516,10 @@ Run through this abbreviated flow to verify the basics work:
 - [ ] Second player can see first player in same sector
 - [ ] `fire` works in standard sector, blocked in protected
 - [ ] `flee` returns success/failure with chance
+- [ ] `missionboard` shows available missions at Star Mall
+- [ ] `accept` and `missions` track mission progress
+- [ ] `investigate` resolves a sector event
+- [ ] `leaderboard` shows player rankings
+- [ ] `mail send` and `mail` for messaging
+- [ ] `upgrades` and `install` at Star Mall garage
+- [ ] `warp` shows gates, travel works with toll
