@@ -1,5 +1,3 @@
-import { useState } from 'react';
-
 interface TutorialOverlayProps {
   tutorialStep: number;
   tutorialCompleted: boolean;
@@ -9,20 +7,18 @@ interface TutorialOverlayProps {
 const TOTAL_STEPS = 8;
 
 const STEPS = [
-  { title: 'Getting Started', hint: '' },
+  { title: 'Getting Started', hint: 'Type "look" or "l" to survey your sector.' },
   { title: 'Look Around', hint: 'Type "look" or "l" to see what\'s in your sector.' },
   { title: 'Check Your Status', hint: 'Type "status" or "st" to see your stats.' },
-  { title: 'Move to a New Sector', hint: 'Type "move <sector_id>" using an adjacent sector number.' },
-  { title: 'Explore Further', hint: 'Move to two more sectors to complete this step.' },
-  { title: 'Dock at an Outpost', hint: 'Find a sector with an outpost, then type "dock".' },
-  { title: 'Buy Commodities', hint: 'While docked, type "buy <commodity> <quantity>".' },
-  { title: 'Sell for Profit', hint: 'Find another outpost and type "sell <commodity> <quantity>".' },
+  { title: 'Move to a New Sector', hint: 'Type "move 90002" to head toward the Training Depot.' },
+  { title: 'Explore Further', hint: 'Move through sectors 90003 and 90004 to complete this step.' },
+  { title: 'Dock at an Outpost', hint: 'Head back to sector 90002 and type "dock" at the Training Depot.' },
+  { title: 'Buy Commodities', hint: 'While docked, type "buy cyrillium 5" to stock up.' },
+  { title: 'Sell for Profit', hint: 'Travel to sector 90004 and type "sell cyrillium 5" at the Frontier Post.' },
   { title: 'Tutorial Complete!', hint: '' },
 ];
 
 export default function TutorialOverlay({ tutorialStep, tutorialCompleted, onSkip }: TutorialOverlayProps) {
-  const [showHint, setShowHint] = useState(false);
-
   if (tutorialCompleted) return null;
 
   const currentStep = STEPS[tutorialStep + 1] || STEPS[STEPS.length - 1];
@@ -42,19 +38,11 @@ export default function TutorialOverlay({ tutorialStep, tutorialCompleted, onSki
       </div>
       <div className="tutorial-overlay__center">
         <span className="tutorial-overlay__title">{currentStep.title}</span>
-        {showHint && currentStep.hint && (
+        {currentStep.hint && (
           <span className="tutorial-overlay__hint">{currentStep.hint}</span>
         )}
       </div>
       <div className="tutorial-overlay__right">
-        {currentStep.hint && (
-          <button
-            className="tutorial-overlay__btn"
-            onClick={() => setShowHint(!showHint)}
-          >
-            {showHint ? 'Hide Hint' : 'Show Hint'}
-          </button>
-        )}
         <button className="tutorial-overlay__btn tutorial-overlay__btn--skip" onClick={onSkip}>
           Skip
         </button>

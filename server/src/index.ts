@@ -24,6 +24,7 @@ import messagesRouter from './api/messages';
 import warpGatesRouter from './api/warp-gates';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
+import { loadTutorialState, blockDuringTutorial } from './middleware/tutorial-sandbox';
 
 dotenv.config();
 
@@ -52,8 +53,9 @@ const sessionMiddleware = session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: true,
     httpOnly: true,
+    sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   },
 });
@@ -70,21 +72,23 @@ app.get('/api/health', (_req, res) => {
 
 // API routes
 app.use('/api/auth', authRouter);
-app.use('/api/game', gameRouter);
-app.use('/api/trade', tradeRouter);
-app.use('/api/ships', shipsRouter);
-app.use('/api/planets', planetsRouter);
-app.use('/api/combat', combatRouter);
-app.use('/api/social', socialRouter);
-app.use('/api/deployables', deployablesRouter);
-app.use('/api/store', storeRouter);
-app.use('/api/starmall', starmallRouter);
+app.use('/api/game', loadTutorialState, gameRouter);
+app.use('/api/trade', loadTutorialState, tradeRouter);
 app.use('/api/tutorial', tutorialRouter);
-app.use('/api/missions', missionsRouter);
-app.use('/api/events', eventsRouter);
-app.use('/api/leaderboards', leaderboardsRouter);
-app.use('/api/messages', messagesRouter);
-app.use('/api/warp-gates', warpGatesRouter);
+
+// Routes blocked during tutorial
+app.use('/api/ships', loadTutorialState, blockDuringTutorial, shipsRouter);
+app.use('/api/planets', loadTutorialState, blockDuringTutorial, planetsRouter);
+app.use('/api/combat', loadTutorialState, blockDuringTutorial, combatRouter);
+app.use('/api/social', loadTutorialState, blockDuringTutorial, socialRouter);
+app.use('/api/deployables', loadTutorialState, blockDuringTutorial, deployablesRouter);
+app.use('/api/store', loadTutorialState, blockDuringTutorial, storeRouter);
+app.use('/api/starmall', loadTutorialState, blockDuringTutorial, starmallRouter);
+app.use('/api/missions', loadTutorialState, blockDuringTutorial, missionsRouter);
+app.use('/api/events', loadTutorialState, blockDuringTutorial, eventsRouter);
+app.use('/api/leaderboards', loadTutorialState, blockDuringTutorial, leaderboardsRouter);
+app.use('/api/messages', loadTutorialState, blockDuringTutorial, messagesRouter);
+app.use('/api/warp-gates', loadTutorialState, blockDuringTutorial, warpGatesRouter);
 
 // WebSocket
 setupWebSocket(io);

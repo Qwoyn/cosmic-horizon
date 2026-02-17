@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react';
 import Terminal from '../components/Terminal';
 import StatusBar from '../components/StatusBar';
 import MapPanel from '../components/MapPanel';
+import SectorMap from '../components/SectorMap';
 import TradeTable from '../components/TradeTable';
 import CombatView from '../components/CombatView';
 import TutorialOverlay from '../components/TutorialOverlay';
@@ -20,6 +21,7 @@ export default function Game() {
     game.refreshStatus();
     game.refreshSector();
     game.refreshTutorial();
+    game.refreshMap();
   }, []);
 
   // Switch audio track based on game context
@@ -162,6 +164,12 @@ export default function Game() {
         </div>
         <div className="game-sidebar">
           <MapPanel sector={game.sector} onMoveToSector={game.doMove} />
+          <SectorMap
+            mapData={game.mapData}
+            currentSectorId={game.player?.currentSectorId ?? null}
+            adjacentSectorIds={game.sector?.adjacentSectors.map(a => a.sectorId) ?? []}
+            onMoveToSector={game.doMove}
+          />
           <TradeTable
             outpostId={activeOutpost}
             onBuy={game.doBuy}

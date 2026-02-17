@@ -31,7 +31,7 @@ router.get('/', requireAuth, async (req, res) => {
 // Get top 20 for a specific category
 router.get('/:category', requireAuth, async (req, res) => {
   try {
-    const category = req.params.category;
+    const category = req.params.category as string;
     if (!GAME_CONFIG.LEADERBOARD_CATEGORIES.includes(category)) {
       return res.status(400).json({ error: 'Invalid category' });
     }

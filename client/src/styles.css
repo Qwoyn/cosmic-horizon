@@ -789,3 +789,188 @@ body {
 .sector-type-protected { color: var(--green); }
 .sector-type-harmony_enforced { color: var(--blue); }
 .sector-type-one_way { color: var(--yellow); }
+
+/* === Sector Map === */
+.sector-map-container {
+  padding: 0;
+}
+
+.sector-map-svg {
+  width: 100%;
+  height: 280px;
+  display: block;
+}
+
+/* Edges */
+.sector-map-edge {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+}
+
+.sector-map-edge--oneway {
+  stroke: var(--yellow);
+  stroke-dasharray: 4 3;
+  stroke-width: 1;
+}
+
+/* Node circles */
+.sector-map-node circle {
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.sector-map-node--standard circle { stroke: var(--border); }
+.sector-map-node--protected circle { stroke: var(--green-dim); }
+.sector-map-node--harmony_enforced circle { stroke: #1a2a3a; }
+.sector-map-node--one_way circle { stroke: #3a3a1a; }
+
+/* Current sector */
+.sector-map-node--current circle {
+  stroke: var(--green);
+  stroke-width: 2;
+  fill: var(--green-dim);
+}
+
+/* Adjacent sectors */
+.sector-map-node--adjacent circle {
+  stroke: var(--blue);
+  stroke-width: 1.5;
+}
+
+.sector-map-node--adjacent:hover circle {
+  stroke: var(--blue);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px rgba(88, 166, 255, 0.5));
+}
+
+.sector-map-node-glow {
+  fill: transparent;
+  stroke: none;
+}
+
+.sector-map-node--adjacent:hover .sector-map-node-glow {
+  stroke: var(--blue);
+  stroke-width: 1;
+  opacity: 0.3;
+}
+
+/* Pulse animation for current sector */
+.sector-node-pulse {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 1.5;
+  opacity: 0;
+  animation: sector-pulse 2s ease-out infinite;
+}
+
+@keyframes sector-pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* Node labels */
+.sector-node-label {
+  font-family: 'IBM Plex Mono', 'Consolas', monospace;
+  font-size: 9px;
+  fill: var(--text-secondary);
+  pointer-events: none;
+}
+
+.sector-node-label--current {
+  fill: var(--green);
+  font-weight: 700;
+}
+
+/* Star Mall icon */
+.sector-star-mall-icon {
+  fill: var(--yellow);
+  pointer-events: none;
+}
+
+/* One-way arrowhead marker */
+.sector-map-arrowhead polygon {
+  fill: var(--yellow);
+}
+
+/* Zoom controls */
+.sector-map-controls {
+  float: right;
+  display: inline-flex;
+  gap: 2px;
+}
+
+.sector-map-zoom-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-family: 'IBM Plex Mono', 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 18px;
+  text-align: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sector-map-zoom-btn:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.sector-map-zoom-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Legend */
+.sector-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+}
+
+.sector-map-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-secondary);
+}
+
+/* Node icons */
+.sector-outpost-icon {
+  fill: var(--green);
+  pointer-events: none;
+}
+
+.sector-planet-icon {
+  fill: var(--blue);
+  pointer-events: none;
+}
+
+/* Sector map body — keep SVG unconstrained */
+.sector-map-body {
+  max-height: none;
+  overflow: visible;
+}
+
+/* Scrollable sidebar panels */
+.game-sidebar .panel {
+  flex-shrink: 1;
+  min-height: 0;
+}
+
+.game-sidebar .panel-body {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.game-sidebar .sector-map-body {
+  max-height: none;
+  overflow-y: visible;
+}

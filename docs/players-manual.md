@@ -33,6 +33,8 @@ Every action costs energy. Energy regenerates at 1 point per minute (2/min for n
 | Buy or sell commodities | 1 |
 | Fire weapons | 2 |
 | Deploy mine/drone/buoy | 1 |
+| Investigate sector event | 1 |
+| Use warp gate | 2 |
 
 ### Sectors
 The universe has 5,000 sectors connected by warps. Sector types:
@@ -189,6 +191,134 @@ deploy buoy Hello pilots!    Deploy a buoy with a message
 
 Deployables expire after 7 days unless maintained.
 
+### Missions & Quests
+
+Accept missions at any Star Mall mission board. Complete objectives to earn credit rewards.
+
+```
+missionboard         Browse available missions at a Star Mall
+missions             View your active missions with progress
+accept <template_id> Accept a mission from the mission board
+abandon <mission_id> Abandon an active mission
+```
+
+**Mission Types:**
+| Type | Objective |
+|------|-----------|
+| deliver_cargo | Deliver a commodity to a specific sector |
+| visit_sector | Visit a target sector |
+| destroy_ship | Destroy another player's ship |
+| colonize_planet | Colonize a planet |
+| trade_units | Buy or sell a total quantity of goods |
+| scan_sectors | Scan a number of sectors |
+
+- Maximum 5 active missions at a time
+- Mission boards at Star Malls offer a rotating pool of 6 missions
+- Some missions have time limits — check the expiry before accepting
+- Difficulty ranges from 1 (easy) to 5 (hard), with higher rewards for harder missions
+
+### Sector Events & Anomalies
+
+Random anomalies spawn across the galaxy. Investigate them for rewards (or hazards).
+
+```
+investigate          Investigate an anomaly in your current sector
+```
+
+Events appear in the `look` output when present in your sector.
+
+**Event Types:**
+| Event | Effect |
+|-------|--------|
+| Asteroid Field | Mine minerals — gain cyrillium cargo |
+| Nebula | Sensor interference — gain or lose energy |
+| Distress Signal | Rescue operation — gain credits |
+| Derelict Ship | Salvage wreck — gain random cargo |
+| Resource Cache | Hidden stash — gain food or tech |
+| Ion Storm | Electromagnetic damage — lose energy |
+
+- Investigating costs 1 energy (action point)
+- Events expire after 2 hours if not investigated
+- Only one player can resolve each event
+
+### Leaderboards
+
+```
+leaderboard          View top players overview (aliases: lb, top)
+leaderboard credits  View top 20 by credits
+leaderboard planets  View top 20 by planets owned
+leaderboard combat   View top 20 by combat kills
+leaderboard explored View top 20 by sectors explored
+leaderboard trade    View top 20 by trade volume
+leaderboard syndicate View top 20 syndicates by member count
+```
+
+Rankings are cached and refresh every 5 game ticks (~5 minutes).
+
+### Player Messaging
+
+Send and receive in-game mail to communicate with other pilots.
+
+```
+mail                 View your inbox
+mail read <id>       Read a specific message
+mail send <player> <subject> | <body>   Send a message
+mail delete <id>     Delete a message
+mail sent            View your sent messages
+```
+
+- Maximum 50 messages per player
+- Message body limited to 1,000 characters
+- Unread message count shown when you have new mail
+
+### Ship Upgrades
+
+Install upgrades on your ship at the Star Mall garage. Upgrades enhance weapon, engine, cargo, or shield stats.
+
+```
+upgrades             Browse available upgrades at a Star Mall
+shipupgrades         View upgrades installed on your current ship
+install <upgrade_id> Install an upgrade on your current ship
+uninstall <install_id> Remove an installed upgrade
+```
+
+**Upgrade Types:**
+| Upgrade | Slot | Stat Bonus | Price |
+|---------|------|------------|-------|
+| Weapon Booster Mk1 | weapon | +10 | 5,000 |
+| Weapon Booster Mk2 | weapon | +25 | 15,000 |
+| Engine Tuner Mk1 | engine | +10 | 5,000 |
+| Engine Tuner Mk2 | engine | +25 | 15,000 |
+| Cargo Expander Mk1 | cargo | +10 | 8,000 |
+| Cargo Expander Mk2 | cargo | +25 | 20,000 |
+| Shield Generator Mk1 | shield | +15 | 10,000 |
+| Shield Generator Mk2 | shield | +40 | 30,000 |
+
+- Maximum 6 upgrades per ship
+- Maximum 3 of the same upgrade type (stacking)
+- Diminishing returns: each additional stack gives 80% of the previous bonus
+- Must be docked at a Star Mall to install or uninstall
+
+### Warp Gates
+
+Syndicates can build permanent warp gates connecting distant sectors for instant travel.
+
+```
+warp                 List warp gates in your current sector
+warp build <sector>  Build a warp gate to a destination sector
+warp toll <gate_id> <amount>  Set toll amount for a gate
+warp list            List your syndicate's warp gates
+```
+
+To use a warp gate, type `warp` to see available gates, then use the gate by ID.
+
+- Building a gate costs 100,000 credits, 500 tech, and 200 cyrillium
+- Requires syndicate officer rank or higher
+- Maximum 3 gates per syndicate
+- Gates are bidirectional — travel works from either end
+- Toll collection: gate owners set a toll; syndicate members travel free
+- Using a gate costs 2 energy (action points)
+
 ### Social
 
 ```
@@ -210,7 +340,7 @@ help fire        Detailed help for a specific command
 
 1. **Early game**: Collect colonists from seed planets, claim a planet, start producing.
 2. **Trading route**: Find outposts that sell cheap cyrillium and ones that buy food at high prices. The price depends on stock levels.
-3. **Upgrade your ship**: A scout is fragile. Save for a corvette or freighter.
+3. **Upgrade your ship**: A scout is fragile. Save for a corvette or freighter. Install upgrades at the Star Mall garage for extra stats.
 4. **Planet upgrades**: Each level increases production. Level 7 planets are powerhouses.
 5. **Avoid dodge pods**: If your ship is destroyed, you're stuck in a dodge pod with no weapons or cargo. Get to a star mall fast.
 6. **Use probes**: Before entering unknown sectors, probe them to check for mines or hostile players.
@@ -218,3 +348,9 @@ help fire        Detailed help for a specific command
 8. **Mines**: Deploy halberd mines in chokepoint sectors to damage enemies.
 9. **Toll drones**: Place toll drones in busy sectors for passive income.
 10. **Protected sectors**: Retreat to protected sectors if you're being hunted.
+11. **Missions**: Check the mission board at Star Malls regularly. Easy missions (difficulty 1-2) are great for early credits.
+12. **Investigate anomalies**: Sector events can yield free cargo, credits, or energy. Watch for them in `look` output.
+13. **Leaderboards**: Track your progress against other pilots. Focus on one category to climb the ranks.
+14. **In-game mail**: Coordinate with allies via mail. Negotiate trade deals or warn about hostile players.
+15. **Ship upgrades**: Stack weapon upgrades for combat dominance, or cargo expanders for trading efficiency. Diminishing returns mean variety is often better than stacking.
+16. **Warp gates**: If you're in a syndicate, build warp gates between your territories for fast travel. Set tolls for revenue.

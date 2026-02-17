@@ -7,14 +7,43 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// Persist JWT token so all requests include it as a Bearer header.
+// This works alongside session cookies — whichever auth method reaches
+// the server first wins.
+function setToken(token: string | null) {
+  if (token) {
+    localStorage.setItem('token', token);
+    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  } else {
+    localStorage.removeItem('token');
+    delete api.defaults.headers.common['Authorization'];
+  }
+}
+
+// Restore token on page load (survives refresh)
+const savedToken = localStorage.getItem('token');
+if (savedToken) {
+  api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
+}
+
 // Auth
-export const register = (username: string, email: string, password: string, race: string) =>
-  api.post('/auth/register', { username, email, password, race });
+export const register = async (username: string, email: string, password: string, race: string) => {
+  const res = await api.post('/auth/register', { username, email, password, race });
+  if (res.data.token) setToken(res.data.token);
+  return res;
+};
 
-export const login = (username: string, password: string) =>
-  api.post('/auth/login', { username, password });
+export const login = async (username: string, password: string) => {
+  const res = await api.post('/auth/login', { username, password });
+  if (res.data.token) setToken(res.data.token);
+  return res;
+};
 
-export const logout = () => api.post('/auth/logout');
+export const logout = async () => {
+  const res = await api.post('/auth/logout');
+  setToken(null);
+  return res;
+};
 
 // Game
 export const getStatus = () => api.get('/game/status');

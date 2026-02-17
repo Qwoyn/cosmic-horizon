@@ -20,9 +20,15 @@ Based on the [Cosmic Horizon Whitepaper](whitepaper.md) by W. Moglia, D. Pittman
 - **Syndicates** — player organizations with treasury, governance, shared planets
 - **Bounty system** — place bounties, auto-claimed on ship destruction
 - **Star Malls** — ship dealer, general store, garage, salvage yard, cantina, intel
+- **Missions & Quests** — 25 mission templates across 6 types with progress tracking and rewards
+- **Sector Events** — 6 anomaly types spawn randomly (asteroid fields, nebulae, derelicts, etc.)
+- **Leaderboards** — rankings across 6 categories (credits, planets, combat, explored, trade, syndicate)
+- **Player Messaging** — in-game mail system with inbox, sent, read/unread tracking
+- **Ship Upgrades** — 8 upgrade types (weapon/engine/cargo/shield mk1/mk2) with diminishing returns
+- **Warp Gates** — syndicate-built instant travel links with toll collection
 - **Action point system** — 1 AP/min regeneration, 500 max, 2x bonus for new players
 - **Decay mechanics** — inactive colonies lose population, deployables expire, defenses drain
-- **37+ terminal commands** with aliases
+- **55+ terminal commands** with aliases
 
 ## Tech Stack
 
@@ -44,7 +50,8 @@ cosmic-horizon/
       api/              # REST route handlers
       config/           # Game constants, ship types, store items
       db/               # Knex migrations and seeds
-      engine/           # Pure game logic (combat, trading, planets, energy)
+      engine/           # Pure game logic (combat, trading, planets, energy, missions, events, upgrades)
+      services/         # Shared services (mission tracker, push notifications)
       middleware/       # Auth middleware
       ws/               # WebSocket event handlers
   client/               # React frontend
@@ -86,7 +93,7 @@ npx knex migrate:latest --knexfile knexfile.ts
 npx knex seed:run --knexfile knexfile.ts
 ```
 
-The seed generates the full universe: 5,000 sectors, 200 outposts, 306 planets, 8 ship types.
+The seed generates the full universe: 5,000 sectors, 200 outposts, 306 planets, 8 ship types, 25 mission templates, and 8 ship upgrade types.
 
 ### Configure
 
@@ -148,7 +155,7 @@ Register at the login screen. You spawn at a Star Mall with a Scout ship, 10,000
 
 ```
 help              Show all commands
-look              View your current sector
+look              View current sector (shows events, warp gates)
 move 42           Move to sector 42
 dock              Dock at an outpost to trade
 buy cyrillium 10  Buy 10 cyrillium
@@ -159,6 +166,13 @@ claim Kepler VII  Claim an unclaimed planet
 fire player1 10   Fire 10 weapon energy at another player
 flee              Attempt to escape combat
 mall              Star mall services overview
+missions          View active missions
+missionboard      Browse available missions at star mall
+investigate       Investigate a sector anomaly
+leaderboard       View galaxy rankings
+mail              View your inbox
+warp              Use a warp gate in your sector
+upgrades          Browse ship upgrades at star mall
 ```
 
 See [docs/players-manual.md](docs/players-manual.md) for the full command reference, ship stats, planet classes, item catalog, and strategy tips.
@@ -174,6 +188,8 @@ npx jest
 
 95 tests across 7 suites: energy, trading, combat, planets, universe generation, deployables, and API integration.
 
+The test suite validates all core engine logic. New game systems (missions, events, leaderboards, messages, upgrades, warp gates) are verified through the integration test suite and manual testing.
+
 ### Manual Testing
 
 See [docs/testing-guide.md](docs/testing-guide.md) for 15 structured test scenarios covering all game systems.
@@ -184,7 +200,15 @@ See [docs/testing-guide.md](docs/testing-guide.md) for 15 structured test scenar
 - [x] Phase 5: React terminal frontend
 - [x] Phase 6: Docker, command parser, integration tests
 - [x] Phase 7: General store, syndicates, bounties, star mall
+- [x] Phase 14: Missions & quests (25 mission templates, 6 types, progress tracking)
+- [x] Phase 15: Sector events & anomalies (6 event types, investigation mechanic)
+- [x] Phase 16: Leaderboards (6 categories, cached rankings)
+- [x] Phase 17: Player messaging (in-game mail with inbox/sent/read/delete)
+- [x] Phase 18: Ship upgrades & customization (8 upgrade types, diminishing returns)
+- [x] Phase 19: Warp gates (syndicate-built instant travel with toll collection)
 - [ ] Android companion app (React Native) — [see plan](docs/plans/2026-02-14-mvp-implementation.md)
+- [ ] Jump drives, PGDs, vessel capture, towing mechanics
+- [ ] Advanced NPC traders and factions
 - [ ] Frontier expansion (new sectors via wormholes)
 - [ ] Terraforming with ecocredit integration
 - [ ] On-chain $COHO token mechanics
@@ -199,6 +223,9 @@ See [docs/testing-guide.md](docs/testing-guide.md) for 15 structured test scenar
 | Gameplay | `gameplay-3.mp3` | "Ghost Coast 2030" by [Eidunn](https://pixabay.com/users/eidunn-25617524/) | [Pixabay](https://pixabay.com/music/20822/) |
 | Gameplay | `gameplay-4.mp3` | "Moebius" by [Eidunn](https://pixabay.com/users/eidunn-25617524/) | [Pixabay](https://pixabay.com/music/21329/) |
 | Gameplay | `gameplay-5.mp3` | "Pulsar" by [Marco Belloni](https://pixabay.com/users/marcobellonimusic-42487602/) | [Pixabay](https://pixabay.com/music/193764/) |
+| Combat | `combat.mp3` | "Cyber Relay" by [Douglas Gustafson](https://pixabay.com/users/psychronic-13092015/) | [Pixabay](https://pixabay.com/music/429875/) |
+| Star Mall | `starmall.mp3` | "Luminous Presence" by [Andrea Good](https://pixabay.com/users/luminouspresence-40519492/) | [Pixabay](https://pixabay.com/music/294166/) |
+| Post-Tutorial | `post-tutorial.mp3` | "Dark Sci-Fi Suspense Trailer" by [Tamas Kolozsvari](https://pixabay.com/users/sound4stock-53243298/) | [Pixabay](https://pixabay.com/music/444587/) |
 
 Audio files are not included in the repository. Place MP3 files in `client/public/audio/` using the filenames defined in `client/src/config/audio-tracks.ts`.
 

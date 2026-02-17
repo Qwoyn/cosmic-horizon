@@ -7,6 +7,7 @@ import { SHIP_TYPES } from '../config/ship-types';
 import { getRace, VALID_RACE_IDS, RaceId } from '../config/races';
 import { signJwt } from '../middleware/jwt';
 import { requireAuth } from '../middleware/auth';
+import { getDefaultTutorialState } from '../config/tutorial-sandbox';
 
 const router = Router();
 
@@ -64,6 +65,7 @@ router.post('/register', async (req, res) => {
       explored_sectors: JSON.stringify([starMallSector.id]),
       energy_regen_bonus_until: bonusUntil,
       last_login: new Date(),
+      tutorial_state: JSON.stringify(getDefaultTutorialState(startingCredits, startingMaxEnergy)),
     });
 
     // Create starter ship with racial bonuses
@@ -96,6 +98,7 @@ router.post('/register', async (req, res) => {
         race,
         currentSectorId: starMallSector.id,
         energy: startingMaxEnergy,
+        maxEnergy: startingMaxEnergy,
         credits: startingCredits,
         currentShipId: shipId,
         tutorialStep: 0,
@@ -123,7 +126,10 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Missing credentials' });
     }
 
-    const player = await db('players').where({ username }).first();
+    const player = await db('players')
+      .where({ username })
+      .orWhere({ email: username })
+      .first();
     if (!player) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -144,7 +150,9 @@ router.post('/login', async (req, res) => {
         race: player.race,
         currentSectorId: player.current_sector_id,
         energy: player.energy,
+        maxEnergy: player.max_energy,
         credits: player.credits,
+        currentShipId: player.current_ship_id,
         tutorialStep: player.tutorial_step || 0,
         tutorialCompleted: !!player.tutorial_completed,
         hasSeenIntro: !!player.has_seen_intro,

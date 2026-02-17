@@ -34,7 +34,7 @@ export default function Login({ onLogin }: LoginProps) {
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="auth-error">{error}</div>}
           <div className="auth-field">
-            <label>Username</label>
+            <label>Username or Email</label>
             <input
               type="text"
               value={username}
