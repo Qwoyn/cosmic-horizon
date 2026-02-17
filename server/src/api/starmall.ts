@@ -186,7 +186,7 @@ router.post('/garage/install/:id', requireAuth, async (req, res) => {
     const { player, error, status } = await requireStarMall(req.session.playerId!);
     if (error) return res.status(status).json({ error });
 
-    const upgradeTypeId = req.params.id;
+    const upgradeTypeId = req.params.id as string;
     const upgradeType = await db('upgrade_types').where({ id: upgradeTypeId }).first();
     if (!upgradeType) return res.status(404).json({ error: 'Upgrade type not found' });
 

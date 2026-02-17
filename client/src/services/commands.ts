@@ -24,6 +24,8 @@ const ALIASES: Record<string, string> = {
   m: 'move', l: 'look', s: 'scan', st: 'status', d: 'dock',
   f: 'fire', attack: 'fire', '?': 'help', commands: 'help',
   ships: 'dealer', say: 'chat', jettison: 'eject',
+  top: 'leaderboard', lb: 'leaderboard',
+  missionboard: 'missions',
 };
 
 function parse(input: string): ParsedCommand {
@@ -74,6 +76,12 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       if (s.outposts.length > 0) ctx.addLine(`Outposts: ${s.outposts.map((o: any) => o.name).join(', ')}`, 'info');
       if (s.planets.length > 0) {
         ctx.addLine(`Planets: ${s.planets.map((p: any) => `${p.name} [${p.planetClass}]${p.ownerId ? '' : ' *unclaimed*'}`).join(', ')}`, 'info');
+      }
+      if (s.events?.length > 0) {
+        ctx.addLine(`Anomalies: ${s.events.map((e: any) => e.eventType.replace(/_/g, ' ')).join(', ')}`, 'warning');
+      }
+      if (s.warpGates?.length > 0) {
+        ctx.addLine(`Warp Gates: ${s.warpGates.map((g: any) => `→ Sector ${g.destinationSectorId}${g.tollAmount > 0 ? ` (${g.tollAmount} cr toll)` : ''}`).join(', ')}`, 'success');
       }
       if (s.hasStarMall) ctx.addLine('★ Star Mall available - type "dealer" to see ships', 'success');
       ctx.advanceTutorial('look');
@@ -445,6 +453,247 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       break;
 
+    // === MISSIONS ===
+    case 'missions':
+      if (args[0] === 'completed') {
+        api.getCompletedMissions().then(({ data }) => {
+          if (data.missions.length === 0) { ctx.addLine('No completed missions', 'info'); return; }
+          ctx.addLine('=== COMPLETED MISSIONS ===', 'system');
+          for (const m of data.missions) {
+            ctx.addLine(`  ${m.title} | +${m.rewardCredits} cr`, 'success');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      } else {
+        api.getActiveMissions().then(({ data }) => {
+          if (data.missions.length === 0) { ctx.addLine('No active missions. Visit a Star Mall mission board.', 'info'); return; }
+          ctx.addLine('=== ACTIVE MISSIONS ===', 'system');
+          for (const m of data.missions) {
+            const progress = JSON.stringify(m.progress);
+            ctx.addLine(`  [${m.missionId.slice(0, 8)}] ${m.title} (${m.type})`, 'info');
+            ctx.addLine(`    Progress: ${progress} | Reward: ${m.rewardCredits} cr`, 'trade');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      }
+      break;
+
+    case 'missionboard':
+      api.getAvailableMissions().then(({ data }) => {
+        if (data.missions.length === 0) { ctx.addLine('No missions available', 'info'); return; }
+        ctx.addLine('=== MISSION BOARD ===', 'system');
+        for (const m of data.missions) {
+          ctx.addLine(`  [${m.id.slice(0, 8)}] ${m.title} (Diff: ${m.difficulty})`, 'info');
+          ctx.addLine(`    ${m.description}`, 'info');
+          ctx.addLine(`    Reward: ${m.rewardCredits} cr${m.timeLimitMinutes ? ` | Time: ${m.timeLimitMinutes}m` : ''}`, 'trade');
+        }
+        ctx.addLine('Use "accept <mission_id>" to accept', 'info');
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
+      break;
+
+    case 'accept': {
+      if (args.length < 1) { ctx.addLine('Usage: accept <mission_id>', 'error'); break; }
+      api.acceptMission(args[0]).then(({ data }) => {
+        ctx.addLine(`Accepted: ${data.title}`, 'success');
+        ctx.addLine(`Reward: ${data.rewardCredits} cr${data.expiresAt ? ` | Expires: ${new Date(data.expiresAt).toLocaleTimeString()}` : ''}`, 'trade');
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Accept failed', 'error'));
+      break;
+    }
+
+    case 'abandon': {
+      if (args.length < 1) { ctx.addLine('Usage: abandon <mission_id>', 'error'); break; }
+      api.abandonMission(args[0]).then(() => {
+        ctx.addLine('Mission abandoned', 'warning');
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Abandon failed', 'error'));
+      break;
+    }
+
+    // === SECTOR EVENTS ===
+    case 'investigate': {
+      if (args.length < 1) {
+        // Investigate first event in sector
+        const evt = ctx.sector?.events?.[0];
+        if (!evt) { ctx.addLine('No anomalies in this sector', 'error'); break; }
+        api.investigateEvent(evt.id).then(({ data }) => {
+          ctx.addLine(data.message, 'success');
+          if (data.creditsGained) ctx.addLine(`+${data.creditsGained} credits`, 'trade');
+          if (data.creditsLost) ctx.addLine(`-${data.creditsLost} credits`, 'warning');
+          if (data.cargoGained) ctx.addLine(`+${data.cargoGained.quantity} ${data.cargoGained.commodity}`, 'trade');
+          ctx.refreshStatus();
+          ctx.refreshSector();
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Investigation failed', 'error'));
+      } else {
+        api.investigateEvent(args[0]).then(({ data }) => {
+          ctx.addLine(data.message, 'success');
+          if (data.creditsGained) ctx.addLine(`+${data.creditsGained} credits`, 'trade');
+          if (data.creditsLost) ctx.addLine(`-${data.creditsLost} credits`, 'warning');
+          if (data.cargoGained) ctx.addLine(`+${data.cargoGained.quantity} ${data.cargoGained.commodity}`, 'trade');
+          ctx.refreshStatus();
+          ctx.refreshSector();
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Investigation failed', 'error'));
+      }
+      break;
+    }
+
+    // === LEADERBOARDS ===
+    case 'leaderboard': {
+      const category = args[0] || '';
+      if (category) {
+        api.getLeaderboard(category).then(({ data }) => {
+          ctx.addLine(`=== LEADERBOARD: ${data.category.toUpperCase()} ===`, 'system');
+          for (const entry of data.entries) {
+            ctx.addLine(`  #${String(entry.rank).padStart(2)}  ${entry.player_name.padEnd(20)} ${String(entry.score).padStart(10)}`, 'info');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      } else {
+        api.getLeaderboardOverview().then(({ data }) => {
+          ctx.addLine('=== LEADERBOARDS ===', 'system');
+          for (const [cat, entries] of Object.entries(data.leaderboards) as [string, any[]][]) {
+            ctx.addLine(`--- ${cat.toUpperCase()} ---`, 'system');
+            for (const e of entries) {
+              ctx.addLine(`  #${String(e.rank).padStart(2)}  ${e.player_name.padEnd(20)} ${String(e.score).padStart(10)}`, 'info');
+            }
+          }
+          ctx.addLine('Use "leaderboard <category>" for full rankings', 'info');
+          ctx.addLine('Categories: credits, planets, combat, explored, trade, syndicate', 'info');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      }
+      break;
+    }
+
+    // === MAIL ===
+    case 'mail': {
+      const sub = args[0];
+      if (sub === 'read' && args[1]) {
+        api.readMessage(args[1]).then(({ data }) => {
+          ctx.addLine(`=== MESSAGE ===`, 'system');
+          ctx.addLine(`From: ${data.senderName} | To: ${data.recipientName}`, 'info');
+          ctx.addLine(`Subject: ${data.subject}`, 'info');
+          ctx.addLine(`---`, 'system');
+          ctx.addLine(data.body, 'info');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      } else if (sub === 'send' && args.length >= 4) {
+        const recipient = args[1];
+        const subject = args[2];
+        const body = args.slice(3).join(' ');
+        api.sendMessage(recipient, subject, body).then(() => {
+          ctx.addLine(`Message sent to ${recipient}`, 'success');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Send failed', 'error'));
+      } else if (sub === 'delete' && args[1]) {
+        api.deleteMessage(args[1]).then(() => {
+          ctx.addLine('Message deleted', 'success');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Delete failed', 'error'));
+      } else if (sub === 'sent') {
+        api.getSentMessages().then(({ data }) => {
+          if (data.messages.length === 0) { ctx.addLine('No sent messages', 'info'); return; }
+          ctx.addLine('=== SENT MAIL ===', 'system');
+          for (const m of data.messages) {
+            ctx.addLine(`  [${m.id.slice(0, 8)}] To: ${m.recipientName} - ${m.subject}`, 'info');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      } else {
+        // Default: show inbox
+        api.getInbox().then(({ data }) => {
+          if (data.messages.length === 0) { ctx.addLine('Inbox empty', 'info'); return; }
+          ctx.addLine('=== INBOX ===', 'system');
+          for (const m of data.messages) {
+            const unread = m.read ? '' : ' [NEW]';
+            ctx.addLine(`  [${m.id.slice(0, 8)}] ${m.senderName.padEnd(16)} ${m.subject}${unread}`, m.read ? 'info' : 'warning');
+          }
+          ctx.addLine('Use "mail read <id>" to read, "mail send <to> <subject> <body>" to send', 'info');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      }
+      break;
+    }
+
+    // === SHIP UPGRADES ===
+    case 'upgrades':
+      api.getAvailableUpgrades().then(({ data }) => {
+        if (data.upgrades.length === 0) { ctx.addLine('No upgrades available', 'info'); return; }
+        ctx.addLine('=== AVAILABLE UPGRADES ===', 'system');
+        for (const u of data.upgrades) {
+          ctx.addLine(`  ${u.name.padEnd(20)} ${String(u.price).padStart(8)} cr  [${u.slot}] +${u.statBonus}`, 'info');
+          ctx.addLine(`    ${u.description} (ID: ${u.id})`, 'info');
+        }
+        ctx.addLine('Use "install <upgrade_id>" to install', 'info');
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
+      break;
+
+    case 'shipupgrades':
+      api.getShipUpgrades().then(({ data }) => {
+        if (data.upgrades.length === 0) { ctx.addLine('No upgrades installed on current ship', 'info'); return; }
+        ctx.addLine('=== SHIP UPGRADES ===', 'system');
+        for (const u of data.upgrades) {
+          ctx.addLine(`  ${u.name.padEnd(20)} [${u.slot}] +${u.effectiveBonus}  (${u.installId.slice(0, 8)})`, 'info');
+        }
+        ctx.addLine('Use "uninstall <install_id>" to remove', 'info');
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
+      break;
+
+    case 'install': {
+      if (args.length < 1) { ctx.addLine('Usage: install <upgrade_type_id>', 'error'); break; }
+      api.installUpgrade(args[0]).then(({ data }) => {
+        ctx.addLine(`Installed ${data.name} [${data.slot}] +${data.effectiveBonus}`, 'success');
+        ctx.addLine(`Credits: ${data.newCredits.toLocaleString()}`, 'trade');
+        ctx.refreshStatus();
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Install failed', 'error'));
+      break;
+    }
+
+    case 'uninstall': {
+      if (args.length < 1) { ctx.addLine('Usage: uninstall <install_id>', 'error'); break; }
+      api.uninstallUpgrade(args[0]).then(() => {
+        ctx.addLine('Upgrade removed', 'success');
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Uninstall failed', 'error'));
+      break;
+    }
+
+    // === WARP GATES ===
+    case 'warp': {
+      const sub = args[0];
+      if (sub === 'build' && args[1]) {
+        const destSector = parseInt(args[1]);
+        if (isNaN(destSector)) { ctx.addLine('Usage: warp build <sector_id>', 'error'); break; }
+        api.buildWarpGate(destSector).then(({ data }) => {
+          ctx.addLine(`Warp gate built! Sector ${data.sectorA} ↔ Sector ${data.sectorB}`, 'success');
+          ctx.addLine(`Credits: ${data.newCredits.toLocaleString()}`, 'trade');
+          ctx.refreshStatus();
+          ctx.refreshSector();
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Build failed', 'error'));
+      } else if (sub === 'toll' && args[1] && args[2]) {
+        const toll = parseInt(args[2]);
+        if (isNaN(toll)) { ctx.addLine('Usage: warp toll <gate_id> <amount>', 'error'); break; }
+        api.setWarpGateToll(args[1], toll).then(({ data }) => {
+          ctx.addLine(`Toll set to ${data.newToll} cr`, 'success');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      } else if (sub === 'list') {
+        api.getSyndicateWarpGates().then(({ data }) => {
+          if (data.gates.length === 0) { ctx.addLine('No syndicate warp gates', 'info'); return; }
+          ctx.addLine('=== SYNDICATE WARP GATES ===', 'system');
+          for (const g of data.gates) {
+            ctx.addLine(`  [${g.id.slice(0, 8)}] Sector ${g.sectorA} ↔ Sector ${g.sectorB} | Toll: ${g.tollAmount} cr | HP: ${g.health}`, 'info');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      } else {
+        // Use a warp gate in current sector
+        const gate = ctx.sector?.warpGates?.[0];
+        if (args[0]) {
+          api.useWarpGate(args[0]).then(({ data }) => {
+            ctx.addLine(`Warped to sector ${data.destinationSectorId}!${data.tollPaid > 0 ? ` Toll: ${data.tollPaid} cr` : ''}`, 'success');
+            ctx.refreshStatus();
+            ctx.refreshSector();
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Warp failed', 'error'));
+        } else if (gate) {
+          api.useWarpGate(gate.id).then(({ data }) => {
+            ctx.addLine(`Warped to sector ${data.destinationSectorId}!${data.tollPaid > 0 ? ` Toll: ${data.tollPaid} cr` : ''}`, 'success');
+            ctx.refreshStatus();
+            ctx.refreshSector();
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Warp failed', 'error'));
+        } else {
+          ctx.addLine('No warp gate in sector. Usage: warp [gate_id], warp build <sector>, warp toll <gate> <amt>, warp list', 'error');
+        }
+      }
+      break;
+    }
+
     case 'help': {
       if (args.length > 0) {
         const cmd = args[0].toLowerCase();
@@ -488,6 +737,32 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         ctx.addLine('  refuel [qty]               Buy energy', 'info');
         ctx.addLine('  deploy <item> [args]       Deploy mine/drone/buoy', 'info');
         ctx.addLine('  combatlog                  View combat history', 'info');
+        ctx.addLine('--- Missions ---', 'system');
+        ctx.addLine('  missions [completed]       View active/completed missions', 'info');
+        ctx.addLine('  missionboard               Browse available missions', 'info');
+        ctx.addLine('  accept <id>                Accept a mission', 'info');
+        ctx.addLine('  abandon <id>               Abandon a mission', 'info');
+        ctx.addLine('--- Events ---', 'system');
+        ctx.addLine('  investigate [id]           Investigate sector anomaly', 'info');
+        ctx.addLine('--- Leaderboards ---', 'system');
+        ctx.addLine('  leaderboard [cat]   (lb)  View rankings', 'info');
+        ctx.addLine('--- Mail ---', 'system');
+        ctx.addLine('  mail                       View inbox', 'info');
+        ctx.addLine('  mail read <id>             Read message', 'info');
+        ctx.addLine('  mail send <to> <subj> <body> Send message', 'info');
+        ctx.addLine('  mail delete <id>           Delete message', 'info');
+        ctx.addLine('  mail sent                  View sent messages', 'info');
+        ctx.addLine('--- Upgrades ---', 'system');
+        ctx.addLine('  upgrades                   Available ship upgrades', 'info');
+        ctx.addLine('  shipupgrades               View installed upgrades', 'info');
+        ctx.addLine('  install <id>               Install upgrade', 'info');
+        ctx.addLine('  uninstall <id>             Remove upgrade', 'info');
+        ctx.addLine('--- Warp Gates ---', 'system');
+        ctx.addLine('  warp [gate_id]             Use warp gate', 'info');
+        ctx.addLine('  warp build <sector>        Build warp gate', 'info');
+        ctx.addLine('  warp toll <gate> <amt>     Set gate toll', 'info');
+        ctx.addLine('  warp list                  Syndicate gates', 'info');
+        ctx.addLine('---', 'system');
         ctx.addLine('  help <cmd>          (?)   Detailed command help', 'info');
       }
       break;

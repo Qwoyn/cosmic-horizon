@@ -110,4 +110,43 @@ export const advanceTutorial = (action: string, count?: number) =>
   api.post('/tutorial/advance', { action, count });
 export const skipTutorial = () => api.post('/tutorial/skip');
 
+// Missions
+export const getAvailableMissions = () => api.get('/missions/available');
+export const acceptMission = (templateId: string) => api.post(`/missions/accept/${templateId}`);
+export const getActiveMissions = () => api.get('/missions/active');
+export const getCompletedMissions = () => api.get('/missions/completed');
+export const abandonMission = (missionId: string) => api.post(`/missions/abandon/${missionId}`);
+
+// Sector Events
+export const getSectorEvents = () => api.get('/events/sector');
+export const investigateEvent = (eventId: string) => api.post(`/events/investigate/${eventId}`);
+
+// Leaderboards
+export const getLeaderboardOverview = () => api.get('/leaderboards');
+export const getLeaderboard = (category: string) => api.get(`/leaderboards/${category}`);
+
+// Messages
+export const getInbox = () => api.get('/messages/inbox');
+export const getSentMessages = () => api.get('/messages/sent');
+export const readMessage = (id: string) => api.get(`/messages/${id}`);
+export const sendMessage = (recipientName: string, subject: string, body: string) =>
+  api.post('/messages/send', { recipientName, subject, body });
+export const deleteMessage = (id: string) => api.delete(`/messages/${id}`);
+export const getUnreadCount = () => api.get('/messages/unread-count');
+
+// Ship Upgrades
+export const getAvailableUpgrades = () => api.get('/starmall/garage/upgrades');
+export const getShipUpgrades = () => api.get('/starmall/garage/ship-upgrades');
+export const installUpgrade = (upgradeTypeId: string) => api.post(`/starmall/garage/install/${upgradeTypeId}`);
+export const uninstallUpgrade = (installId: string) => api.post(`/starmall/garage/uninstall/${installId}`);
+
+// Warp Gates
+export const getSectorWarpGates = () => api.get('/warp-gates/sector');
+export const buildWarpGate = (destinationSectorId: number) =>
+  api.post('/warp-gates/build', { destinationSectorId });
+export const useWarpGate = (gateId: string) => api.post(`/warp-gates/use/${gateId}`);
+export const setWarpGateToll = (gateId: string, tollAmount: number) =>
+  api.post(`/warp-gates/set-toll/${gateId}`, { tollAmount });
+export const getSyndicateWarpGates = () => api.get('/warp-gates/syndicate');
+
 export default api;

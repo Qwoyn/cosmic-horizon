@@ -37,6 +37,8 @@ export interface SectorState {
   outposts: { id: string; name: string }[];
   planets: { id: string; name: string; planetClass: string; ownerId: string | null; upgradeLevel: number }[];
   deployables: { id: string; type: string; ownerId: string }[];
+  events: { id: string; eventType: string }[];
+  warpGates: { id: string; destinationSectorId: number; tollAmount: number; syndicateFree: boolean; syndicateId: string }[];
 }
 
 export interface TerminalLine {
