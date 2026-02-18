@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import WalletPanel from '../components/WalletPanel';
 
 interface RegisterProps {
   onRegister: (username: string, email: string, password: string, race: string) => Promise<any>;
@@ -45,7 +46,7 @@ const RACES = [
 ];
 
 export default function Register({ onRegister }: RegisterProps) {
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -77,7 +78,7 @@ export default function Register({ onRegister }: RegisterProps) {
     setLoading(true);
     try {
       await onRegister(username, email, password, selectedRace);
-      navigate('/game');
+      setStep(3);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Registration failed');
     } finally {
@@ -89,7 +90,9 @@ export default function Register({ onRegister }: RegisterProps) {
     <div className="auth-page">
       <div className="auth-container" style={step === 2 ? { maxWidth: '720px' } : undefined}>
         <h1 className="auth-title">COSMIC HORIZON</h1>
-        <p className="auth-subtitle">{step === 1 ? 'New Pilot Registration' : 'Choose Your Race'}</p>
+        <p className="auth-subtitle">
+          {step === 1 ? 'New Pilot Registration' : step === 2 ? 'Choose Your Race' : 'Connect Wallet'}
+        </p>
 
         {step === 1 && (
           <form onSubmit={handleStep1} className="auth-form">
@@ -181,6 +184,14 @@ export default function Register({ onRegister }: RegisterProps) {
               </button>
             </div>
           </div>
+        )}
+
+        {step === 3 && (
+          <WalletPanel
+            inline
+            onConnected={() => navigate('/game')}
+            onSkipped={() => navigate('/game')}
+          />
         )}
 
         <p className="auth-link">

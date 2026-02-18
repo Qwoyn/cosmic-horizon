@@ -3,6 +3,7 @@ import { GAME_CONFIG } from '../config/game';
 export interface CombatState {
   weaponEnergy: number;
   engineEnergy: number;
+  hullHp: number;
   attackRatio: number;
   defenseRatio: number;
 }
@@ -12,6 +13,7 @@ export interface CombatVolleyResult {
   attackerEnergySpent: number;
   defenderWeaponEnergyRemaining: number;
   defenderEngineEnergyRemaining: number;
+  defenderHullHpRemaining: number;
   defenderDestroyed: boolean;
 }
 
@@ -42,46 +44,33 @@ export function resolveCombatVolley(
       attackerEnergySpent: 0,
       defenderWeaponEnergyRemaining: defender.weaponEnergy,
       defenderEngineEnergyRemaining: defender.engineEnergy,
+      defenderHullHpRemaining: defender.hullHp,
       defenderDestroyed: false,
     };
   }
 
   const rawDamage = calculateDamage(actualExpend, attacker.attackRatio, defender.defenseRatio);
 
-  // Damage first depletes weapon energy, then engine energy
-  const totalDefenderHP = defender.weaponEnergy + defender.engineEnergy;
-  const actualDamage = Math.min(rawDamage, totalDefenderHP);
+  // Damage applies to hull HP directly
+  const actualDamage = Math.min(rawDamage, defender.hullHp);
 
-  // Calculate how much attacker actually needed to spend
   // If overkill, attacker only spends proportional energy
   let attackerEnergySpent: number;
-  if (rawDamage > totalDefenderHP && actualExpend > 0) {
-    attackerEnergySpent = Math.max(1, Math.ceil((totalDefenderHP / rawDamage) * actualExpend));
+  if (rawDamage > defender.hullHp && actualExpend > 0) {
+    attackerEnergySpent = Math.max(1, Math.ceil((defender.hullHp / rawDamage) * actualExpend));
   } else {
     attackerEnergySpent = actualExpend;
   }
 
-  let remainingDamage = actualDamage;
-  let defWeapon = defender.weaponEnergy;
-  let defEngine = defender.engineEnergy;
-
-  // Shields absorb from weapons first
-  if (remainingDamage <= defWeapon) {
-    defWeapon -= remainingDamage;
-    remainingDamage = 0;
-  } else {
-    remainingDamage -= defWeapon;
-    defWeapon = 0;
-    defEngine = Math.max(0, defEngine - remainingDamage);
-  }
-
-  const destroyed = defWeapon === 0 && defEngine === 0;
+  const hullRemaining = Math.max(0, defender.hullHp - actualDamage);
+  const destroyed = hullRemaining === 0;
 
   return {
     damageDealt: actualDamage,
     attackerEnergySpent,
-    defenderWeaponEnergyRemaining: defWeapon,
-    defenderEngineEnergyRemaining: defEngine,
+    defenderWeaponEnergyRemaining: defender.weaponEnergy,
+    defenderEngineEnergyRemaining: defender.engineEnergy,
+    defenderHullHpRemaining: hullRemaining,
     defenderDestroyed: destroyed,
   };
 }

@@ -51,6 +51,8 @@ export const moveTo = (sectorId: number) => api.post(`/game/move/${sectorId}`);
 export const getSector = () => api.get('/game/sector');
 export const getMap = () => api.get('/game/map');
 export const scan = () => api.post('/game/scan');
+export const dock = () => api.post('/game/dock');
+export const undock = () => api.post('/game/undock');
 
 // Trade
 export const getOutpost = (id: string) => api.get(`/trade/outpost/${id}`);
@@ -68,6 +70,8 @@ export const ejectCargo = (commodity: string, quantity: number) =>
   api.post('/ships/eject-cargo', { commodity, quantity });
 
 // Planets
+export const getOwnedPlanets = () => api.get('/planets/owned');
+export const getDiscoveredPlanets = () => api.get('/planets/discovered');
 export const getPlanet = (id: string) => api.get(`/planets/${id}`);
 export const claimPlanet = (id: string) => api.post(`/planets/${id}/claim`);
 export const colonizePlanet = (id: string, quantity: number) =>
@@ -128,6 +132,7 @@ export const getSalvageOptions = () => api.get('/starmall/salvage');
 export const salvageShip = (shipId: string) => api.post(`/starmall/salvage/sell/${shipId}`);
 export const getCantina = () => api.get('/starmall/cantina');
 export const buyCantineIntel = () => api.post('/starmall/cantina/intel');
+export const talkBartender = () => api.post('/starmall/cantina/talk');
 
 // Lore sequences
 export const markIntroSeen = () => api.post('/game/seen-intro');
@@ -145,6 +150,8 @@ export const acceptMission = (templateId: string) => api.post(`/missions/accept/
 export const getActiveMissions = () => api.get('/missions/active');
 export const getCompletedMissions = () => api.get('/missions/completed');
 export const abandonMission = (missionId: string) => api.post(`/missions/abandon/${missionId}`);
+export const getClaimableMissions = () => api.get('/missions/claimable');
+export const claimMission = (missionId: string) => api.post(`/missions/claim/${missionId}`);
 
 // Sector Events
 export const getSectorEvents = () => api.get('/events/sector');
@@ -154,6 +161,11 @@ export const investigateEvent = (eventId: string) => api.post(`/events/investiga
 export const getLeaderboardOverview = () => api.get('/leaderboards');
 export const getLeaderboard = (category: string) => api.get(`/leaderboards/${category}`);
 
+// Progression
+export const getProfile = () => api.get('/progression/profile');
+export const getAchievements = () => api.get('/progression/achievements');
+export const getRanks = () => api.get('/progression/ranks');
+
 // Messages
 export const getInbox = () => api.get('/messages/inbox');
 export const getSentMessages = () => api.get('/messages/sent');
@@ -162,6 +174,11 @@ export const sendMessage = (recipientName: string, subject: string, body: string
   api.post('/messages/send', { recipientName, subject, body });
 export const deleteMessage = (id: string) => api.delete(`/messages/${id}`);
 export const getUnreadCount = () => api.get('/messages/unread-count');
+
+// Notes
+export const getNotes = (search?: string) => api.get('/notes', { params: search ? { search } : {} });
+export const createNote = (content: string) => api.post('/notes', { content });
+export const deleteNote = (id: string) => api.delete(`/notes/${id}`);
 
 // Ship Upgrades
 export const getAvailableUpgrades = () => api.get('/starmall/garage/upgrades');
@@ -177,5 +194,13 @@ export const useWarpGate = (gateId: string) => api.post(`/warp-gates/use/${gateI
 export const setWarpGateToll = (gateId: string, tollAmount: number) =>
   api.post(`/warp-gates/set-toll/${gateId}`, { tollAmount });
 export const getSyndicateWarpGates = () => api.get('/warp-gates/syndicate');
+
+// Wallet
+export const getWalletNonce = () => api.get('/wallet/nonce');
+export const verifyWallet = (message: string, signature: string) =>
+  api.post('/wallet/verify', { message, signature });
+export const disconnectWallet = () => api.post('/wallet/disconnect');
+export const getWalletBalance = () => api.get('/wallet/balance');
+export const getWalletStatus = () => api.get('/wallet/status');
 
 export default api;

@@ -66,7 +66,7 @@ export function findShortestPath(
   edges: Map<number, SectorEdge[]>,
   start: number,
   end: number,
-  maxDepth: number = 20
+  maxDepth: number = 50
 ): number[] | null {
   if (start === end) return [start];
 
@@ -221,13 +221,14 @@ export function generateUniverse(
       const sectorEdges = edges.get(sid) || [];
       if (sectorEdges.length < 2) continue; // need at least 2 edges to safely make one one-way
 
-      // Find an edge where the target has multiple incoming edges
+      // Find an edge where the target will still have outgoing edges after removing the reverse
       let converted = false;
       const shuffledEdges = shuffleArray([...sectorEdges], rng);
       for (const edge of shuffledEdges) {
-        // Count incoming edges to the target (edges from other sectors pointing to edge.to)
-        const targetIncoming = (edges.get(edge.to) || []).length;
-        if (targetIncoming >= 2) {
+        // Count outgoing edges from the target sector
+        const targetOutgoing = (edges.get(edge.to) || []).length;
+        // Target needs at least 2 outgoing edges so it keeps >=1 after we remove the reverse
+        if (targetOutgoing >= 2) {
           edge.oneWay = true;
           // Remove the reverse edge
           const reverseEdges = edges.get(edge.to) || [];
@@ -243,6 +244,150 @@ export function generateUniverse(
       }
     }
   }
+
+  // Ensure strong connectivity: every sector must be reachable from every other.
+  // One-way edge conversion can create "sink" components that players can enter
+  // but never leave. Use Kosaraju's algorithm to find strongly connected
+  // components, then add bidirectional bridge edges to merge them.
+  const ensureStrongConnectivity = () => {
+    // Step 1: Forward BFS order (finish order)
+    const visited = new Set<number>();
+    const finishOrder: number[] = [];
+
+    const dfsForward = (start: number) => {
+      const stack: Array<{ node: number; edgeIdx: number }> = [{ node: start, edgeIdx: 0 }];
+      visited.add(start);
+
+      while (stack.length > 0) {
+        const top = stack[stack.length - 1];
+        const nodeEdges = edges.get(top.node) || [];
+        if (top.edgeIdx < nodeEdges.length) {
+          const next = nodeEdges[top.edgeIdx].to;
+          top.edgeIdx++;
+          if (!visited.has(next)) {
+            visited.add(next);
+            stack.push({ node: next, edgeIdx: 0 });
+          }
+        } else {
+          finishOrder.push(top.node);
+          stack.pop();
+        }
+      }
+    };
+
+    for (let i = 1; i <= totalSectors; i++) {
+      if (!visited.has(i)) dfsForward(i);
+    }
+
+    // Step 2: Build reverse adjacency
+    const reverseAdj = new Map<number, number[]>();
+    for (let i = 1; i <= totalSectors; i++) reverseAdj.set(i, []);
+    for (const [src, srcEdges] of edges) {
+      for (const e of srcEdges) {
+        reverseAdj.get(e.to)!.push(src);
+      }
+    }
+
+    // Step 3: Reverse BFS in finish order (Kosaraju's second pass)
+    const sccId = new Map<number, number>();
+    const sccs: number[][] = [];
+    const visited2 = new Set<number>();
+
+    for (let i = finishOrder.length - 1; i >= 0; i--) {
+      const start = finishOrder[i];
+      if (visited2.has(start)) continue;
+
+      const component: number[] = [];
+      const queue: number[] = [start];
+      visited2.add(start);
+
+      while (queue.length > 0) {
+        const node = queue.shift()!;
+        component.push(node);
+        sccId.set(node, sccs.length);
+        for (const src of reverseAdj.get(node) || []) {
+          if (!visited2.has(src)) {
+            visited2.add(src);
+            queue.push(src);
+          }
+        }
+      }
+
+      sccs.push(component);
+    }
+
+    if (sccs.length <= 1) return; // Already strongly connected
+
+    // Step 4: Connect SCCs into a single strongly connected component.
+    // Chain all SCCs: add bidirectional edges between consecutive SCCs.
+    // Pick representative nodes from each SCC that are in the same or nearby
+    // regions for natural-feeling connections.
+    for (let i = 1; i < sccs.length; i++) {
+      const prevScc = sccs[i - 1];
+      const currScc = sccs[i];
+
+      // Find the best pair: prefer nodes that already have a one-way edge
+      // between them (just add the reverse direction)
+      let bestFrom: number | null = null;
+      let bestTo: number | null = null;
+      let foundExisting = false;
+
+      // Check if any node in currScc has a one-way edge to prevScc
+      for (const sid of currScc) {
+        for (const edge of edges.get(sid) || []) {
+          if (sccId.get(edge.to) === i - 1) {
+            bestFrom = sid;
+            bestTo = edge.to;
+            foundExisting = true;
+            break;
+          }
+        }
+        if (foundExisting) break;
+      }
+
+      if (!foundExisting) {
+        // Check reverse: prevScc -> currScc
+        for (const sid of prevScc) {
+          for (const edge of edges.get(sid) || []) {
+            if (sccId.get(edge.to) === i) {
+              bestFrom = edge.to;
+              bestTo = sid;
+              foundExisting = true;
+              break;
+            }
+          }
+          if (foundExisting) break;
+        }
+      }
+
+      if (!foundExisting) {
+        // No existing connection; pick closest pair by region
+        bestFrom = currScc[0];
+        bestTo = prevScc[0];
+        const fromRegion = sectors.get(bestFrom)!.regionId;
+        let bestDist = Infinity;
+        for (const rid of prevScc) {
+          const rRegion = sectors.get(rid)!.regionId;
+          const dist = Math.abs(rRegion - fromRegion) * 1000 + Math.abs(rid - bestFrom!);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestTo = rid;
+          }
+        }
+      }
+
+      addEdge(edges, bestFrom!, bestTo!, false);
+    }
+
+    // Also connect last SCC back to first to complete the cycle
+    const firstScc = sccs[0];
+    const lastScc = sccs[sccs.length - 1];
+    const lastNode = lastScc[0];
+    const firstNode = firstScc[0];
+    addEdge(edges, lastNode, firstNode, false);
+  };
+
+  ensureStrongConnectivity();
 
   // Mark harmony-enforced routes between star malls and seed planets
   const starMallSectors = [...sectors.values()].filter(s => s.hasStarMall);

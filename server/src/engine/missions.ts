@@ -1,6 +1,5 @@
 import db from '../db/connection';
 import { GAME_CONFIG } from '../config/game';
-import crypto from 'crypto';
 
 export type MissionType = 'deliver_cargo' | 'visit_sector' | 'destroy_ship' | 'colonize_planet' | 'trade_units' | 'scan_sectors';
 
@@ -27,6 +26,14 @@ export interface MissionProgress {
   unitsTraded?: number;
   scansCompleted?: number;
   cargoDelivered?: number;
+}
+
+export interface ObjectiveDetail {
+  description: string;
+  target: number;
+  current: number;
+  complete: boolean;
+  hint?: string;
 }
 
 export function checkMissionProgress(
@@ -116,9 +123,162 @@ export function isMissionExpired(expiresAt: string | null): boolean {
   return new Date(expiresAt) < new Date();
 }
 
-export async function generateMissionPool(playerSectorId: number): Promise<any[]> {
-  // Get random mission templates suitable for the player
-  const templates = await db('mission_templates')
+// Build per-objective detail array from mission template data
+export function buildObjectivesDetail(
+  type: string,
+  objectives: MissionObjectives,
+  hints?: string[]
+): ObjectiveDetail[] {
+  const details: ObjectiveDetail[] = [];
+  const hint = hints?.[0];
+
+  switch (type) {
+    case 'visit_sector':
+      details.push({
+        description: `Visit ${objectives.sectorsToVisit} sectors`,
+        target: objectives.sectorsToVisit || 0,
+        current: 0,
+        complete: false,
+        hint,
+      });
+      break;
+    case 'destroy_ship':
+      details.push({
+        description: `Destroy ${objectives.shipsToDestroy} enemy ship${(objectives.shipsToDestroy || 0) > 1 ? 's' : ''}`,
+        target: objectives.shipsToDestroy || 0,
+        current: 0,
+        complete: false,
+        hint,
+      });
+      break;
+    case 'colonize_planet':
+      details.push({
+        description: `Deposit ${objectives.colonistsToDeposit} colonists`,
+        target: objectives.colonistsToDeposit || 0,
+        current: 0,
+        complete: false,
+        hint,
+      });
+      break;
+    case 'trade_units':
+      details.push({
+        description: `Trade ${objectives.unitsToTrade} units of goods`,
+        target: objectives.unitsToTrade || 0,
+        current: 0,
+        complete: false,
+        hint,
+      });
+      break;
+    case 'scan_sectors':
+      details.push({
+        description: `Perform ${objectives.scansRequired} sector scans`,
+        target: objectives.scansRequired || 0,
+        current: 0,
+        complete: false,
+        hint,
+      });
+      break;
+    case 'deliver_cargo': {
+      const commodity = objectives.commodity || 'unknown';
+      const capCommodity = commodity.charAt(0).toUpperCase() + commodity.slice(1);
+      details.push({
+        description: `Deliver ${objectives.quantity} ${capCommodity}`,
+        target: objectives.quantity || 0,
+        current: 0,
+        complete: false,
+        hint,
+      });
+      break;
+    }
+  }
+  return details;
+}
+
+// Update objectives detail from current progress
+export function updateObjectivesDetail(
+  type: string,
+  progress: MissionProgress,
+  details: ObjectiveDetail[]
+): ObjectiveDetail[] {
+  if (!details || details.length === 0) return details;
+  const updated = details.map(d => ({ ...d }));
+
+  switch (type) {
+    case 'visit_sector':
+      updated[0].current = progress.sectorsVisited?.length || 0;
+      break;
+    case 'destroy_ship':
+      updated[0].current = progress.shipsDestroyed || 0;
+      break;
+    case 'colonize_planet':
+      updated[0].current = progress.colonistsDeposited || 0;
+      break;
+    case 'trade_units':
+      updated[0].current = progress.unitsTraded || 0;
+      break;
+    case 'scan_sectors':
+      updated[0].current = progress.scansCompleted || 0;
+      break;
+    case 'deliver_cargo':
+      updated[0].current = progress.cargoDelivered || 0;
+      break;
+  }
+
+  for (const d of updated) {
+    d.complete = d.current >= d.target;
+  }
+  return updated;
+}
+
+// Check if a player has completed a prerequisite mission
+export async function checkPrerequisite(playerId: string, prerequisiteMissionId: string): Promise<boolean> {
+  const completed = await db('player_missions')
+    .where({ player_id: playerId, template_id: prerequisiteMissionId })
+    .where(function () {
+      this.where({ status: 'completed', claim_status: 'claimed' })
+        .orWhere({ status: 'completed', claim_status: 'auto' });
+    })
+    .first();
+  return !!completed;
+}
+
+// Check if a player has unlocked cantina missions by completing the gate mission
+export async function hasCantinaAccess(playerId: string): Promise<boolean> {
+  return checkPrerequisite(playerId, GAME_CONFIG.CANTINA_GATE_MISSION_ID);
+}
+
+// Generate mission pool filtered by player level and excluding completed/active non-repeatable missions
+export async function generateMissionPool(
+  playerId: string,
+  playerSectorId: number,
+  playerLevel: number
+): Promise<any[]> {
+  // Determine which tiers are unlocked
+  const tierLevels = GAME_CONFIG.MISSION_TIER_LEVELS;
+  const unlockedTiers = Object.entries(tierLevels)
+    .filter(([, reqLevel]) => playerLevel >= reqLevel)
+    .map(([tier]) => Number(tier));
+
+  // Get non-repeatable missions already active or completed by player
+  const excludeTemplates = await db('player_missions')
+    .where({ player_id: playerId })
+    .whereIn('status', ['active', 'completed'])
+    .join('mission_templates', 'player_missions.template_id', 'mission_templates.id')
+    .where('mission_templates.repeatable', false)
+    .select('mission_templates.id');
+
+  const excludeIds = excludeTemplates.map((r: any) => r.id);
+
+  let query = db('mission_templates')
+    .where('source', 'board')
+    .whereIn('tier', unlockedTiers);
+
+  if (excludeIds.length > 0) {
+    query = query.whereNotIn('id', excludeIds);
+  }
+
+  const templates = await query
+    .orderBy('sort_order', 'asc')
     .orderByRaw('RANDOM()')
     .limit(GAME_CONFIG.MISSION_POOL_SIZE);
 
@@ -128,10 +288,67 @@ export async function generateMissionPool(playerSectorId: number): Promise<any[]
     description: t.description,
     type: t.type,
     difficulty: t.difficulty,
+    tier: t.tier,
     objectives: typeof t.objectives === 'string' ? JSON.parse(t.objectives) : t.objectives,
     rewardCredits: t.reward_credits,
+    rewardXp: t.reward_xp,
     rewardItemId: t.reward_item_id,
     timeLimitMinutes: t.time_limit_minutes,
     repeatable: !!t.repeatable,
+    requiresClaimAtMall: !!t.requires_claim_at_mall,
+    prerequisiteMissionId: t.prerequisite_mission_id,
+    hints: typeof t.hints === 'string' ? JSON.parse(t.hints) : (t.hints || []),
   }));
+}
+
+// Generate a cantina mission for the bartender to offer
+export async function generateCantinaMissionPool(
+  playerId: string,
+  playerLevel: number
+): Promise<any | null> {
+  const tierLevels = GAME_CONFIG.MISSION_TIER_LEVELS;
+  const unlockedTiers = Object.entries(tierLevels)
+    .filter(([, reqLevel]) => playerLevel >= reqLevel)
+    .map(([tier]) => Number(tier));
+
+  // Exclude non-repeatable cantina missions already active or completed
+  const excludeTemplates = await db('player_missions')
+    .where({ player_id: playerId })
+    .whereIn('status', ['active', 'completed'])
+    .join('mission_templates', 'player_missions.template_id', 'mission_templates.id')
+    .where('mission_templates.source', 'cantina')
+    .select('mission_templates.id');
+
+  const excludeIds = excludeTemplates.map((r: any) => r.id);
+
+  let query = db('mission_templates')
+    .where('source', 'cantina')
+    .whereIn('tier', unlockedTiers);
+
+  if (excludeIds.length > 0) {
+    query = query.whereNotIn('id', excludeIds);
+  }
+
+  const template = await query
+    .orderByRaw('RANDOM()')
+    .first();
+
+  if (!template) return null;
+
+  return {
+    id: template.id,
+    title: template.title,
+    description: template.description,
+    type: template.type,
+    difficulty: template.difficulty,
+    tier: template.tier,
+    objectives: typeof template.objectives === 'string' ? JSON.parse(template.objectives) : template.objectives,
+    rewardCredits: template.reward_credits,
+    rewardXp: template.reward_xp,
+    rewardItemId: template.reward_item_id,
+    timeLimitMinutes: template.time_limit_minutes,
+    repeatable: !!template.repeatable,
+    requiresClaimAtMall: !!template.requires_claim_at_mall,
+    hints: typeof template.hints === 'string' ? JSON.parse(template.hints) : (template.hints || []),
+  };
 }

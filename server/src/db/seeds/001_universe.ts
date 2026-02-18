@@ -85,6 +85,8 @@ export async function seed(knex: Knex): Promise<void> {
       has_planetary_scanner: st.hasPlanetaryScanner,
       max_drones: st.maxDrones,
       tow_fuel_multiplier: st.towFuelMultiplier,
+      base_hull_hp: st.baseHullHp,
+      max_hull_hp: st.maxHullHp,
     });
   }
 

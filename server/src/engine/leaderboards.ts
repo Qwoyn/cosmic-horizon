@@ -76,6 +76,16 @@ async function computeLeaderboard(category: string): Promise<LeaderboardEntry[]>
       return rows.map(r => ({ player_id: r.player_id as string, player_name: r.player_name as string, score: Number(r.score) }));
     }
 
+    case 'level': {
+      const rows = await db('player_progression')
+        .join('players', 'player_progression.player_id', 'players.id')
+        .orderBy('player_progression.level', 'desc')
+        .orderBy('player_progression.xp', 'desc')
+        .limit(limit)
+        .select('player_progression.player_id as player_id', 'players.username as player_name', 'player_progression.level as score');
+      return rows.map(r => ({ player_id: r.player_id as string, player_name: r.player_name as string, score: Number(r.score) }));
+    }
+
     default:
       return [];
   }

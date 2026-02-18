@@ -84,9 +84,22 @@ router.post('/register', async (req, res) => {
       max_engine_energy: shipTypeConfig.maxEngineEnergy,
       cargo_holds: shipTypeConfig.baseCargoHolds,
       max_cargo_holds: shipTypeConfig.maxCargoHolds,
+      hull_hp: shipTypeConfig.baseHullHp,
+      max_hull_hp: shipTypeConfig.maxHullHp,
     });
 
     await db('players').where({ id: playerId }).update({ current_ship_id: shipId });
+
+    // Create player_progression row
+    await db('player_progression').insert({
+      player_id: playerId,
+      level: 1,
+      xp: 0,
+      total_combat_xp: 0,
+      total_mission_xp: 0,
+      total_trade_xp: 0,
+      total_explore_xp: 0,
+    });
 
     req.session.playerId = playerId;
     res.status(201).json({

@@ -273,6 +273,8 @@ describe('Integration: Trading', () => {
     await a.post('/api/auth/login').send({ username: 'testpilot', password: 'password123' });
     // Make sure we're at sector 1 (has outpost)
     await a.post('/api/game/move/1').catch(() => {});
+    // Dock at outpost before trading
+    await a.post('/api/game/dock').catch(() => {});
   });
 
   test('view outpost prices', async () => {

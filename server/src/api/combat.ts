@@ -6,6 +6,9 @@ import { SHIP_TYPES } from '../config/ship-types';
 import { getRace, RaceId } from '../config/races';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
 import { applyUpgradesToShip } from '../engine/upgrades';
+import { awardXP, getPlayerLevelBonuses } from '../engine/progression';
+import { checkAchievements } from '../engine/achievements';
+import { GAME_CONFIG } from '../config/game';
 import db from '../db/connection';
 import { sendPushToPlayer } from '../services/push';
 
@@ -52,7 +55,7 @@ router.post('/fire', requireAuth, async (req, res) => {
     const attackerRace = player.race ? getRace(player.race as RaceId) : null;
     const defenderRace = target.race ? getRace(target.race as RaceId) : null;
 
-    // Load ship upgrades
+    // Load ship upgrades and level bonuses
     let attackerUpgrades = { weaponBonus: 0, engineBonus: 0, cargoBonus: 0, shieldBonus: 0 };
     let defenderUpgrades = { weaponBonus: 0, engineBonus: 0, cargoBonus: 0, shieldBonus: 0 };
     try {
@@ -60,15 +63,20 @@ router.post('/fire', requireAuth, async (req, res) => {
       defenderUpgrades = await applyUpgradesToShip(defenderShip.id);
     } catch { /* upgrades table may not exist yet */ }
 
+    const attackerLevelBonuses = await getPlayerLevelBonuses(player.id);
+    const defenderLevelBonuses = await getPlayerLevelBonuses(target.id);
+
     const attackerState: CombatState = {
-      weaponEnergy: attackerShip.weapon_energy + attackerUpgrades.weaponBonus,
-      engineEnergy: attackerShip.engine_energy + attackerUpgrades.engineBonus,
+      weaponEnergy: attackerShip.weapon_energy + attackerUpgrades.weaponBonus + attackerLevelBonuses.weaponBonus,
+      engineEnergy: attackerShip.engine_energy + attackerUpgrades.engineBonus + attackerLevelBonuses.engineBonus,
+      hullHp: attackerShip.hull_hp,
       attackRatio: attackerType.attackRatio * (1 + (attackerRace?.attackRatioBonus ?? 0)),
       defenseRatio: attackerType.defenseRatio * (1 + (attackerRace?.defenseRatioBonus ?? 0)),
     };
     const defenderState: CombatState = {
-      weaponEnergy: defenderShip.weapon_energy + defenderUpgrades.weaponBonus,
-      engineEnergy: defenderShip.engine_energy + defenderUpgrades.engineBonus,
+      weaponEnergy: defenderShip.weapon_energy + defenderUpgrades.weaponBonus + defenderLevelBonuses.weaponBonus,
+      engineEnergy: defenderShip.engine_energy + defenderUpgrades.engineBonus + defenderLevelBonuses.engineBonus,
+      hullHp: defenderShip.hull_hp,
       attackRatio: defenderType.attackRatio * (1 + (defenderRace?.attackRatioBonus ?? 0)),
       defenseRatio: defenderType.defenseRatio * (1 + (defenderRace?.defenseRatioBonus ?? 0)),
     };
@@ -81,14 +89,16 @@ router.post('/fire', requireAuth, async (req, res) => {
       weapon_energy: attackerShip.weapon_energy - result.attackerEnergySpent,
     });
 
-    // Update defender ship
+    // Update defender ship hull HP (weapon/engine energy unchanged by incoming damage)
     await db('ships').where({ id: defenderShip.id }).update({
-      weapon_energy: result.defenderWeaponEnergyRemaining,
-      engine_energy: result.defenderEngineEnergyRemaining,
+      hull_hp: result.defenderHullHpRemaining,
     });
 
     // Update player energy
     await db('players').where({ id: player.id }).update({ energy: newEnergy });
+
+    // Award combat XP for volley
+    let xpResult = await awardXP(player.id, GAME_CONFIG.XP_COMBAT_VOLLEY, 'combat');
 
     let bountiesClaimed: { bountyId: string; reward: number }[] = [];
 
@@ -107,6 +117,8 @@ router.post('/fire', requireAuth, async (req, res) => {
         max_engine_energy: 20,
         cargo_holds: 0,
         max_cargo_holds: 0,
+        hull_hp: 10,
+        max_hull_hp: 10,
       });
       await db('players').where({ id: target.id }).update({ current_ship_id: podId });
 
@@ -141,8 +153,10 @@ router.post('/fire', requireAuth, async (req, res) => {
       }
     }
 
-    // Mission progress: combat
+    // Mission progress: combat + destroy XP
     if (result.defenderDestroyed) {
+      xpResult = await awardXP(player.id, GAME_CONFIG.XP_COMBAT_DESTROY, 'combat');
+      await checkAchievements(player.id, 'combat_destroy', {});
       checkAndUpdateMissions(player.id, 'combat_destroy', {});
     }
 
@@ -165,8 +179,10 @@ router.post('/fire', requireAuth, async (req, res) => {
       damageDealt: result.damageDealt,
       attackerEnergySpent: result.attackerEnergySpent,
       defenderDestroyed: result.defenderDestroyed,
+      defenderHullHpRemaining: result.defenderHullHpRemaining,
       energy: newEnergy,
       bountiesClaimed,
+      xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
     });
   } catch (err) {
     console.error('Combat fire error:', err);
@@ -198,6 +214,7 @@ router.post('/flee', requireAuth, async (req, res) => {
         const randomEdge = edges[Math.floor(Math.random() * edges.length)];
         await db('players').where({ id: player.id }).update({
           current_sector_id: randomEdge.to_sector_id,
+          docked_at_outpost_id: null,
         });
         if (player.current_ship_id) {
           await db('ships').where({ id: player.current_ship_id }).update({

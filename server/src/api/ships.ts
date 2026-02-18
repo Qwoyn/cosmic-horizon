@@ -2,6 +2,8 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth';
 import { SHIP_TYPES } from '../config/ship-types';
+import { canAccessShipType } from '../engine/progression';
+import { GAME_CONFIG } from '../config/game';
 import db from '../db/connection';
 
 const router = Router();
@@ -17,22 +19,31 @@ router.get('/dealer', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'No star mall in this sector' });
     }
 
+    // Get player level to show lock status
+    const prog = await db('player_progression').where({ player_id: player.id }).first();
+    const playerLevel = prog?.level || 1;
+
     res.json({
-      ships: SHIP_TYPES.filter(s => s.id !== 'dodge_pod').map(s => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        price: s.price,
-        baseWeaponEnergy: s.baseWeaponEnergy,
-        baseCargoHolds: s.baseCargoHolds,
-        baseEngineEnergy: s.baseEngineEnergy,
-        attackRatio: s.attackRatio,
-        defenseRatio: s.defenseRatio,
-        canCloak: s.canCloak,
-        canCarryMines: s.canCarryMines,
-        hasJumpDriveSlot: s.hasJumpDriveSlot,
-        hasPlanetaryScanner: s.hasPlanetaryScanner,
-      })),
+      ships: SHIP_TYPES.filter(s => s.id !== 'dodge_pod').map(s => {
+        const requiredLevel = GAME_CONFIG.SHIP_LEVEL_GATES[s.id] || 0;
+        return {
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          price: s.price,
+          baseWeaponEnergy: s.baseWeaponEnergy,
+          baseCargoHolds: s.baseCargoHolds,
+          baseEngineEnergy: s.baseEngineEnergy,
+          attackRatio: s.attackRatio,
+          defenseRatio: s.defenseRatio,
+          canCloak: s.canCloak,
+          canCarryMines: s.canCarryMines,
+          hasJumpDriveSlot: s.hasJumpDriveSlot,
+          hasPlanetaryScanner: s.hasPlanetaryScanner,
+          requiredLevel,
+          locked: playerLevel < requiredLevel,
+        };
+      }),
     });
   } catch (err) {
     console.error('Dealer error:', err);
@@ -59,6 +70,13 @@ router.post('/buy/:shipTypeId', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Not enough credits' });
     }
 
+    // Check level gate
+    const canAccess = await canAccessShipType(player.id, shipType.id);
+    if (!canAccess) {
+      const required = GAME_CONFIG.SHIP_LEVEL_GATES[shipType.id] || 0;
+      return res.status(400).json({ error: `Requires level ${required} to purchase this ship` });
+    }
+
     const shipId = crypto.randomUUID();
     await db('ships').insert({
       id: shipId,
@@ -71,6 +89,8 @@ router.post('/buy/:shipTypeId', requireAuth, async (req, res) => {
       max_engine_energy: shipType.baseEngineEnergy,
       cargo_holds: shipType.baseCargoHolds,
       max_cargo_holds: shipType.baseCargoHolds,
+      hull_hp: shipType.baseHullHp,
+      max_hull_hp: shipType.maxHullHp,
     });
 
     await db('players').where({ id: player.id }).update({

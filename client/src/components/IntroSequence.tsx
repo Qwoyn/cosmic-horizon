@@ -128,16 +128,16 @@ export default function IntroSequence({ beats, onComplete, title, buttonLabel, t
     return () => clearInterval(interval);
   }, [currentBeat, beats, skipAll]);
 
-  // Handle skip all
-  useEffect(() => {
-    if (skipAll) {
-      setDisplayedText('');
-      setCurrentBeat(beats.length);
-      setIsTyping(false);
-    }
-  }, [skipAll, beats]);
+  const handleSkipAll = useCallback(() => {
+    setSkipAll(true);
+    setIsTyping(false);
+    setCurrentBeat(beats.length);
+    setDisplayedText('');
+  }, [beats.length]);
 
   const advance = useCallback(() => {
+    if (skipAll) return;
+
     if (isTyping) {
       // Skip current typewriter, show full text immediately
       setDisplayedText(beats[currentBeat].text);
@@ -147,7 +147,7 @@ export default function IntroSequence({ beats, onComplete, title, buttonLabel, t
 
     // Move to next beat — previous text vanishes
     setCurrentBeat(prev => prev + 1);
-  }, [isTyping, currentBeat, beats]);
+  }, [isTyping, currentBeat, beats, skipAll]);
 
   const isFinished = currentBeat >= beats.length;
   const activeBeat = !isFinished ? beats[currentBeat] : null;
@@ -177,7 +177,7 @@ export default function IntroSequence({ beats, onComplete, title, buttonLabel, t
               </span>
               <button
                 className="intro-sequence__skip"
-                onClick={(e) => { e.stopPropagation(); setSkipAll(true); }}
+                onClick={(e) => { e.stopPropagation(); handleSkipAll(); }}
               >
                 Skip All
               </button>

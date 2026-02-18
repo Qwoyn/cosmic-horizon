@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy } from '../engine/energy';
 import { resolveEvent, EventType } from '../engine/events';
+import { applyUpgradesToShip } from '../engine/upgrades';
+import { awardXP } from '../engine/progression';
+import { checkAchievements } from '../engine/achievements';
+import { GAME_CONFIG } from '../config/game';
 import db from '../db/connection';
 
 const router = Router();
@@ -75,9 +79,10 @@ router.post('/investigate/:eventId', requireAuth, async (req, res) => {
     if (outcome.cargoGained && player.current_ship_id) {
       const ship = await db('ships').where({ id: player.current_ship_id }).first();
       if (ship) {
+        const upgrades = await applyUpgradesToShip(ship.id);
         const currentCargo = (ship.cyrillium_cargo || 0) + (ship.food_cargo || 0) +
           (ship.tech_cargo || 0) + (ship.colonist_cargo || 0);
-        const freeSpace = ship.max_cargo_holds - currentCargo;
+        const freeSpace = (ship.max_cargo_holds + upgrades.cargoBonus) - currentCargo;
         const toAdd = Math.min(outcome.cargoGained.quantity, freeSpace);
         if (toAdd > 0) {
           const cargoField = `${outcome.cargoGained.commodity}_cargo`;
@@ -94,6 +99,9 @@ router.post('/investigate/:eventId', requireAuth, async (req, res) => {
       resolved_by_id: player.id,
     });
 
+    // Award XP for investigating
+    const xpResult = await awardXP(player.id, GAME_CONFIG.XP_INVESTIGATE_EVENT, 'explore');
+
     res.json({
       message: outcome.message,
       creditsGained: outcome.creditsGained || 0,
@@ -102,6 +110,7 @@ router.post('/investigate/:eventId', requireAuth, async (req, res) => {
       energyLost: outcome.energyLost || 0,
       cargoGained: outcome.cargoGained || null,
       energy: finalEnergy,
+      xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
     });
   } catch (err) {
     console.error('Investigate event error:', err);

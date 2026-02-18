@@ -6,6 +6,22 @@ const FADE_STEPS = 20;
 const STORAGE_KEY_MUTED = 'cosmic-horizon-muted';
 const STORAGE_KEY_VOLUME = 'cosmic-horizon-volume';
 
+// Track whether user has interacted with the page (for autoplay policy)
+let userHasInteracted = false;
+let interactionCallback: (() => void) | null = null;
+
+function onFirstInteraction() {
+  userHasInteracted = true;
+  if (interactionCallback) {
+    interactionCallback();
+    interactionCallback = null;
+  }
+  document.removeEventListener('click', onFirstInteraction);
+  document.removeEventListener('keydown', onFirstInteraction);
+}
+document.addEventListener('click', onFirstInteraction);
+document.addEventListener('keydown', onFirstInteraction);
+
 function getStoredMuted(): boolean {
   try {
     return localStorage.getItem(STORAGE_KEY_MUTED) === 'true';
@@ -144,7 +160,7 @@ export function useAudio() {
     fadeIn(audio, targetVolume);
   }, [fadeIn]);
 
-  const play = useCallback(async (contextId: string) => {
+  const playInternal = useCallback(async (contextId: string) => {
     // Already playing this context and audio is active
     if (currentContextRef.current === contextId && audioRef.current && !audioRef.current.paused) return;
 
@@ -155,8 +171,18 @@ export function useAudio() {
     await fadeOut();
 
     currentContextRef.current = contextId;
+    pendingPlayRef.current = false;
     await startTrack(resolved.track, resolved.isPlaylist, muted, volume);
   }, [muted, volume, fadeOut, startTrack]);
+
+  const play = useCallback(async (contextId: string) => {
+    if (!userHasInteracted) {
+      // Defer until first user interaction
+      interactionCallback = () => playInternal(contextId);
+      return;
+    }
+    await playInternal(contextId);
+  }, [playInternal]);
 
   // Call resume() from a user interaction (click) to unblock autoplay
   const resume = useCallback(async () => {

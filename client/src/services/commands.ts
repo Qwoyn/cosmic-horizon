@@ -1,7 +1,23 @@
 import * as api from './api';
+import type { SceneDefinition } from '../config/scene-types';
+import { buildWarpGateScene } from '../config/scenes/warp-gate-scene';
+import { buildDeployScene } from '../config/scenes/deploy-scene';
+import { buildScannerScene } from '../config/scenes/scanner-scene';
+import { buildColonizeScene } from '../config/scenes/colonize-scene';
+import { buildCantinaScene } from '../config/scenes/cantina-scene';
+import { buildGarageScene } from '../config/scenes/garage-scene';
+import { buildSalvageScene } from '../config/scenes/salvage-scene';
+import { buildDealerScene } from '../config/scenes/dealer-scene';
+import { buildUpgradeScene } from '../config/scenes/upgrade-scene';
+import { buildRefuelScene } from '../config/scenes/refuel-scene';
+import { buildMissionBoardScene } from '../config/scenes/mission-board-scene';
+import { buildBountyBoardScene } from '../config/scenes/bounty-board-scene';
+import { buildLookScene } from '../config/scenes/look-scene';
+import { buildScanScene } from '../config/scenes/scan-scene';
 
 interface CommandContext {
   addLine: (text: string, type: 'info' | 'success' | 'error' | 'warning' | 'system' | 'combat' | 'trade') => void;
+  clearLines: () => void;
   player: any;
   sector: any;
   doMove: (sectorId: number) => void;
@@ -9,10 +25,15 @@ interface CommandContext {
   doSell: (outpostId: string, commodity: string, quantity: number) => void;
   doFire: (targetPlayerId: string, energy: number) => void;
   doFlee: () => void;
+  doDock: () => void;
+  doUndock: () => void;
   refreshStatus: () => void;
   refreshSector: () => void;
   emit: (event: string, data: any) => void;
   advanceTutorial: (action: string) => void;
+  enqueueScene?: (scene: SceneDefinition) => void;
+  setLastListing: (items: { id: string; label: string }[]) => void;
+  getLastListing: () => { id: string; label: string }[] | null;
 }
 
 interface ParsedCommand {
@@ -25,8 +46,43 @@ const ALIASES: Record<string, string> = {
   f: 'fire', attack: 'fire', '?': 'help', commands: 'help',
   ships: 'dealer', say: 'chat', jettison: 'eject',
   top: 'leaderboard', lb: 'leaderboard',
-  missionboard: 'missions',
+  mb: 'missionboard',
+  cr: 'claimreward',
+  ct: 'cantinatalk',
+  n: 'note',
+  fuel: 'refuel',
+  ud: 'undock',
+  p: 'profile',
+  rank: 'profile',
+  lvl: 'profile',
+  ach: 'achievements',
 };
+
+function resolveItem(
+  query: string,
+  items: { id: string; name: string }[],
+  ctx: CommandContext,
+): { id: string; name: string } | null | 'ambiguous' {
+  const num = parseInt(query);
+  if (!isNaN(num) && num >= 1) {
+    const listing = ctx.getLastListing();
+    if (listing && num <= listing.length) {
+      const entry = listing[num - 1];
+      const match = items.find(i => i.id === entry.id);
+      if (match) return match;
+    }
+  }
+  const q = query.toLowerCase();
+  const matches = items.filter(i =>
+    i.id.toLowerCase().includes(q) || i.name.toLowerCase().includes(q)
+  );
+  if (matches.length === 1) return matches[0];
+  if (matches.length === 0) return null;
+  ctx.addLine(`Multiple matches for "${query}":`, 'warning');
+  matches.forEach((m, i) => ctx.addLine(`  [${i + 1}] ${m.name} (${m.id})`, 'info'));
+  ctx.setLastListing(matches.map(m => ({ id: m.id, label: m.name })));
+  return 'ambiguous';
+}
 
 function parse(input: string): ParsedCommand {
   const parts = input.trim().split(/\s+/);
@@ -55,11 +111,14 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       const p = ctx.player;
       if (!p) { ctx.addLine('Not logged in', 'error'); break; }
       const raceLabel = p.race ? ` [${p.race.charAt(0).toUpperCase() + p.race.slice(1)}]` : '';
-      ctx.addLine(`=== ${p.username}${raceLabel} ===`, 'system');
+      const levelLabel = p.level ? ` Lv.${p.level}` : '';
+      const rankLabel = p.rank ? ` | ${p.rank}` : '';
+      ctx.addLine(`=== ${p.username}${raceLabel}${levelLabel}${rankLabel} ===`, 'system');
       ctx.addLine(`Sector: ${p.currentSectorId} | Energy: ${p.energy}/${p.maxEnergy} | Credits: ${p.credits.toLocaleString()}`, 'info');
+      if (p.xp != null) ctx.addLine(`XP: ${p.xp.toLocaleString()}`, 'info');
       if (p.currentShip) {
         const c = p.currentShip;
-        ctx.addLine(`Ship: ${c.shipTypeId} | Weapons: ${c.weaponEnergy} | Engines: ${c.engineEnergy}`, 'info');
+        ctx.addLine(`Ship: ${c.shipTypeId} | Hull: ${c.hullHp}/${c.maxHullHp} | Weapons: ${c.weaponEnergy} | Engines: ${c.engineEnergy}`, 'info');
         const total = c.cyrilliumCargo + c.foodCargo + c.techCargo + c.colonistsCargo;
         ctx.addLine(`Cargo: Cyr=${c.cyrilliumCargo} Food=${c.foodCargo} Tech=${c.techCargo} Col=${c.colonistsCargo} [${total}/${c.maxCargoHolds}]`, 'info');
       }
@@ -70,12 +129,23 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     case 'look': {
       const s = ctx.sector;
       if (!s) { ctx.addLine('No sector data', 'error'); break; }
+      ctx.enqueueScene?.(buildLookScene(
+        ctx.player?.currentShip?.shipTypeId ?? 'scout',
+        (s.planets?.length ?? 0) > 0,
+        (s.outposts?.length ?? 0) > 0,
+        (s.players?.length ?? 0) > 0,
+      ));
       ctx.addLine(`=== Sector ${s.sectorId} [${s.type}] ===`, 'system');
       ctx.addLine(`Adjacent: ${s.adjacentSectors.map((a: any) => a.sectorId + (a.oneWay ? '→' : '')).join(', ')}`, 'info');
       if (s.players.length > 0) ctx.addLine(`Players: ${s.players.map((p: any) => p.username).join(', ')}`, 'warning');
       if (s.outposts.length > 0) ctx.addLine(`Outposts: ${s.outposts.map((o: any) => o.name).join(', ')}`, 'info');
       if (s.planets.length > 0) {
-        ctx.addLine(`Planets: ${s.planets.map((p: any) => `${p.name} [${p.planetClass}]${p.ownerId ? '' : ' *unclaimed*'}`).join(', ')}`, 'info');
+        ctx.addLine('Planets:', 'info');
+        s.planets.forEach((p: any, i: number) => {
+          const tag = p.planetClass === 'S' ? ' [seed world]' : (p.ownerId ? '' : ' *unclaimed*');
+          ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}]${tag}`, 'info');
+        });
+        ctx.setLastListing(s.planets.map((p: any) => ({ id: p.id, label: p.name })));
       }
       if (s.events?.length > 0) {
         ctx.addLine(`Anomalies: ${s.events.map((e: any) => e.eventType.replace(/_/g, ' ')).join(', ')}`, 'warning');
@@ -83,12 +153,16 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       if (s.warpGates?.length > 0) {
         ctx.addLine(`Warp Gates: ${s.warpGates.map((g: any) => `→ Sector ${g.destinationSectorId}${g.tollAmount > 0 ? ` (${g.tollAmount} cr toll)` : ''}`).join(', ')}`, 'success');
       }
-      if (s.hasStarMall) ctx.addLine('★ Star Mall available - type "dealer" to see ships', 'success');
+      if (s.hasStarMall) ctx.addLine('★ Star Mall — type "mall" to see services', 'success');
       ctx.advanceTutorial('look');
       break;
     }
 
     case 'scan':
+      ctx.enqueueScene?.(buildScanScene(
+        ctx.player?.currentShip?.shipTypeId ?? 'scout',
+        ctx.sector?.adjacentSectors?.length ?? 3,
+      ));
       ctx.addLine('Scanning adjacent sectors...', 'info');
       api.scan().then(({ data }) => {
         if (data.scannedSectors.length === 0) {
@@ -119,17 +193,13 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     case 'dock': {
       const outpost = ctx.sector?.outposts?.[0];
       if (!outpost) { ctx.addLine('No outpost in this sector', 'error'); break; }
-      ctx.addLine(`Docking at ${outpost.name}...`, 'info');
-      api.getOutpost(outpost.id).then(({ data }) => {
-        ctx.addLine(`=== ${data.name} ===`, 'system');
-        ctx.addLine(`Treasury: ${data.treasury.toLocaleString()} cr`, 'info');
-        for (const [commodity, info] of Object.entries(data.prices) as [string, any][]) {
-          const modeColor = info.mode === 'sell' ? 'success' : info.mode === 'buy' ? 'trade' : 'info';
-          ctx.addLine(`  ${commodity.padEnd(12)} ${String(info.price).padStart(5)} cr  [${info.stock}/${info.capacity}]  ${info.mode}`, modeColor as any);
-        }
-        ctx.addLine('Use "buy <commodity> <qty>" or "sell <commodity> <qty>"', 'info');
-        ctx.advanceTutorial('dock');
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Dock failed', 'error'));
+      ctx.doDock();
+      break;
+    }
+
+    case 'undock': {
+      if (!ctx.player?.dockedAtOutpostId) { ctx.addLine('Not currently docked', 'error'); break; }
+      ctx.doUndock();
       break;
     }
 
@@ -137,6 +207,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       if (args.length < 2) { ctx.addLine('Usage: buy <commodity> <quantity>', 'error'); break; }
       const outpost = ctx.sector?.outposts?.[0];
       if (!outpost) { ctx.addLine('No outpost in this sector', 'error'); break; }
+      if (!ctx.player?.dockedAtOutpostId) { ctx.addLine('Must be docked at this outpost to trade. Type "dock" first.', 'error'); break; }
       ctx.doBuy(outpost.id, args[0].toLowerCase(), parseInt(args[1]) || 1);
       break;
     }
@@ -145,6 +216,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       if (args.length < 2) { ctx.addLine('Usage: sell <commodity> <quantity>', 'error'); break; }
       const outpost = ctx.sector?.outposts?.[0];
       if (!outpost) { ctx.addLine('No outpost in this sector', 'error'); break; }
+      if (!ctx.player?.dockedAtOutpostId) { ctx.addLine('Must be docked at this outpost to trade. Type "dock" first.', 'error'); break; }
       ctx.doSell(outpost.id, args[0].toLowerCase(), parseInt(args[1]) || 1);
       break;
     }
@@ -165,78 +237,166 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       break;
 
     case 'land': {
-      if (args.length < 1) { ctx.addLine('Usage: land <planet_name>', 'error'); break; }
-      const name = args.join(' ').toLowerCase();
-      const planet = ctx.sector?.planets?.find((p: any) => p.name.toLowerCase().includes(name));
-      if (!planet) { ctx.addLine('Planet not found in sector', 'error'); break; }
-      api.getPlanet(planet.id).then(({ data }) => {
+      if (args.length < 1) { ctx.addLine('Usage: land <name or #>', 'error'); break; }
+      const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+      const result = resolveItem(args.join(' '), planets, ctx);
+      if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+      if (result === 'ambiguous') break;
+      api.getPlanet(result.id).then(({ data }) => {
         ctx.addLine(`=== ${data.name} [Class ${data.planetClass}] ===`, 'system');
         ctx.addLine(`Owner: ${data.ownerId || 'Unclaimed'} | Level: ${data.upgradeLevel} | Colonists: ${data.colonists.toLocaleString()}`, 'info');
         ctx.addLine(`Stocks: Cyr=${data.cyrilliumStock} Food=${data.foodStock} Tech=${data.techStock} Drones=${data.droneCount}`, 'info');
         ctx.addLine(`Production/tick: Cyr=${data.production.cyrillium} Food=${data.production.food} Tech=${data.production.tech}`, 'trade');
-        if (data.canUpgrade) ctx.addLine('This planet can be upgraded! Type "upgrade <name>"', 'success');
+        if (data.canUpgrade) ctx.addLine('This planet can be upgraded! Type "upgrade <name or #>"', 'success');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Landing failed', 'error'));
       break;
     }
 
     case 'claim': {
-      if (args.length < 1) { ctx.addLine('Usage: claim <planet_name>', 'error'); break; }
-      const name = args.join(' ').toLowerCase();
-      const planet = ctx.sector?.planets?.find((p: any) => p.name.toLowerCase().includes(name));
-      if (!planet) { ctx.addLine('Planet not found in sector', 'error'); break; }
-      api.claimPlanet(planet.id).then(() => {
-        ctx.addLine(`Claimed ${planet.name}!`, 'success');
+      if (args.length < 1) { ctx.addLine('Usage: claim <name or #>', 'error'); break; }
+      const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+      const result = resolveItem(args.join(' '), planets, ctx);
+      if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+      if (result === 'ambiguous') break;
+      api.claimPlanet(result.id).then(() => {
+        ctx.addLine(`Claimed ${result.name}!`, 'success');
         ctx.refreshSector();
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Claim failed', 'error'));
       break;
     }
 
     case 'colonize': {
-      if (args.length < 2) { ctx.addLine('Usage: colonize <planet_name> <quantity>', 'error'); break; }
+      if (args.length < 2) { ctx.addLine('Usage: colonize <name or #> <quantity>', 'error'); break; }
       const qty = parseInt(args[args.length - 1]);
       if (isNaN(qty)) { ctx.addLine('Quantity must be a number', 'error'); break; }
-      const name = args.slice(0, -1).join(' ').toLowerCase();
-      const planet = ctx.sector?.planets?.find((p: any) => p.name.toLowerCase().includes(name));
-      if (!planet) { ctx.addLine('Planet not found in sector', 'error'); break; }
-      api.colonizePlanet(planet.id, qty).then(({ data }) => {
-        ctx.addLine(`Deposited ${data.deposited} colonists on ${planet.name} (${data.planetColonists} total)`, 'success');
+      const planetQuery = args.slice(0, -1).join(' ');
+      const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name, planetClass: p.planetClass }));
+      const result = resolveItem(planetQuery, planets, ctx);
+      if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+      if (result === 'ambiguous') break;
+      const planetClass = planets.find((p: any) => p.id === result.id)?.planetClass ?? 'H';
+      api.colonizePlanet(result.id, qty).then(({ data }) => {
+        ctx.enqueueScene?.(buildColonizeScene(ctx.player?.currentShip?.shipTypeId ?? 'scout', planetClass));
+        ctx.addLine(`Deposited ${data.deposited} colonists on ${result.name} (${data.planetColonists} total)`, 'success');
         ctx.refreshStatus();
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Colonize failed', 'error'));
       break;
     }
 
     case 'collect': {
-      if (args.length < 2) { ctx.addLine('Usage: collect <planet_name> <quantity>', 'error'); break; }
+      if (args.length < 2) { ctx.addLine('Usage: collect <name or #> <quantity>', 'error'); break; }
       const qty = parseInt(args[args.length - 1]);
       if (isNaN(qty)) { ctx.addLine('Quantity must be a number', 'error'); break; }
-      const name = args.slice(0, -1).join(' ').toLowerCase();
-      const planet = ctx.sector?.planets?.find((p: any) => p.name.toLowerCase().includes(name));
-      if (!planet) { ctx.addLine('Planet not found in sector', 'error'); break; }
-      api.collectColonists(planet.id, qty).then(({ data }) => {
-        ctx.addLine(`Collected ${data.collected} colonists from ${planet.name}`, 'success');
+      const planetQuery = args.slice(0, -1).join(' ');
+      const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+      const result = resolveItem(planetQuery, planets, ctx);
+      if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+      if (result === 'ambiguous') break;
+      api.collectColonists(result.id, qty).then(({ data }) => {
+        ctx.addLine(`Collected ${data.collected} colonists from ${result.name}`, 'success');
         ctx.refreshStatus();
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Collect failed', 'error'));
       break;
     }
 
     case 'upgrade': {
-      if (args.length < 1) { ctx.addLine('Usage: upgrade <planet_name>', 'error'); break; }
-      const name = args.join(' ').toLowerCase();
-      const planet = ctx.sector?.planets?.find((p: any) => p.name.toLowerCase().includes(name));
-      if (!planet) { ctx.addLine('Planet not found in sector', 'error'); break; }
-      api.upgradePlanet(planet.id).then(({ data }) => {
-        ctx.addLine(`${planet.name} upgraded to level ${data.newLevel}!`, 'success');
+      if (args.length < 1) { ctx.addLine('Usage: upgrade <name or #>', 'error'); break; }
+      const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+      const result = resolveItem(args.join(' '), planets, ctx);
+      if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+      if (result === 'ambiguous') break;
+      api.upgradePlanet(result.id).then(({ data }) => {
+        ctx.addLine(`${result.name} upgraded to level ${data.newLevel}!`, 'success');
         ctx.refreshStatus();
         ctx.refreshSector();
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Upgrade failed', 'error'));
       break;
     }
 
+    case 'planets':
+      if (args[0] === 'all' || args[0] === 'discovered') {
+        api.getDiscoveredPlanets().then(({ data }) => {
+          if (data.planets.length === 0) { ctx.addLine('No planets discovered yet. Explore more sectors!', 'info'); return; }
+          ctx.addLine('=== DISCOVERED PLANETS ===', 'system');
+          data.planets.forEach((p: any, i: number) => {
+            const tag = p.owned ? ' [YOURS]' : (p.ownerName ? ` (${p.ownerName})` : ' *unclaimed*');
+            ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}] Sector ${p.sectorId}${tag}`, p.owned ? 'success' : 'info');
+            if (p.owned && p.cyrilliumStock != null) {
+              ctx.addLine(`      Level ${p.upgradeLevel} | Colonists: ${p.colonists.toLocaleString()} | Cyr: ${p.cyrilliumStock} Food: ${p.foodStock} Tech: ${p.techStock}`, 'info');
+            } else {
+              ctx.addLine(`      Level ${p.upgradeLevel} | Colonists: ${p.colonists.toLocaleString()}`, 'info');
+            }
+          });
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch planets', 'error'));
+      } else {
+        api.getOwnedPlanets().then(({ data }) => {
+          if (data.planets.length === 0) { ctx.addLine('You do not own any planets', 'info'); return; }
+          ctx.addLine('=== YOUR PLANETS ===', 'system');
+          data.planets.forEach((p: any, i: number) => {
+            ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}] Sector ${p.sectorId}    Level ${p.upgradeLevel}`, 'info');
+            ctx.addLine(`      Colonists: ${p.colonists.toLocaleString()} | Cyr: ${p.cyrilliumStock} Food: ${p.foodStock} Tech: ${p.techStock}`, 'info');
+            ctx.addLine(`      Production/tick: Cyr=${p.production.cyrillium} Food=${p.production.food} Tech=${p.production.tech}`, 'trade');
+          });
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch planets', 'error'));
+      }
+      break;
+
+    case 'profile':
+      api.getProfile().then(({ data }) => {
+        ctx.addLine(`=== ${data.username} [${data.rank}] ===`, 'system');
+        ctx.addLine(`Level: ${data.level}/100 | XP: ${data.xp.toLocaleString()}${data.xpForNextLevel ? ` / ${data.xpForNextLevel.toLocaleString()}` : ' (MAX)'}`, 'info');
+        if (data.xpNeeded > 0) {
+          const pct = Math.floor((data.xpProgress / data.xpNeeded) * 100);
+          const filled = Math.floor(pct / 5);
+          const bar = '='.repeat(filled) + '-'.repeat(20 - filled);
+          ctx.addLine(`Progress: [${bar}] ${pct}%`, 'info');
+        }
+        const lb = data.levelBonuses;
+        if (lb) {
+          ctx.addLine(`Level Bonuses: +${lb.maxEnergyBonus} Energy, +${lb.weaponBonus} Weapon, +${lb.engineBonus} Engine, +${lb.cargoBonus} Cargo`, 'success');
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Profile failed', 'error'));
+      break;
+
+    case 'achievements':
+      api.getAchievements().then(({ data }) => {
+        ctx.addLine(`=== ACHIEVEMENTS (${data.totalEarned}/${data.totalVisible}) ===`, 'system');
+        if (data.earned.length > 0) {
+          ctx.addLine('--- EARNED ---', 'system');
+          for (const a of data.earned) {
+            ctx.addLine(`  [${a.icon}] ${a.name} - ${a.description}`, 'success');
+          }
+        }
+        if (data.available.length > 0) {
+          ctx.addLine('--- LOCKED ---', 'system');
+          for (const a of data.available) {
+            ctx.addLine(`  [ ] ${a.name} - ${a.description}`, 'info');
+          }
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Achievements failed', 'error'));
+      break;
+
+    case 'ranks':
+      api.getRanks().then(({ data }) => {
+        ctx.addLine('=== RANK TIERS ===', 'system');
+        for (const r of data.ranks) {
+          const range = r.minLevel === r.maxLevel ? `${r.minLevel}` : `${r.minLevel}-${r.maxLevel}`;
+          ctx.addLine(`  Level ${range.padEnd(7)} ${r.title}`, 'info');
+        }
+        ctx.addLine('', 'info');
+        ctx.addLine('=== SHIP LEVEL GATES ===', 'system');
+        for (const [ship, level] of Object.entries(data.shipGates)) {
+          ctx.addLine(`  ${(ship as string).padEnd(14)} Level ${level}`, 'info');
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Ranks failed', 'error'));
+      break;
+
     case 'dealer':
       api.getDealer().then(({ data }) => {
         ctx.addLine('=== SHIP DEALER ===', 'system');
         for (const ship of data.ships) {
-          ctx.addLine(`  ${ship.name.padEnd(24)} ${String(ship.price).padStart(8)} cr  W:${ship.baseWeaponEnergy} C:${ship.baseCargoHolds} E:${ship.baseEngineEnergy}`, 'info');
+          const lock = ship.locked ? ` [Lv.${ship.requiredLevel}]` : '';
+          ctx.addLine(`  ${ship.name.padEnd(24)} ${String(ship.price).padStart(8)} cr  W:${ship.baseWeaponEnergy} C:${ship.baseCargoHolds} E:${ship.baseEngineEnergy}${lock}`, ship.locked ? 'warning' : 'info');
         }
         ctx.addLine('Use "buyship <type>" to purchase', 'info');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'No star mall here', 'error'));
@@ -245,6 +405,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     case 'buyship': {
       if (args.length < 1) { ctx.addLine('Usage: buyship <ship_type>', 'error'); break; }
       api.buyShip(args[0]).then(({ data }) => {
+        ctx.enqueueScene?.(buildDealerScene(data.shipType ?? args[0]));
         ctx.addLine(`Purchased ${data.shipType}! Credits remaining: ${data.newCredits.toLocaleString()}`, 'success');
         ctx.refreshStatus();
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Purchase failed', 'error'));
@@ -268,7 +429,10 @@ export function handleCommand(input: string, ctx: CommandContext): void {
 
     case 'chat': {
       if (args.length < 1) { ctx.addLine('Usage: chat <message>', 'error'); break; }
-      ctx.emit('chat:sector', { message: args.join(' ') });
+      const msg = args.join(' ');
+      const name = ctx.player?.username || 'You';
+      ctx.addLine(`[${name}] ${msg}`, 'info');
+      ctx.emit('chat:sector', { message: msg });
       break;
     }
 
@@ -283,70 +447,121 @@ export function handleCommand(input: string, ctx: CommandContext): void {
 
     case 'bounties':
       api.getBounties().then(({ data }) => {
+        ctx.enqueueScene?.(buildBountyBoardScene());
         if (data.bounties.length === 0) { ctx.addLine('No active bounties', 'info'); return; }
         ctx.addLine('=== ACTIVE BOUNTIES ===', 'system');
-        for (const b of data.bounties) {
-          ctx.addLine(`  ${b.targetUsername.padEnd(20)} ${String(b.amount).padStart(8)} cr  (placed by ${b.placedByUsername})`, 'warning');
-        }
+        data.bounties.forEach((b: any, i: number) => {
+          ctx.addLine(`  [${i + 1}] ${b.targetUsername.padEnd(20)} ${String(b.amount).padStart(8)} cr  (placed by ${b.placedByUsername})`, 'warning');
+        });
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch bounties', 'error'));
       break;
 
-    case 'mall':
+    case 'mall': {
+      const MALL_SERVICES: Record<string, { label: string; cmd: string }> = {
+        shipDealer:   { label: 'Ship Dealer',   cmd: 'dealer' },
+        generalStore: { label: 'General Store',  cmd: 'store' },
+        garage:       { label: 'Garage',         cmd: 'garage' },
+        salvageYard:  { label: 'Salvage Yard',   cmd: 'salvage' },
+        cantina:      { label: 'Cantina',        cmd: 'cantina' },
+        refueling:    { label: 'Refueling',      cmd: 'refuel' },
+        bountyBoard:  { label: 'Bounty Board',   cmd: 'bounties' },
+      };
       api.getStarMallOverview().then(({ data }) => {
         ctx.addLine('=== STAR MALL ===', 'system');
-        for (const [name, svc] of Object.entries(data.services) as [string, any][]) {
+        for (const [key, svc] of Object.entries(data.services) as [string, any][]) {
+          const info = MALL_SERVICES[key] ?? { label: key, cmd: '' };
           const extra = svc.storedShips != null ? ` (${svc.storedShips} ships stored)` :
             svc.activeBounties != null ? ` (${svc.activeBounties} active)` : '';
-          ctx.addLine(`  ${name.padEnd(16)} ${svc.available ? 'OPEN' : 'CLOSED'}${extra}`, svc.available ? 'success' : 'warning');
+          const hint = info.cmd ? `  → type "${info.cmd}"` : '';
+          ctx.addLine(`  ${info.label.padEnd(16)} ${(svc.available ? 'OPEN' : 'CLOSED').padEnd(8)}${extra}${hint}`, svc.available ? 'success' : 'warning');
         }
         ctx.addLine(`Credits: ${data.credits.toLocaleString()}`, 'info');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
+    }
 
     case 'store':
       api.getStoreCatalog().then(({ data }) => {
         ctx.addLine('=== GENERAL STORE ===', 'system');
-        for (const item of data.items) {
+        data.items.forEach((item: any, i: number) => {
           const avail = item.canUse ? '' : ` [${item.reason}]`;
-          ctx.addLine(`  ${item.name.padEnd(28)} ${String(item.price).padStart(8)} cr  [${item.category}]${avail}`, item.canUse ? 'info' : 'warning');
-        }
-        ctx.addLine('Use "purchase <item_id>" to buy', 'info');
+          const itemId = item.id ?? item.itemId;
+          ctx.addLine(`  [${i + 1}] ${item.name.padEnd(24)} ${String(item.price).padStart(8)} cr  [${item.category}]${avail}  (${itemId})`, item.canUse ? 'info' : 'warning');
+        });
+        ctx.setLastListing(data.items.map((i: any) => ({ id: i.id ?? i.itemId, label: i.name })));
+        ctx.addLine('Use "purchase <name or #>" to buy', 'info');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
 
     case 'purchase': {
-      if (args.length < 1) { ctx.addLine('Usage: purchase <item_id>', 'error'); break; }
-      api.buyStoreItem(args[0]).then(({ data }) => {
-        ctx.addLine(`Purchased ${data.name || data.item}! Credits: ${data.newCredits?.toLocaleString() ?? 'N/A'}`, 'success');
-        ctx.refreshStatus();
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Purchase failed', 'error'));
+      if (args.length < 1) { ctx.addLine('Usage: purchase <name or #>', 'error'); break; }
+      const query = args.join(' ');
+      api.getStoreCatalog().then(({ data }) => {
+        const items = data.items.map((i: any) => ({ id: i.id ?? i.itemId, name: i.name }));
+        const result = resolveItem(query, items, ctx);
+        if (result === null) { ctx.addLine(`No item matching "${query}". Type "store" to see available items.`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.buyStoreItem(result.id).then(({ data: buyData }) => {
+          ctx.addLine(`Purchased ${buyData.name || buyData.item}! Credits: ${buyData.newCredits?.toLocaleString() ?? 'N/A'}`, 'success');
+          ctx.refreshStatus();
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Purchase failed', 'error'));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
     }
 
     case 'inventory':
       api.getInventory().then(({ data }) => {
-        if (data.inventory.length === 0) { ctx.addLine('Your inventory is empty', 'info'); return; }
-        ctx.addLine('=== INVENTORY ===', 'system');
-        for (const item of data.inventory) {
-          ctx.addLine(`  ${item.name} (${item.itemId})`, 'info');
+        const hasItems = data.inventory.length > 0;
+        const hasEquipped = data.equipped?.length > 0;
+        if (!hasItems && !hasEquipped) { ctx.addLine('Your inventory is empty', 'info'); return; }
+        if (hasItems) {
+          ctx.addLine('=== INVENTORY ===', 'system');
+          data.inventory.forEach((item: any, i: number) => {
+            const qty = item.quantity > 1 ? `x${item.quantity}` : '';
+            const cat = item.category ? ` [${item.category}]` : '';
+            ctx.addLine(`  [${i + 1}] ${item.name.padEnd(24)} ${qty.padStart(4)}${cat}  (${item.itemId})`, 'info');
+          });
+          ctx.setLastListing(data.inventory.map((i: any) => ({ id: i.itemId, label: i.name })));
+          ctx.addLine('Use "use <name or #>" to use an item', 'info');
         }
-        ctx.addLine('Use "use <item_id>" to use an item', 'info');
+        if (hasEquipped) {
+          ctx.addLine('=== EQUIPPED ===', 'system');
+          for (const eq of data.equipped) {
+            ctx.addLine(`  ${eq.name.padEnd(24)} [installed on ship]`, 'success');
+          }
+        }
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       break;
 
     case 'use': {
-      if (args.length < 1) { ctx.addLine('Usage: use <item_id> [args]', 'error'); break; }
-      const extra = args.length > 1 ? { sectorId: parseInt(args[1]) } : {};
-      api.useStoreItem(args[0], extra).then(({ data }) => {
-        ctx.addLine(`Used item successfully`, 'success');
-        if (data.sectorId) {
-          ctx.addLine(`Sector ${data.sectorId} [${data.sectorType}]:`, 'system');
-          if (data.players?.length) ctx.addLine(`  Players: ${data.players.join(', ')}`, 'warning');
-          if (data.outposts?.length) ctx.addLine(`  Outposts: ${data.outposts.join(', ')}`, 'info');
-          if (data.planets?.length) ctx.addLine(`  Planets: ${data.planets.map((p: any) => `${p.name} [${p.class}]`).join(', ')}`, 'info');
-        }
-        ctx.refreshStatus();
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Use failed', 'error'));
+      if (args.length < 1) { ctx.addLine('Usage: use <name or #> [args]', 'error'); break; }
+      // Separate extra args (e.g. sectorId) from the item query
+      // If last arg is a number and there are 2+ args, treat it as an extra arg
+      let itemQuery: string;
+      let extra: Record<string, any> = {};
+      if (args.length > 1 && !isNaN(parseInt(args[args.length - 1]))) {
+        extra = { sectorId: parseInt(args[args.length - 1]) };
+        itemQuery = args.slice(0, -1).join(' ');
+      } else {
+        itemQuery = args.join(' ');
+      }
+      api.getInventory().then(({ data }) => {
+        const items = data.inventory.map((i: any) => ({ id: i.itemId, name: i.name }));
+        const result = resolveItem(itemQuery, items, ctx);
+        if (result === null) { ctx.addLine(`No item matching "${itemQuery}". Type "inventory" to see your items.`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.useStoreItem(result.id, extra).then(({ data: useData }) => {
+          ctx.enqueueScene?.(buildScannerScene(ctx.player?.currentShip?.shipTypeId ?? 'scout'));
+          ctx.addLine(`Used item successfully`, 'success');
+          if (useData.sectorId) {
+            ctx.addLine(`Sector ${useData.sectorId} [${useData.sectorType}]:`, 'system');
+            if (useData.players?.length) ctx.addLine(`  Players: ${useData.players.join(', ')}`, 'warning');
+            if (useData.outposts?.length) ctx.addLine(`  Outposts: ${useData.outposts.join(', ')}`, 'info');
+            if (useData.planets?.length) ctx.addLine(`  Planets: ${useData.planets.map((p: any) => `${p.name} [${p.class}]`).join(', ')}`, 'info');
+          }
+          ctx.refreshStatus();
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Use failed', 'error'));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       break;
     }
 
@@ -354,15 +569,17 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       api.getGarage().then(({ data }) => {
         if (data.ships.length === 0) { ctx.addLine('No ships in garage', 'info'); return; }
         ctx.addLine('=== GARAGE ===', 'system');
-        for (const ship of data.ships) {
-          ctx.addLine(`  ${ship.name.padEnd(24)} W:${ship.weaponEnergy} E:${ship.engineEnergy} C:${ship.cargoHolds}  [${ship.id.slice(0, 8)}]`, 'info');
-        }
-        ctx.addLine('Use "retrieve <ship_id>" to get a ship', 'info');
+        data.ships.forEach((ship: any, i: number) => {
+          ctx.addLine(`  [${i + 1}] ${ship.name.padEnd(20)} W:${ship.weaponEnergy} E:${ship.engineEnergy} C:${ship.cargoHolds}  (${ship.id.slice(0, 8)})`, 'info');
+        });
+        ctx.setLastListing(data.ships.map((s: any) => ({ id: s.id, label: s.name })));
+        ctx.addLine('Use "retrieve <name or #>" to get a ship', 'info');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
 
     case 'storeship':
       api.storeShipInGarage().then(({ data }) => {
+        ctx.enqueueScene?.(buildGarageScene(ctx.player?.currentShip?.shipTypeId ?? 'scout', false));
         ctx.addLine(`Ship stored in garage. Switched to ${data.switchedTo.slice(0, 8)}`, 'success');
         if (data.note) ctx.addLine(data.note, 'warning');
         ctx.refreshStatus();
@@ -370,43 +587,84 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       break;
 
     case 'retrieve': {
-      if (args.length < 1) { ctx.addLine('Usage: retrieve <ship_id>', 'error'); break; }
-      api.retrieveShipFromGarage(args[0]).then(({ data }) => {
-        ctx.addLine(`Retrieved ${data.name} from garage`, 'success');
-        ctx.refreshStatus();
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Retrieve failed', 'error'));
+      if (args.length < 1) { ctx.addLine('Usage: retrieve <name or #>', 'error'); break; }
+      const query = args.join(' ');
+      api.getGarage().then(({ data }) => {
+        const items = data.ships.map((s: any) => ({ id: s.id, name: s.name }));
+        const result = resolveItem(query, items, ctx);
+        if (result === null) { ctx.addLine(`No ship matching "${query}". Type "garage" to see stored ships.`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.retrieveShipFromGarage(result.id).then(({ data: retData }) => {
+          ctx.enqueueScene?.(buildGarageScene(retData.shipTypeId ?? 'scout', true));
+          ctx.addLine(`Retrieved ${retData.name} from garage`, 'success');
+          ctx.refreshStatus();
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Retrieve failed', 'error'));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
     }
 
     case 'salvage':
       if (args.length > 0 && args[0] !== 'list') {
-        api.salvageShip(args[0]).then(({ data }) => {
-          ctx.addLine(`Salvaged ${data.shipType} for ${data.salvageValue.toLocaleString()} credits`, 'success');
-          ctx.refreshStatus();
-        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Salvage failed', 'error'));
+        const query = args.join(' ');
+        api.getSalvageOptions().then(({ data }) => {
+          const items = data.ships.map((s: any) => ({ id: s.id, name: s.name }));
+          const result = resolveItem(query, items, ctx);
+          if (result === null) { ctx.addLine(`No ship matching "${query}". Type "salvage" to see options.`, 'error'); return; }
+          if (result === 'ambiguous') return;
+          api.salvageShip(result.id).then(({ data: salvData }) => {
+            ctx.enqueueScene?.(buildSalvageScene(salvData.shipType ?? 'scout'));
+            ctx.addLine(`Salvaged ${salvData.shipType} for ${salvData.salvageValue.toLocaleString()} credits`, 'success');
+            ctx.refreshStatus();
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Salvage failed', 'error'));
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       } else {
         api.getSalvageOptions().then(({ data }) => {
           if (data.ships.length === 0) { ctx.addLine('No ships available for salvage', 'info'); return; }
           ctx.addLine('=== SALVAGE YARD ===', 'system');
-          for (const ship of data.ships) {
+          data.ships.forEach((ship: any, i: number) => {
             const status = ship.hasCargo ? ' [has cargo!]' : '';
-            ctx.addLine(`  ${ship.name.padEnd(24)} ${String(ship.salvageValue).padStart(8)} cr${status}  [${ship.id.slice(0, 8)}]`, ship.hasCargo ? 'warning' : 'info');
-          }
-          ctx.addLine('Use "salvage <ship_id>" to sell', 'info');
+            ctx.addLine(`  [${i + 1}] ${ship.name.padEnd(20)} ${String(ship.salvageValue).padStart(8)} cr${status}  (${ship.id.slice(0, 8)})`, ship.hasCargo ? 'warning' : 'info');
+          });
+          ctx.setLastListing(data.ships.map((s: any) => ({ id: s.id, label: s.name })));
+          ctx.addLine('Use "salvage <name or #>" to sell', 'info');
         }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       }
       break;
 
     case 'cantina':
       api.getCantina().then(({ data }) => {
+        ctx.enqueueScene?.(buildCantinaScene(ctx.player?.currentShip?.shipTypeId ?? 'scout'));
         ctx.addLine('=== CANTINA ===', 'system');
         ctx.addLine(`"${data.rumor}"`, 'info');
         ctx.addLine(`Intel available for ${data.intelCost} credits. Type "intel" to buy.`, 'trade');
+        if (data.cantinaUnlocked) {
+          ctx.addLine('The bartender nods at you. Type "cantinatalk" (ct) for work.', 'info');
+        } else {
+          ctx.addLine('The bartender ignores you. Complete "The Bartender\'s Trust" mission to unlock.', 'info');
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
+      break;
+
+    case 'cantinatalk':
+      api.talkBartender().then(({ data }) => {
+        ctx.addLine('=== BARTENDER ===', 'system');
+        ctx.addLine(`"${data.dialogue}"`, 'info');
+        if (data.hasMission && data.mission) {
+          const m = data.mission;
+          const xpStr = m.rewardXp ? ` + ${m.rewardXp} XP` : '';
+          ctx.addLine('', 'info');
+          ctx.addLine(`  Mission: ${m.title} [T${m.tier}] (${m.type})`, 'trade');
+          ctx.addLine(`  ${m.description}`, 'info');
+          ctx.addLine(`  Reward: ${m.rewardCredits.toLocaleString()} cr${xpStr}`, 'trade');
+          ctx.addLine(`Use "accept ${m.id.slice(0, 8)}" to take the job`, 'info');
+          ctx.setLastListing([{ id: m.id, label: m.title }]);
+        }
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
 
     case 'intel':
       api.buyCantineIntel().then(({ data }) => {
+        ctx.enqueueScene?.(buildCantinaScene(ctx.player?.currentShip?.shipTypeId ?? 'scout'));
         ctx.addLine('=== SECTOR INTELLIGENCE ===', 'system');
         ctx.addLine('Richest Outposts:', 'info');
         for (const o of data.intel.richOutposts) {
@@ -426,6 +684,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     case 'refuel': {
       const qty = args.length > 0 ? parseInt(args[0]) : 50;
       api.refuel(isNaN(qty) ? 50 : qty).then(({ data }) => {
+        ctx.enqueueScene?.(buildRefuelScene(ctx.player?.currentShip?.shipTypeId ?? 'scout'));
         ctx.addLine(`Refueled ${data.refueled} energy for ${data.cost} credits. Energy: ${data.newEnergy}`, 'success');
         ctx.refreshStatus();
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Refuel failed', 'error'));
@@ -437,6 +696,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       const tollAmt = args.length > 1 ? parseInt(args[1]) : undefined;
       const buoyMsg = args.length > 1 ? args.slice(1).join(' ') : undefined;
       api.deploy(args[0], tollAmt, buoyMsg).then(({ data }) => {
+        ctx.enqueueScene?.(buildDeployScene(ctx.player?.currentShip?.shipTypeId ?? 'scout', data.type ?? args[0]));
         ctx.addLine(`Deployed ${data.type} in sector ${data.sectorId}. Credits: ${data.newCredits.toLocaleString()}`, 'success');
         ctx.refreshStatus();
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Deploy failed', 'error'));
@@ -460,49 +720,150 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           if (data.missions.length === 0) { ctx.addLine('No completed missions', 'info'); return; }
           ctx.addLine('=== COMPLETED MISSIONS ===', 'system');
           for (const m of data.missions) {
-            ctx.addLine(`  ${m.title} | +${m.rewardCredits} cr`, 'success');
+            const xpStr = m.rewardXp ? ` + ${m.rewardXp} XP` : '';
+            ctx.addLine(`  [T${m.tier || '?'}] ${m.title} | +${m.rewardCredits.toLocaleString()} cr${xpStr}`, 'success');
           }
         }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       } else {
         api.getActiveMissions().then(({ data }) => {
           if (data.missions.length === 0) { ctx.addLine('No active missions. Visit a Star Mall mission board.', 'info'); return; }
-          ctx.addLine('=== ACTIVE MISSIONS ===', 'system');
-          for (const m of data.missions) {
-            const progress = JSON.stringify(m.progress);
-            ctx.addLine(`  [${m.missionId.slice(0, 8)}] ${m.title} (${m.type})`, 'info');
-            ctx.addLine(`    Progress: ${progress} | Reward: ${m.rewardCredits} cr`, 'trade');
+          const active = data.missions.filter((m: any) => m.claimStatus !== 'pending_claim');
+          const pending = data.missions.filter((m: any) => m.claimStatus === 'pending_claim');
+          ctx.addLine(`=== ACTIVE MISSIONS (${active.length}/${5}) ===`, 'system');
+          let idx = 0;
+          for (const m of active) {
+            idx++;
+            ctx.addLine(`  [${idx}] ${m.title} [T${m.tier || '?'}] (${m.type})`, 'info');
+            if (m.objectivesDetail && m.objectivesDetail.length > 0) {
+              for (const obj of m.objectivesDetail) {
+                const mark = obj.complete ? 'x' : ' ';
+                ctx.addLine(`      [${mark}] ${obj.description} (${obj.current}/${obj.target})`, obj.complete ? 'success' : 'trade');
+                if (obj.hint && !obj.complete) {
+                  ctx.addLine(`          Hint: ${obj.hint}`, 'info');
+                }
+              }
+            }
+            const xpStr = m.rewardXp ? ` + ${m.rewardXp} XP` : '';
+            ctx.addLine(`      Reward: ${m.rewardCredits.toLocaleString()} cr${xpStr}`, 'trade');
+            if (m.requiresClaimAtMall) {
+              ctx.addLine('      Status: Return to Star Mall to claim when complete', 'info');
+            }
           }
+          if (pending.length > 0) {
+            ctx.addLine('', 'info');
+            ctx.addLine(`=== PENDING CLAIM (${pending.length}) ===`, 'system');
+            for (const m of pending) {
+              idx++;
+              const xpStr = m.rewardXp ? ` + ${m.rewardXp} XP` : '';
+              ctx.addLine(`  [${idx}] ${m.title} [T${m.tier || '?'}] — COMPLETE`, 'success');
+              ctx.addLine(`      Reward: ${m.rewardCredits.toLocaleString()} cr${xpStr}`, 'trade');
+              ctx.addLine('      Visit any Star Mall and use "claimreward" to collect', 'info');
+            }
+          }
+          ctx.setLastListing(data.missions.map((m: any) => ({ id: m.missionId, label: m.title })));
         }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       }
       break;
 
     case 'missionboard':
       api.getAvailableMissions().then(({ data }) => {
+        ctx.enqueueScene?.(buildMissionBoardScene());
         if (data.missions.length === 0) { ctx.addLine('No missions available', 'info'); return; }
         ctx.addLine('=== MISSION BOARD ===', 'system');
+        // Group by tier
+        const tiers: Record<number, any[]> = {};
         for (const m of data.missions) {
-          ctx.addLine(`  [${m.id.slice(0, 8)}] ${m.title} (Diff: ${m.difficulty})`, 'info');
-          ctx.addLine(`    ${m.description}`, 'info');
-          ctx.addLine(`    Reward: ${m.rewardCredits} cr${m.timeLimitMinutes ? ` | Time: ${m.timeLimitMinutes}m` : ''}`, 'trade');
+          const t = m.tier || 1;
+          if (!tiers[t]) tiers[t] = [];
+          tiers[t].push(m);
         }
-        ctx.addLine('Use "accept <mission_id>" to accept', 'info');
+        let mIdx = 0;
+        for (const tier of Object.keys(tiers).map(Number).sort()) {
+          ctx.addLine(`--- Tier ${tier} ---`, 'system');
+          for (const m of tiers[tier]) {
+            mIdx++;
+            const xpStr = m.rewardXp ? ` + ${m.rewardXp} XP` : '';
+            const lockStr = m.prerequisiteMissionId && !m.prerequisiteMet ? ' [LOCKED - prerequisite]' : '';
+            ctx.addLine(`  [${mIdx}] ${m.title} (${m.type}) — ${m.rewardCredits.toLocaleString()} cr${xpStr}${lockStr}`, 'info');
+            ctx.addLine(`    ${m.description}`, 'info');
+          }
+        }
+        // Show locked tiers
+        if (data.lockedTiers && data.lockedTiers.length > 0) {
+          for (const lt of data.lockedTiers) {
+            ctx.addLine(`--- Tier ${lt.tier} [LOCKED - Requires Level ${lt.requiredLevel}] ---`, 'error');
+          }
+        }
+        ctx.setLastListing(data.missions.map((m: any) => ({ id: m.id, label: m.title })));
+        ctx.addLine('Use "accept <# or keyword>" to accept', 'info');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
 
+    case 'claimreward': {
+      const claimArg = args[0];
+      api.getClaimableMissions().then(async ({ data }) => {
+        if (data.missions.length === 0) {
+          ctx.addLine('No missions to claim. Complete missions that require Star Mall claims first.', 'info');
+          return;
+        }
+        let missionToClaim: any = null;
+        if (data.missions.length === 1 && !claimArg) {
+          missionToClaim = data.missions[0];
+        } else if (claimArg) {
+          const idx = parseInt(claimArg, 10);
+          if (!isNaN(idx) && idx >= 1 && idx <= data.missions.length) {
+            missionToClaim = data.missions[idx - 1];
+          }
+        }
+        if (!missionToClaim) {
+          ctx.addLine('=== CLAIMABLE MISSIONS ===', 'system');
+          data.missions.forEach((m: any, i: number) => {
+            const xpStr = m.rewardXp ? ` + ${m.rewardXp} XP` : '';
+            ctx.addLine(`  [${i + 1}] ${m.title} — ${m.rewardCredits.toLocaleString()} cr${xpStr}`, 'trade');
+          });
+          ctx.addLine('Use "claimreward <#>" to claim', 'info');
+          return;
+        }
+        try {
+          const { data: result } = await api.claimMission(missionToClaim.missionId);
+          ctx.addLine(`Claimed: ${result.title}`, 'success');
+          ctx.addLine(`  +${result.creditsAwarded.toLocaleString()} credits, +${result.xpAwarded} XP`, 'success');
+          ctx.addLine(`  Credits: ${result.newCredits.toLocaleString()}`, 'trade');
+        } catch (err: any) {
+          ctx.addLine(err.response?.data?.error || 'Failed to claim', 'error');
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Must be at a Star Mall', 'error'));
+      break;
+    }
+
     case 'accept': {
-      if (args.length < 1) { ctx.addLine('Usage: accept <mission_id>', 'error'); break; }
-      api.acceptMission(args[0]).then(({ data }) => {
-        ctx.addLine(`Accepted: ${data.title}`, 'success');
-        ctx.addLine(`Reward: ${data.rewardCredits} cr${data.expiresAt ? ` | Expires: ${new Date(data.expiresAt).toLocaleTimeString()}` : ''}`, 'trade');
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Accept failed', 'error'));
+      if (args.length < 1) { ctx.addLine('Usage: accept <# or keyword>', 'error'); break; }
+      const query = args.join(' ');
+      api.getAvailableMissions().then(({ data }) => {
+        const items = data.missions.map((m: any) => ({ id: m.id, name: m.title }));
+        const result = resolveItem(query, items, ctx);
+        if (result === null) { ctx.addLine(`No mission matching "${query}". Type "missionboard" to see available missions.`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.acceptMission(result.id).then(({ data: accData }) => {
+          ctx.addLine(`Accepted: ${accData.title}`, 'success');
+          ctx.addLine(`Reward: ${accData.rewardCredits} cr${accData.expiresAt ? ` | Expires: ${new Date(accData.expiresAt).toLocaleTimeString()}` : ''}`, 'trade');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Accept failed', 'error'));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
     }
 
     case 'abandon': {
-      if (args.length < 1) { ctx.addLine('Usage: abandon <mission_id>', 'error'); break; }
-      api.abandonMission(args[0]).then(() => {
-        ctx.addLine('Mission abandoned', 'warning');
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Abandon failed', 'error'));
+      if (args.length < 1) { ctx.addLine('Usage: abandon <# or keyword>', 'error'); break; }
+      const query = args.join(' ');
+      api.getActiveMissions().then(({ data }) => {
+        const items = data.missions.map((m: any) => ({ id: m.missionId, name: m.title }));
+        const result = resolveItem(query, items, ctx);
+        if (result === null) { ctx.addLine(`No mission matching "${query}". Type "missions" to see active missions.`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.abandonMission(result.id).then(() => {
+          ctx.addLine('Mission abandoned', 'warning');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Abandon failed', 'error'));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       break;
     }
 
@@ -553,7 +914,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
             }
           }
           ctx.addLine('Use "leaderboard <category>" for full rankings', 'info');
-          ctx.addLine('Categories: credits, planets, combat, explored, trade, syndicate', 'info');
+          ctx.addLine('Categories: credits, planets, combat, explored, trade, syndicate, level', 'info');
         }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       }
       break;
@@ -609,11 +970,12 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       api.getAvailableUpgrades().then(({ data }) => {
         if (data.upgrades.length === 0) { ctx.addLine('No upgrades available', 'info'); return; }
         ctx.addLine('=== AVAILABLE UPGRADES ===', 'system');
-        for (const u of data.upgrades) {
-          ctx.addLine(`  ${u.name.padEnd(20)} ${String(u.price).padStart(8)} cr  [${u.slot}] +${u.statBonus}`, 'info');
-          ctx.addLine(`    ${u.description} (ID: ${u.id})`, 'info');
-        }
-        ctx.addLine('Use "install <upgrade_id>" to install', 'info');
+        data.upgrades.forEach((u: any, i: number) => {
+          ctx.addLine(`  [${i + 1}] ${u.name.padEnd(20)} ${String(u.price).padStart(8)} cr  [${u.slot}] +${u.statBonus}`, 'info');
+          ctx.addLine(`    ${u.description} (${u.id})`, 'info');
+        });
+        ctx.setLastListing(data.upgrades.map((u: any) => ({ id: u.id, label: u.name })));
+        ctx.addLine('Use "install <name or #>" to install', 'info');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
 
@@ -621,28 +983,44 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       api.getShipUpgrades().then(({ data }) => {
         if (data.upgrades.length === 0) { ctx.addLine('No upgrades installed on current ship', 'info'); return; }
         ctx.addLine('=== SHIP UPGRADES ===', 'system');
-        for (const u of data.upgrades) {
-          ctx.addLine(`  ${u.name.padEnd(20)} [${u.slot}] +${u.effectiveBonus}  (${u.installId.slice(0, 8)})`, 'info');
-        }
-        ctx.addLine('Use "uninstall <install_id>" to remove', 'info');
+        data.upgrades.forEach((u: any, i: number) => {
+          ctx.addLine(`  [${i + 1}] ${u.name.padEnd(20)} [${u.slot}] +${u.effectiveBonus}  (${u.installId.slice(0, 8)})`, 'info');
+        });
+        ctx.setLastListing(data.upgrades.map((u: any) => ({ id: u.installId, label: u.name })));
+        ctx.addLine('Use "uninstall <name or #>" to remove', 'info');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
 
     case 'install': {
-      if (args.length < 1) { ctx.addLine('Usage: install <upgrade_type_id>', 'error'); break; }
-      api.installUpgrade(args[0]).then(({ data }) => {
-        ctx.addLine(`Installed ${data.name} [${data.slot}] +${data.effectiveBonus}`, 'success');
-        ctx.addLine(`Credits: ${data.newCredits.toLocaleString()}`, 'trade');
-        ctx.refreshStatus();
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Install failed', 'error'));
+      if (args.length < 1) { ctx.addLine('Usage: install <name or #>', 'error'); break; }
+      const query = args.join(' ');
+      api.getAvailableUpgrades().then(({ data }) => {
+        const items = data.upgrades.map((u: any) => ({ id: u.id, name: u.name }));
+        const result = resolveItem(query, items, ctx);
+        if (result === null) { ctx.addLine(`No upgrade matching "${query}". Type "upgrades" to see available options.`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.installUpgrade(result.id).then(({ data: installData }) => {
+          ctx.enqueueScene?.(buildUpgradeScene(ctx.player?.currentShip?.shipTypeId ?? 'scout'));
+          ctx.addLine(`Installed ${installData.name} [${installData.slot}] +${installData.effectiveBonus}`, 'success');
+          ctx.addLine(`Credits: ${installData.newCredits.toLocaleString()}`, 'trade');
+          ctx.refreshStatus();
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Install failed', 'error'));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
     }
 
     case 'uninstall': {
-      if (args.length < 1) { ctx.addLine('Usage: uninstall <install_id>', 'error'); break; }
-      api.uninstallUpgrade(args[0]).then(() => {
-        ctx.addLine('Upgrade removed', 'success');
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Uninstall failed', 'error'));
+      if (args.length < 1) { ctx.addLine('Usage: uninstall <name or #>', 'error'); break; }
+      const query = args.join(' ');
+      api.getShipUpgrades().then(({ data }) => {
+        const items = data.upgrades.map((u: any) => ({ id: u.installId, name: u.name }));
+        const result = resolveItem(query, items, ctx);
+        if (result === null) { ctx.addLine(`No upgrade matching "${query}". Type "shipupgrades" to see installed upgrades.`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.uninstallUpgrade(result.id).then(() => {
+          ctx.addLine('Upgrade removed', 'success');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Uninstall failed', 'error'));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
     }
 
@@ -677,12 +1055,14 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         const gate = ctx.sector?.warpGates?.[0];
         if (args[0]) {
           api.useWarpGate(args[0]).then(({ data }) => {
+            ctx.enqueueScene?.(buildWarpGateScene(ctx.player?.currentShip?.shipTypeId ?? 'scout'));
             ctx.addLine(`Warped to sector ${data.destinationSectorId}!${data.tollPaid > 0 ? ` Toll: ${data.tollPaid} cr` : ''}`, 'success');
             ctx.refreshStatus();
             ctx.refreshSector();
           }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Warp failed', 'error'));
         } else if (gate) {
           api.useWarpGate(gate.id).then(({ data }) => {
+            ctx.enqueueScene?.(buildWarpGateScene(ctx.player?.currentShip?.shipTypeId ?? 'scout'));
             ctx.addLine(`Warped to sector ${data.destinationSectorId}!${data.tollPaid > 0 ? ` Toll: ${data.tollPaid} cr` : ''}`, 'success');
             ctx.refreshStatus();
             ctx.refreshSector();
@@ -694,94 +1074,325 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       break;
     }
 
-    case 'help': {
-      if (args.length > 0) {
-        const cmd = args[0].toLowerCase();
-        const helpLines = getHelpForCommand(cmd);
-        helpLines.forEach(line => ctx.addLine(line, 'info'));
+    // === NOTES ===
+    case 'note': {
+      if (args.length < 1) { ctx.addLine('Usage: note <text> — create a note, or: note del <id>', 'error'); break; }
+      if (args[0] === 'del' && args[1]) {
+        const prefix = args[1].toLowerCase();
+        api.getNotes().then(({ data }) => {
+          const match = data.notes.find((n: any) => n.id.toLowerCase().startsWith(prefix));
+          if (!match) { ctx.addLine('Note not found', 'error'); return; }
+          api.deleteNote(match.id).then(() => {
+            ctx.addLine('Note deleted', 'success');
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Delete failed', 'error'));
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       } else {
-        ctx.addLine('=== COMMANDS ===', 'system');
-        ctx.addLine('  move <sector>       (m)   Move to adjacent sector', 'info');
-        ctx.addLine('  look                (l)   View current sector', 'info');
-        ctx.addLine('  scan                (s)   Scan adjacent sectors', 'info');
-        ctx.addLine('  status              (st)  View your status', 'info');
-        ctx.addLine('  map                        View explored map', 'info');
-        ctx.addLine('  dock                (d)   Dock at outpost', 'info');
-        ctx.addLine('  buy <item> <qty>           Buy from outpost', 'info');
-        ctx.addLine('  sell <item> <qty>          Sell to outpost', 'info');
-        ctx.addLine('  fire <player> <nrg> (f)   Attack player', 'info');
-        ctx.addLine('  flee                       Escape combat', 'info');
-        ctx.addLine('  land <planet>              View planet details', 'info');
-        ctx.addLine('  claim <planet>             Claim unclaimed planet', 'info');
-        ctx.addLine('  colonize <planet> <qty>    Deposit colonists', 'info');
-        ctx.addLine('  collect <planet> <qty>     Collect from seed planet', 'info');
-        ctx.addLine('  upgrade <planet>           Upgrade your planet', 'info');
-        ctx.addLine('  dealer              (ships) View ship dealer', 'info');
-        ctx.addLine('  buyship <type>             Purchase a ship', 'info');
-        ctx.addLine('  cloak                      Toggle cloaking', 'info');
-        ctx.addLine('  eject <item> <qty>         Jettison cargo', 'info');
-        ctx.addLine('  chat <msg>          (say)  Sector chat', 'info');
-        ctx.addLine('  bounties                   View active bounties', 'info');
-        ctx.addLine('--- Star Mall ---', 'system');
-        ctx.addLine('  mall                       Star mall overview', 'info');
-        ctx.addLine('  store                      Browse general store', 'info');
-        ctx.addLine('  purchase <id>              Buy store item', 'info');
-        ctx.addLine('  inventory                  View your items', 'info');
-        ctx.addLine('  use <id> [args]            Use consumable item', 'info');
-        ctx.addLine('  garage                     View stored ships', 'info');
-        ctx.addLine('  storeship                  Store current ship', 'info');
-        ctx.addLine('  retrieve <id>              Retrieve stored ship', 'info');
-        ctx.addLine('  salvage [id]               Salvage yard / sell ship', 'info');
-        ctx.addLine('  cantina                    Visit the cantina', 'info');
-        ctx.addLine('  intel                      Buy sector intelligence', 'info');
-        ctx.addLine('  refuel [qty]               Buy energy', 'info');
-        ctx.addLine('  deploy <item> [args]       Deploy mine/drone/buoy', 'info');
-        ctx.addLine('  combatlog                  View combat history', 'info');
-        ctx.addLine('--- Missions ---', 'system');
-        ctx.addLine('  missions [completed]       View active/completed missions', 'info');
-        ctx.addLine('  missionboard               Browse available missions', 'info');
-        ctx.addLine('  accept <id>                Accept a mission', 'info');
-        ctx.addLine('  abandon <id>               Abandon a mission', 'info');
-        ctx.addLine('--- Events ---', 'system');
-        ctx.addLine('  investigate [id]           Investigate sector anomaly', 'info');
-        ctx.addLine('--- Leaderboards ---', 'system');
-        ctx.addLine('  leaderboard [cat]   (lb)  View rankings', 'info');
-        ctx.addLine('--- Mail ---', 'system');
-        ctx.addLine('  mail                       View inbox', 'info');
-        ctx.addLine('  mail read <id>             Read message', 'info');
-        ctx.addLine('  mail send <to> <subj> <body> Send message', 'info');
-        ctx.addLine('  mail delete <id>           Delete message', 'info');
-        ctx.addLine('  mail sent                  View sent messages', 'info');
-        ctx.addLine('--- Upgrades ---', 'system');
-        ctx.addLine('  upgrades                   Available ship upgrades', 'info');
-        ctx.addLine('  shipupgrades               View installed upgrades', 'info');
-        ctx.addLine('  install <id>               Install upgrade', 'info');
-        ctx.addLine('  uninstall <id>             Remove upgrade', 'info');
-        ctx.addLine('--- Warp Gates ---', 'system');
-        ctx.addLine('  warp [gate_id]             Use warp gate', 'info');
-        ctx.addLine('  warp build <sector>        Build warp gate', 'info');
-        ctx.addLine('  warp toll <gate> <amt>     Set gate toll', 'info');
-        ctx.addLine('  warp list                  Syndicate gates', 'info');
-        ctx.addLine('---', 'system');
-        ctx.addLine('  help <cmd>          (?)   Detailed command help', 'info');
+        const content = args.join(' ');
+        api.createNote(content).then(({ data }) => {
+          ctx.addLine(`Note saved [${data.id.slice(0, 8)}]`, 'success');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to save note', 'error'));
       }
       break;
     }
+
+    case 'notes': {
+      if (args[0] === 'search' && args.length > 1) {
+        const term = args.slice(1).join(' ');
+        api.getNotes(term).then(({ data }) => {
+          if (data.notes.length === 0) { ctx.addLine('No matching notes', 'info'); return; }
+          ctx.addLine(`=== NOTES (search: ${term}) ===`, 'system');
+          for (const n of data.notes) {
+            ctx.addLine(`  [${n.id.slice(0, 8)}] ${n.content}`, 'info');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      } else {
+        api.getNotes().then(({ data }) => {
+          if (data.notes.length === 0) { ctx.addLine('No notes yet', 'info'); return; }
+          ctx.addLine('=== NOTES ===', 'system');
+          for (const n of data.notes) {
+            ctx.addLine(`  [${n.id.slice(0, 8)}] ${n.content}`, 'info');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      }
+      break;
+    }
+
+    case 'tips': {
+      ctx.addLine('=== TIPS ===', 'system');
+      ctx.addLine('Type "help <category>" for commands in a specific area.', 'info');
+      const p = ctx.player;
+      const s = ctx.sector;
+      if (s?.hasStarMall) {
+        ctx.addLine('You\'re at a Star Mall! Try: "upgrades" to see ship improvements, "missionboard" for missions, "store" for items.', 'success');
+      }
+      if (p?.currentShip) {
+        const total = p.currentShip.cyrilliumCargo + p.currentShip.foodCargo + p.currentShip.techCargo + p.currentShip.colonistsCargo;
+        if (total > 0) {
+          ctx.addLine('You\'re carrying cargo. Find an outpost to "sell" it — buy low, sell high!', 'trade');
+        }
+      }
+      ctx.addLine('Explore more sectors to find Star Malls, outposts, and planets. Use "map" to see where you\'ve been.', 'info');
+      ctx.addLine('Outposts that BUY goods pay more. Outposts that SELL goods charge less. Check "dock" prices.', 'trade');
+      ctx.addLine('See another player? "fire <name> <energy>" to attack. "flee" to escape.', 'combat');
+      ctx.addLine('Check your mission progress with "missions".', 'info');
+      break;
+    }
+
+    case 'help': {
+      if (args.length > 0) {
+        const query = args[0].toLowerCase();
+        // Check if it's a category first
+        const categoryLines = getHelpForCategory(query);
+        if (categoryLines) {
+          categoryLines.forEach(line => ctx.addLine(line.text, line.type));
+        } else {
+          // Try as a command
+          const cmdLines = getHelpForCommand(query);
+          cmdLines.forEach(line => ctx.addLine(line, 'info'));
+        }
+      } else {
+        ctx.addLine('=== COMMAND CATEGORIES ===', 'system');
+        ctx.addLine('  navigation    Movement & exploration (move, look, scan, map)', 'info');
+        ctx.addLine('  trading       Buying & selling goods (dock, buy, sell)', 'info');
+        ctx.addLine('  combat        Fighting & fleeing (fire, flee)', 'info');
+        ctx.addLine('  planets       Planet management (land, claim, colonize, collect, upgrade)', 'info');
+        ctx.addLine('  ships         Ships & garage (dealer, buyship, cloak, eject, garage, storeship, retrieve, salvage)', 'info');
+        ctx.addLine('  upgrades      Ship upgrades (upgrades, shipupgrades, install, uninstall)', 'info');
+        ctx.addLine('  store         Store & items (mall, store, purchase, inventory, use, refuel)', 'info');
+        ctx.addLine('  deploy        Deployables (deploy)', 'info');
+        ctx.addLine('  missions      Missions (missions, missionboard, accept, abandon, claimreward, cantinatalk)', 'info');
+        ctx.addLine('  social        Social features (chat, bounties, leaderboard)', 'info');
+        ctx.addLine('  mail          Messaging (mail read/send/delete/sent)', 'info');
+        ctx.addLine('  notes         Notes (note, notes)', 'info');
+        ctx.addLine('  warp          Warp gates (warp use/build/toll/list)', 'info');
+        ctx.addLine('  progression   Leveling & achievements (profile, achievements, ranks)', 'info');
+        ctx.addLine('  events        Events (investigate)', 'info');
+        ctx.addLine('', 'info');
+        ctx.addLine('Type "help <category>" for commands or "help <command>" for details.', 'info');
+        ctx.addLine('Type "tips" for contextual guidance.', 'info');
+      }
+      break;
+    }
+
+    case 'clear':
+      ctx.clearLines();
+      break;
 
     default:
       ctx.addLine(`Unknown command: ${command}. Type "help" for commands.`, 'error');
   }
 }
 
+function getHelpForCategory(category: string): { text: string; type: 'info' | 'system' }[] | null {
+  const categories: Record<string, { title: string; commands: string[] }> = {
+    navigation: {
+      title: 'NAVIGATION',
+      commands: [
+        'move <sector>    (m)   Move to an adjacent sector',
+        'look             (l)   View current sector contents',
+        'scan             (s)   Scan adjacent sectors',
+        'map                    View your explored map',
+        'status           (st)  View your pilot status',
+      ],
+    },
+    trading: {
+      title: 'TRADING',
+      commands: [
+        'dock             (d)   Dock at outpost and view prices',
+        'undock           (ud)  Undock from outpost',
+        'buy <item> <qty>       Buy commodity (must be docked)',
+        'sell <item> <qty>      Sell commodity (must be docked)',
+      ],
+    },
+    combat: {
+      title: 'COMBAT',
+      commands: [
+        'fire <name> <nrg> (f)  Attack a player in your sector',
+        'flee                    Attempt to escape combat',
+        'combatlog               View combat history',
+      ],
+    },
+    planets: {
+      title: 'PLANETS',
+      commands: [
+        'planets [all]            List owned (or all discovered) planets',
+        'land <name or #>       View planet details',
+        'claim <name or #>      Claim an unclaimed planet',
+        'colonize <name or #> <qty> Deposit colonists on planet',
+        'collect <name or #> <qty>  Collect colonists from seed planet',
+        'upgrade <name or #>    Upgrade your planet',
+      ],
+    },
+    ships: {
+      title: 'SHIPS & GARAGE',
+      commands: [
+        'dealer           (ships) View ship dealer',
+        'buyship <type>          Purchase a new ship',
+        'cloak                   Toggle cloaking device',
+        'eject <item> <qty>      Jettison cargo',
+        'garage                  View stored ships',
+        'storeship               Store current ship in garage',
+        'retrieve <name or #>    Retrieve ship from garage',
+        'salvage [name or #]     Salvage yard / sell a ship',
+      ],
+    },
+    upgrades: {
+      title: 'SHIP UPGRADES',
+      commands: [
+        'upgrades                View available upgrades',
+        'shipupgrades            View installed upgrades',
+        'install <name or #>     Install an upgrade',
+        'uninstall <name or #>   Remove an upgrade',
+      ],
+    },
+    store: {
+      title: 'STORE & ITEMS',
+      commands: [
+        'mall                    Star Mall overview',
+        'store                   Browse the general store',
+        'purchase <name or #>    Buy a store item',
+        'inventory               View your items',
+        'use <name or #> [args]  Use a consumable item',
+        'refuel [qty]    (fuel)  Buy energy (10 cr/unit)',
+      ],
+    },
+    deploy: {
+      title: 'DEPLOYABLES',
+      commands: [
+        'deploy <item> [args]    Deploy mine, drone, or buoy',
+      ],
+    },
+    missions: {
+      title: 'MISSIONS',
+      commands: [
+        'missions [completed]    View active or completed missions',
+        'missionboard    (mb)    Browse available missions (tiered)',
+        'accept <# or keyword>   Accept a mission',
+        'abandon <# or keyword>  Abandon a mission',
+        'claimreward [#] (cr)    Claim completed mission rewards at Star Mall',
+        'cantinatalk     (ct)    Talk to bartender for cantina missions',
+      ],
+    },
+    social: {
+      title: 'SOCIAL',
+      commands: [
+        'chat <msg>      (say)  Send sector chat message',
+        'bounties                View active bounties',
+        'leaderboard [cat] (lb) View rankings',
+      ],
+    },
+    mail: {
+      title: 'MAIL',
+      commands: [
+        'mail                    View inbox',
+        'mail read <id>          Read a message',
+        'mail send <to> <subj> <body>  Send a message',
+        'mail delete <id>        Delete a message',
+        'mail sent               View sent messages',
+      ],
+    },
+    notes: {
+      title: 'NOTES',
+      commands: [
+        'note <text>      (n)   Save a note',
+        'notes                   List all notes',
+        'notes search <term>     Search notes',
+        'note del <id>           Delete a note',
+      ],
+    },
+    warp: {
+      title: 'WARP GATES',
+      commands: [
+        'warp [gate_id]          Use a warp gate',
+        'warp build <sector>     Build a warp gate',
+        'warp toll <gate> <amt>  Set gate toll',
+        'warp list               View syndicate gates',
+      ],
+    },
+    progression: {
+      title: 'PROGRESSION',
+      commands: [
+        'profile    (p, rank, lvl)  View your level, XP, rank, and bonuses',
+        'achievements       (ach)   View earned & available achievements',
+        'ranks                      View rank tiers and ship level gates',
+      ],
+    },
+    events: {
+      title: 'EVENTS',
+      commands: [
+        'investigate [id]        Investigate a sector anomaly',
+      ],
+    },
+  };
+
+  const cat = categories[category];
+  if (!cat) return null;
+
+  const lines: { text: string; type: 'info' | 'system' }[] = [];
+  lines.push({ text: `=== ${cat.title} ===`, type: 'system' });
+  for (const cmd of cat.commands) {
+    lines.push({ text: `  ${cmd}`, type: 'info' });
+  }
+  return lines;
+}
+
 function getHelpForCommand(cmd: string): string[] {
   const help: Record<string, string[]> = {
-    move: ['move <sector_id>', '  Move your ship to an adjacent sector. Costs 1 AP.', '  Aliases: m'],
-    look: ['look', '  Display contents of your current sector.', '  Aliases: l'],
+    move: ['move <sector_id>', '  Move your ship to an adjacent sector. Costs 1 energy.', '  Aliases: m'],
+    look: ['look', '  Display contents of your current sector including players, outposts, planets, and anomalies.', '  Aliases: l'],
     scan: ['scan', '  Scan adjacent sectors for planets and players.', '  Requires a ship with a planetary scanner.', '  Aliases: s'],
-    buy: ['buy <commodity> <quantity>', '  Buy a commodity from the outpost in your sector.', '  Commodities: cyrillium, food, tech', '  Costs 1 AP.'],
-    sell: ['sell <commodity> <quantity>', '  Sell a commodity to the outpost in your sector.', '  Costs 1 AP.'],
-    fire: ['fire <player_name> <energy>', '  Fire weapons at a player in your sector.', '  Costs 2 AP.', '  Aliases: f, attack'],
+    status: ['status', '  View your pilot status: energy, credits, ship stats, and cargo.', '  Aliases: st'],
+    map: ['map', '  View your explored star chart including discovered Star Malls, outposts, and planets.'],
+    dock: ['dock', '  Dock at the outpost in your current sector. Required before buying/selling.', '  Aliases: d'],
+    undock: ['undock', '  Undock from the current outpost.', '  Aliases: ud'],
+    buy: ['buy <commodity> <quantity>', '  Buy a commodity from the outpost. Must be docked first.', '  Commodities: cyrillium, food, tech', '  Costs 1 energy.'],
+    sell: ['sell <commodity> <quantity>', '  Sell a commodity to the outpost. Must be docked first.', '  Costs 1 energy.'],
+    fire: ['fire <player_name> <energy>', '  Fire weapons at a player in your sector.', '  Damage scales with energy spent.', '  Aliases: f, attack'],
     flee: ['flee', '  Attempt to escape when under attack.', '  Success chance depends on number of attackers.'],
+    planets: ['planets [all|discovered]', '  List your owned planets, or use "planets all" to see all discovered planets.'],
+    land: ['land <name or #>', '  View details of a planet in your sector: class, colonists, stocks, and production.', '  Accepts planet name, partial match, or # from look listing.'],
+    claim: ['claim <name or #>', '  Claim an unclaimed planet in your sector as your own.', '  Accepts planet name, partial match, or # from look listing.'],
+    colonize: ['colonize <name or #> <quantity>', '  Deposit colonists from your ship onto a planet you own.', '  Accepts planet name, partial match, or # from look listing.'],
+    collect: ['collect <name or #> <quantity>', '  Collect colonists from a seed planet onto your ship.', '  Accepts planet name, partial match, or # from look listing.'],
+    upgrade: ['upgrade <name or #>', '  Upgrade a planet you own to the next level (requires resources).', '  Accepts planet name, partial match, or # from look listing.'],
+    dealer: ['dealer', '  View ships available for purchase at a Star Mall.', '  Aliases: ships'],
+    buyship: ['buyship <ship_type>', '  Purchase a new ship at a Star Mall.'],
+    cloak: ['cloak', '  Toggle your cloaking device on or off.'],
+    eject: ['eject <commodity> <quantity>', '  Jettison cargo from your ship into space.', '  Aliases: jettison'],
+    chat: ['chat <message>', '  Send a message to all players in your sector.', '  Aliases: say'],
+    bounties: ['bounties', '  View all active bounties on players.'],
+    profile: ['profile', '  View your level, XP progress, rank, and level bonuses.', '  Aliases: p, rank, lvl'],
+    achievements: ['achievements', '  View earned and available achievements.', '  Aliases: ach'],
+    ranks: ['ranks', '  View all rank tiers (levels 1-100) and ship level gates.'],
+    leaderboard: ['leaderboard [category]', '  View rankings.', '  Categories: credits, planets, combat, explored, trade, syndicate, level', '  Aliases: lb, top'],
+    mall: ['mall', '  View Star Mall services overview (requires Star Mall sector).'],
+    store: ['store', '  Browse items in the general store (requires Star Mall).'],
+    purchase: ['purchase <name or #>', '  Buy an item from the general store.', '  Accepts item name, partial match, or # from last listing.'],
+    inventory: ['inventory', '  View items in your inventory.'],
+    use: ['use <name or #> [args]', '  Use a consumable item from your inventory.', '  Accepts item name, partial match, or # from last listing.'],
+    refuel: ['refuel [quantity]', '  Buy energy at a Star Mall (10 credits per unit, max 200).', '  Aliases: fuel'],
+    deploy: ['deploy <item_id> [toll_amount] [buoy_message]', '  Deploy a mine, drone, or buoy in your sector.'],
+    missions: ['missions [completed]', '  View active missions with per-objective detail, or "missions completed" for history.'],
+    missionboard: ['missionboard', '  Browse tiered missions at a Star Mall. Shows locked tiers and prerequisites.', '  Aliases: mb'],
+    accept: ['accept <# or keyword>', '  Accept a mission from the mission board.', '  Accepts mission title keyword or # from last listing.'],
+    abandon: ['abandon <# or keyword>', '  Abandon an active mission.', '  Accepts mission title keyword or # from last listing.'],
+    claimreward: ['claimreward [#]', '  Claim rewards for completed missions at a Star Mall.', '  If one claimable: auto-claims. If multiple: shows list for selection.', '  Aliases: cr'],
+    cantinatalk: ['cantinatalk', '  Talk to the cantina bartender for exclusive underworld missions.', '  Requires completing "The Bartender\'s Trust" mission first.', '  Aliases: ct'],
+    investigate: ['investigate [event_id]', '  Investigate a sector anomaly. Costs 1 energy.'],
+    mail: ['mail [read|send|delete|sent]', '  View inbox, or use subcommands:', '  mail read <id> — Read a message', '  mail send <to> <subject> <body> — Send a message', '  mail delete <id> — Delete a message', '  mail sent — View sent messages'],
+    note: ['note <text>', '  Save a quick note. Use "note del <id>" to delete.', '  Aliases: n'],
+    notes: ['notes [search <term>]', '  List all notes, or search with "notes search <term>".'],
+    upgrades: ['upgrades', '  View available ship upgrades at a Star Mall.'],
+    shipupgrades: ['shipupgrades', '  View upgrades installed on your current ship.'],
+    install: ['install <name or #>', '  Install a ship upgrade.', '  Accepts upgrade name, partial match, or # from last listing.'],
+    uninstall: ['uninstall <name or #>', '  Remove an upgrade from your ship (at a Star Mall).', '  Accepts upgrade name, partial match, or # from last listing.'],
+    warp: ['warp [gate_id|build|toll|list]', '  Use a warp gate, or manage gates:', '  warp build <sector> — Build a warp gate', '  warp toll <gate> <amount> — Set gate toll', '  warp list — View syndicate gates'],
+    garage: ['garage', '  View ships stored in your garage (Star Mall).'],
+    storeship: ['storeship', '  Store your current ship in the garage (Star Mall).'],
+    retrieve: ['retrieve <name or #>', '  Retrieve a ship from your garage.', '  Accepts ship name, partial match, or # from last listing.'],
+    salvage: ['salvage [name or #]', '  View salvage options or sell a ship for credits.', '  Accepts ship name, partial match, or # from last listing.'],
+    combatlog: ['combatlog', '  View your recent combat history.'],
+    tips: ['tips', '  Show contextual tips and guidance based on your current situation.'],
   };
-  return help[cmd] || [`No detailed help for: ${cmd}`];
+  return help[cmd] || [`No detailed help for "${cmd}". Try "help" to see categories.`];
 }

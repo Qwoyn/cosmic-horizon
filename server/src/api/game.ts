@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
+import { applyUpgradesToShip } from '../engine/upgrades';
+import { awardXP, getPlayerProgress, getPlayerLevelBonuses } from '../engine/progression';
+import { checkAchievements } from '../engine/achievements';
+import { GAME_CONFIG } from '../config/game';
 import {
   handleTutorialStatus,
   handleTutorialSector,
@@ -24,6 +28,10 @@ router.get('/status', requireAuth, async (req, res) => {
       ? await db('ships').where({ id: player.current_ship_id }).first()
       : null;
 
+    const upgrades = ship ? await applyUpgradesToShip(ship.id) : null;
+    const progress = await getPlayerProgress(player.id);
+    const levelBonuses = await getPlayerLevelBonuses(player.id);
+
     res.json({
       id: player.id,
       username: player.username,
@@ -36,13 +44,20 @@ router.get('/status', requireAuth, async (req, res) => {
       tutorialCompleted: !!player.tutorial_completed,
       hasSeenIntro: !!player.has_seen_intro,
       hasSeenPostTutorial: !!player.has_seen_post_tutorial,
+      walletAddress: player.wallet_address || null,
+      dockedAtOutpostId: player.docked_at_outpost_id || null,
+      level: progress.level,
+      rank: progress.rank,
+      xp: progress.totalXp,
       currentShip: ship ? {
         id: ship.id,
         shipTypeId: ship.ship_type_id,
-        weaponEnergy: ship.weapon_energy,
-        engineEnergy: ship.engine_energy,
+        weaponEnergy: ship.weapon_energy + (upgrades?.weaponBonus ?? 0) + levelBonuses.weaponBonus,
+        engineEnergy: ship.engine_energy + (upgrades?.engineBonus ?? 0) + levelBonuses.engineBonus,
+        hullHp: ship.hull_hp,
+        maxHullHp: ship.max_hull_hp,
         cargoHolds: ship.cargo_holds,
-        maxCargoHolds: ship.max_cargo_holds,
+        maxCargoHolds: ship.max_cargo_holds + (upgrades?.cargoBonus ?? 0) + levelBonuses.cargoBonus,
         cyrilliumCargo: ship.cyrillium_cargo,
         foodCargo: ship.food_cargo,
         techCargo: ship.tech_cargo,
@@ -83,7 +98,8 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     // Update explored sectors
     let explored: number[] = [];
     try { explored = JSON.parse(player.explored_sectors || '[]'); } catch { explored = []; }
-    if (!explored.includes(targetSectorId)) {
+    const isNewSector = !explored.includes(targetSectorId);
+    if (isNewSector) {
       explored.push(targetSectorId);
     }
 
@@ -91,6 +107,7 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
       current_sector_id: targetSectorId,
       energy: newEnergy,
       explored_sectors: JSON.stringify(explored),
+      docked_at_outpost_id: null,
     });
 
     // Move active ship too
@@ -107,8 +124,27 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     const outpostsInSector = await db('outposts').where({ sector_id: targetSectorId });
     const planetsInSector = await db('planets').where({ sector_id: targetSectorId });
 
+    // 5% meteor damage chance at outpost sectors
+    let meteorDamage = 0;
+    if (outpostsInSector.length > 0 && Math.random() < 0.05 && player.current_ship_id) {
+      meteorDamage = 1 + Math.floor(Math.random() * 5); // 1-5 damage
+      const ship = await db('ships').where({ id: player.current_ship_id }).first();
+      if (ship) {
+        const newHull = Math.max(1, ship.hull_hp - meteorDamage);
+        meteorDamage = ship.hull_hp - newHull; // actual damage after clamping
+        await db('ships').where({ id: ship.id }).update({ hull_hp: newHull });
+      }
+    }
+
     // Mission progress: move
     checkAndUpdateMissions(player.id, 'move', { sectorId: targetSectorId });
+
+    // Award explore XP for new sector discovery
+    let xpResult = null;
+    if (isNewSector) {
+      xpResult = await awardXP(player.id, GAME_CONFIG.XP_EXPLORE_NEW_SECTOR, 'explore');
+      await checkAchievements(player.id, 'explore', { sectorId: targetSectorId, explored });
+    }
 
     res.json({
       sectorId: targetSectorId,
@@ -117,6 +153,8 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
       players: playersInSector,
       outposts: outpostsInSector.map(o => ({ id: o.id, name: o.name })),
       planets: planetsInSector.map(p => ({ id: p.id, name: p.name, ownerId: p.owner_id })),
+      meteorDamage,
+      xp: xpResult ? { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp } : undefined,
     });
   } catch (err) {
     console.error('Move error:', err);
@@ -284,6 +322,79 @@ router.post('/scan', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Scan error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Dock at outpost
+router.post('/dock', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const outposts = await db('outposts').where({ sector_id: player.current_sector_id });
+    if (outposts.length === 0) {
+      return res.status(400).json({ error: 'No outpost in this sector' });
+    }
+
+    const outpost = outposts[0];
+    await db('players').where({ id: player.id }).update({
+      docked_at_outpost_id: outpost.id,
+    });
+
+    // Return outpost trade data
+    const { calculatePrice } = require('../engine/trading');
+    const prices = {
+      cyrillium: {
+        price: calculatePrice('cyrillium', outpost.cyrillium_stock, outpost.cyrillium_capacity),
+        stock: outpost.cyrillium_stock,
+        capacity: outpost.cyrillium_capacity,
+        mode: outpost.cyrillium_mode,
+      },
+      food: {
+        price: calculatePrice('food', outpost.food_stock, outpost.food_capacity),
+        stock: outpost.food_stock,
+        capacity: outpost.food_capacity,
+        mode: outpost.food_mode,
+      },
+      tech: {
+        price: calculatePrice('tech', outpost.tech_stock, outpost.tech_capacity),
+        stock: outpost.tech_stock,
+        capacity: outpost.tech_capacity,
+        mode: outpost.tech_mode,
+      },
+    };
+
+    res.json({
+      docked: true,
+      outpostId: outpost.id,
+      name: outpost.name,
+      treasury: outpost.treasury,
+      prices,
+    });
+  } catch (err) {
+    console.error('Dock error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Undock from outpost
+router.post('/undock', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    if (!player.docked_at_outpost_id) {
+      return res.status(400).json({ error: 'Not currently docked' });
+    }
+
+    await db('players').where({ id: player.id }).update({
+      docked_at_outpost_id: null,
+    });
+
+    res.json({ undocked: true });
+  } catch (err) {
+    console.error('Undock error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -2,7 +2,53 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { getTutorialStep, TUTORIAL_STEPS, TUTORIAL_REWARD_CREDITS, TOTAL_TUTORIAL_STEPS } from '../config/tutorial';
 import { resetPlayerForRealGame } from '../services/tutorial-sandbox';
+import { buildObjectivesDetail } from '../engine/missions';
+import crypto from 'crypto';
 import db from '../db/connection';
+
+const STARTER_MISSION_IDS = [
+  'a0000000-0000-0000-0000-000000000001', // Pathfinder
+  'a0000000-0000-0000-0000-000000000002', // First Trades
+  'a0000000-0000-0000-0000-000000000003', // Scanner Training
+];
+
+async function assignStarterMissions(playerId: string): Promise<void> {
+  for (const templateId of STARTER_MISSION_IDS) {
+    const template = await db('mission_templates').where({ id: templateId }).first();
+    if (!template) continue;
+
+    // Don't assign if player already has this mission
+    const existing = await db('player_missions')
+      .where({ player_id: playerId, template_id: templateId })
+      .first();
+    if (existing) continue;
+
+    const objectives = typeof template.objectives === 'string'
+      ? JSON.parse(template.objectives) : template.objectives;
+
+    // Build initial progress based on mission type
+    let progress: Record<string, any> = {};
+    if (template.type === 'visit_sector') progress = { sectorsVisited: [] };
+    else if (template.type === 'trade_units') progress = { unitsTraded: 0 };
+    else if (template.type === 'scan_sectors') progress = { scansCompleted: 0 };
+
+    // Build objectives detail for expanded mission display
+    const hints = typeof template.hints === 'string' ? JSON.parse(template.hints) : (template.hints || []);
+    const objectivesDetail = buildObjectivesDetail(template.type, objectives, hints);
+
+    await db('player_missions').insert({
+      id: crypto.randomUUID(),
+      player_id: playerId,
+      template_id: templateId,
+      status: 'active',
+      progress: JSON.stringify(progress),
+      reward_credits: template.reward_credits,
+      reward_item_id: template.reward_item_id,
+      objectives_detail: JSON.stringify(objectivesDetail),
+      claim_status: 'auto',
+    });
+  }
+}
 
 const router = Router();
 
@@ -97,6 +143,7 @@ router.post('/advance', requireAuth, async (req, res) => {
       newSectorId = resetResult.newSectorId;
       newCredits = resetResult.newCredits + reward;
       await db('players').where({ id: player.id }).update({ credits: newCredits });
+      await assignStarterMissions(player.id);
     }
 
     res.json({
@@ -133,6 +180,7 @@ router.post('/skip', requireAuth, async (req, res) => {
     });
 
     const resetResult = await resetPlayerForRealGame(player.id);
+    await assignStarterMissions(player.id);
 
     res.json({
       completed: true,

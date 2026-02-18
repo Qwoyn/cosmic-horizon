@@ -4,6 +4,10 @@ import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { calculatePrice, executeTrade, CommodityType, OutpostState } from '../engine/trading';
 import { getRace, RaceId } from '../config/races';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
+import { applyUpgradesToShip } from '../engine/upgrades';
+import { awardXP } from '../engine/progression';
+import { checkAchievements } from '../engine/achievements';
+import { GAME_CONFIG } from '../config/game';
 import {
   handleTutorialOutpost,
   handleTutorialBuy,
@@ -79,12 +83,18 @@ router.post('/buy', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Outpost is not in your sector' });
     }
 
+    // Require docking
+    if (player.docked_at_outpost_id !== outpost.id) {
+      return res.status(400).json({ error: 'Must be docked at this outpost to trade. Type "dock" first.' });
+    }
+
     const ship = await db('ships').where({ id: player.current_ship_id }).first();
     if (!ship) return res.status(400).json({ error: 'No active ship' });
 
-    // Check cargo space
+    // Check cargo space (including upgrade bonuses)
+    const upgrades = await applyUpgradesToShip(ship.id);
     const currentCargo = (ship.cyrillium_cargo || 0) + (ship.food_cargo || 0) + (ship.tech_cargo || 0) + (ship.colonist_cargo || 0);
-    const freeSpace = ship.max_cargo_holds - currentCargo;
+    const freeSpace = (ship.max_cargo_holds + upgrades.cargoBonus) - currentCargo;
     const maxBuyable = Math.min(quantity, freeSpace);
     if (maxBuyable <= 0) {
       return res.status(400).json({ error: 'No cargo space available' });
@@ -142,6 +152,10 @@ router.post('/buy', requireAuth, async (req, res) => {
     // Mission progress: trade (buy)
     checkAndUpdateMissions(player.id, 'trade', { quantity: result.quantity, tradeType: 'buy', commodity });
 
+    // Award trade XP for buying
+    const xpResult = await awardXP(player.id, result.quantity * GAME_CONFIG.XP_TRADE_BUY, 'trade');
+    await checkAchievements(player.id, 'trade', {});
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -150,6 +164,7 @@ router.post('/buy', requireAuth, async (req, res) => {
       tradeBonus: tradeDiscount,
       newCredits: Number(player.credits) - adjustedCost,
       energy: newEnergy,
+      xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
     });
   } catch (err) {
     console.error('Buy error:', err);
@@ -189,6 +204,11 @@ router.post('/sell', requireAuth, async (req, res) => {
     if (!outpost) return res.status(404).json({ error: 'Outpost not found' });
     if (outpost.sector_id !== player.current_sector_id) {
       return res.status(400).json({ error: 'Outpost is not in your sector' });
+    }
+
+    // Require docking
+    if (player.docked_at_outpost_id !== outpost.id) {
+      return res.status(400).json({ error: 'Must be docked at this outpost to trade. Type "dock" first.' });
     }
 
     const sellQuantity = Math.min(quantity, availableCargo);
@@ -239,6 +259,10 @@ router.post('/sell', requireAuth, async (req, res) => {
     // Mission progress: trade (sell) + deliver_cargo
     checkAndUpdateMissions(player.id, 'trade', { quantity: result.quantity, tradeType: 'sell', commodity });
 
+    // Award trade XP for selling
+    const xpResult = await awardXP(player.id, result.quantity * GAME_CONFIG.XP_TRADE_SELL, 'trade');
+    await checkAchievements(player.id, 'trade', {});
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -247,6 +271,7 @@ router.post('/sell', requireAuth, async (req, res) => {
       tradeBonus: tradeBoost,
       newCredits: Number(player.credits) + adjustedRevenue,
       energy: newEnergy,
+      xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
     });
   } catch (err) {
     console.error('Sell error:', err);

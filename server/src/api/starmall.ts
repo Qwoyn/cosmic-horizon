@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth';
 import { SHIP_TYPES } from '../config/ship-types';
 import { calculateEffectiveBonus, canInstallUpgrade } from '../engine/upgrades';
+import { hasCantinaAccess, generateCantinaMissionPool } from '../engine/missions';
+import { GAME_CONFIG } from '../config/game';
 import db from '../db/connection';
 
 const router = Router();
@@ -56,6 +58,7 @@ router.post('/garage/store', requireAuth, async (req, res) => {
         weapon_energy: 0, max_weapon_energy: 0,
         engine_energy: 20, max_engine_energy: 20,
         cargo_holds: 0, max_cargo_holds: 0,
+        hull_hp: 10, max_hull_hp: 10,
       });
       await db('players').where({ id: player!.id }).update({ current_ship_id: podId });
       res.json({ stored: ship.id, switchedTo: podId, note: 'Boarding temporary dodge pod' });
@@ -371,14 +374,71 @@ router.get('/cantina', requireAuth, async (req, res) => {
     if (error) return res.status(status).json({ error });
 
     const rumor = CANTINA_RUMORS[Math.floor(Math.random() * CANTINA_RUMORS.length)];
+    const cantinaUnlocked = await hasCantinaAccess(player!.id);
 
     res.json({
       rumor,
       intelAvailable: true,
       intelCost: CANTINA_INTEL_COST,
+      cantinaUnlocked,
     });
   } catch (err) {
     console.error('Cantina error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Talk to the bartender — may offer a cantina mission
+router.post('/cantina/talk', requireAuth, async (req, res) => {
+  try {
+    const { player, error, status } = await requireStarMall(req.session.playerId!);
+    if (error) return res.status(status).json({ error });
+
+    const unlocked = await hasCantinaAccess(player!.id);
+    if (!unlocked) {
+      return res.json({
+        hasMission: false,
+        dialogue: "The bartender eyes you suspiciously. 'You haven't proven yourself yet, pilot. Come back when you've earned some trust around here.'",
+        cantinaUnlocked: false,
+      });
+    }
+
+    // Check random chance
+    if (Math.random() > GAME_CONFIG.CANTINA_MISSION_CHANCE) {
+      const noMissionDialogues = [
+        "The bartender polishes a glass. 'Nothing right now, friend. Check back later.'",
+        "'I might have something for you soon. Come back in a while.'",
+        "The bartender shakes their head. 'The underworld is quiet today. Try again later.'",
+        "'My contacts haven't reached out yet. Give it some time.'",
+      ];
+      return res.json({
+        hasMission: false,
+        dialogue: noMissionDialogues[Math.floor(Math.random() * noMissionDialogues.length)],
+        cantinaUnlocked: true,
+      });
+    }
+
+    // Get player level
+    const prog = await db('player_progression').where({ player_id: player!.id }).first();
+    const playerLevel = prog?.level || 1;
+
+    const mission = await generateCantinaMissionPool(player!.id, playerLevel);
+    if (!mission) {
+      return res.json({
+        hasMission: false,
+        dialogue: "The bartender leans in. 'You've done everything I have for now. Impressive.'",
+        cantinaUnlocked: true,
+      });
+    }
+
+    res.json({
+      hasMission: true,
+      dialogue: `The bartender slides a datapad across the counter. 'I've got a job for you: ${mission.title}. Interested?'`,
+      mission,
+      cantinaUnlocked: true,
+    });
+  } catch (err) {
+    console.error('Cantina talk error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
