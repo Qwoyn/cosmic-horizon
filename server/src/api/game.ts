@@ -6,6 +6,7 @@ import { applyUpgradesToShip } from '../engine/upgrades';
 import { awardXP, getPlayerProgress, getPlayerLevelBonuses } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
+import { getNPCsInSector, getUnencounteredNPCsInSector } from '../engine/npcs';
 import {
   handleTutorialStatus,
   handleTutorialSector,
@@ -146,6 +147,14 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
       await checkAchievements(player.id, 'explore', { sectorId: targetSectorId, explored });
     }
 
+    // NPCs in target sector
+    let npcs: any[] = [];
+    let npcEncounters: any[] = [];
+    try {
+      npcs = await getNPCsInSector(targetSectorId, player.id);
+      npcEncounters = (await getUnencounteredNPCsInSector(targetSectorId, player.id)).slice(0, 1);
+    } catch { /* table may not exist yet */ }
+
     res.json({
       sectorId: targetSectorId,
       sectorType: sector?.type,
@@ -155,6 +164,8 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
       planets: planetsInSector.map(p => ({ id: p.id, name: p.name, ownerId: p.owner_id })),
       meteorDamage,
       xp: xpResult ? { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp } : undefined,
+      npcs: npcs.map(n => ({ id: n.id, name: n.name, title: n.title, race: n.race, encountered: n.encountered })),
+      npcEncounters,
     });
   } catch (err) {
     console.error('Move error:', err);
@@ -205,6 +216,12 @@ router.get('/sector', requireAuth, async (req, res) => {
       }));
     } catch { /* table may not exist yet */ }
 
+    // NPCs
+    let npcsInSector: any[] = [];
+    try {
+      npcsInSector = await getNPCsInSector(sectorId, player.id);
+    } catch { /* table may not exist yet */ }
+
     res.json({
       sectorId,
       type: sector?.type,
@@ -220,6 +237,7 @@ router.get('/sector', requireAuth, async (req, res) => {
       deployables: deployablesInSector.map(d => ({ id: d.id, type: d.type, ownerId: d.owner_id })),
       events: events.map(e => ({ id: e.id, eventType: e.event_type })),
       warpGates,
+      npcs: npcsInSector.map(n => ({ id: n.id, name: n.name, title: n.title, race: n.race, encountered: n.encountered })),
     });
   } catch (err) {
     console.error('Sector error:', err);

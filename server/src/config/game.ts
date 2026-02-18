@@ -102,10 +102,38 @@ export const GAME_CONFIG = {
   CANTINA_GATE_MISSION_ID: 'b0000000-0000-0000-0000-000000000008',
   CANTINA_TALK_COST: 0,
 
+  // NPCs
+  XP_NPC_FIRST_ENCOUNTER: 15,
+  NPC_DEFAULT_REPUTATION: 0,
+  NPC_MAX_REPUTATION: 100,
+  NPC_MIN_REPUTATION: -100,
+  NPC_FACTION_REP_SPILLOVER: 0.25,
+  NPC_REP_PER_TALK: 1,
+  NPC_REP_THRESHOLD_FRIENDLY: 20,
+  NPC_REP_THRESHOLD_TRUSTED: 50,
+
   // Warp Gates
   WARP_GATE_COST_CREDITS: 100000,
   WARP_GATE_COST_TECH: 500,
   WARP_GATE_COST_CYRILLIUM: 200,
   WARP_GATE_MAX_PER_SYNDICATE: 3,
   AP_COST_WARP: 2,
+
+  // Tablets
+  TABLET_SLOT_UNLOCK_LEVELS: { 1: 10, 2: 30, 3: 60 } as Record<number, number>,
+  TABLET_BASE_STORAGE: 5,
+  TABLET_STORAGE_PER_5_LEVELS: 1,
+  TABLET_COMBINE_COUNT: 3,
+  TABLET_COMBINE_COSTS: {
+    common: 500, uncommon: 1500, rare: 5000,
+    epic: 15000, legendary: 50000,
+  } as Record<string, number>,
+  TABLET_EQUIP_COSTS: {
+    common: 500, uncommon: 1000, rare: 1500,
+    epic: 2000, legendary: 2500, mythic: 3000,
+  } as Record<string, number>,
+  TABLET_EVENT_DROP_CHANCE: 0.15,
+  TABLET_RARITY_WEIGHTS: {
+    common: 50, uncommon: 25, rare: 15, epic: 7, legendary: 2.5, mythic: 0.5,
+  } as Record<string, number>,
 } as const;

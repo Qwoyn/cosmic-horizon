@@ -6,8 +6,11 @@
 2. Leveling System (Item F)
 3. Mission Expansion (Item G)
 4. NPC System (Item H)
-5. Tablet System (Item I)
-6. Single Player Mode (Item J)
+5. Tablet System (Item I) — tablets become craftable in Item K
+6. Resource Foundation + Basic Crafting (Item K)
+7. Rare Spawns + Exploration Grind (Item L)
+8. Syndicate Economy + Mega-Projects (Item M)
+9. Single Player Mode (Item J) — last, depends on all above
 
 ---
 
@@ -790,6 +793,608 @@ Display format:
 
 ---
 
+## K. Resource Foundation + Basic Crafting (Phase 1)
+
+### Overview
+Planet-based crafting economy with 16 new planet-exclusive resources (2 per planet class),
+a 4-tier production chain (Raw → Processed → Refined → Assembled), real-time refining
+queues on planets, and instant assembly of final items. Craftable outputs include ship
+upgrades (mk3+), consumables, refined trade goods, deployables/defenses, and tablets
+(merging Item I's tablets into the crafting system as a craftable equipment type).
+
+This is the foundation that makes planet ownership the backbone of the economy. Players
+need diverse planet portfolios to access all resources, creating natural trading demand
+and syndicate cooperation incentives.
+
+### New Planet-Exclusive Resources
+
+Each of the 8 planet classes produces 2 unique resources in addition to the existing
+3 base commodities (Cyrillium, Food, Tech). These resources are ONLY produced on
+their corresponding planet class.
+
+| Class | Name | Resource 1 | Resource 2 | Thematic Rationale |
+|-------|------|-----------|-----------|-------------------|
+| H | Goldilocks | Bio-Fiber | Fertile Soil | Lush biosphere, organic abundance |
+| D | Desert | Silica Glass | Solar Crystals | Sand processing, intense sunlight |
+| O | Ocean | Bio-Extract | Coral Alloy | Marine biology, deep-sea formations |
+| A | Alpine | Resonite Ore | Wind Essence | Mountain minerals, high-altitude energy |
+| F | Frozen | Cryogenic Compound | Frost Lattice | Extreme cold crystallization |
+| V | Volcanic | Magma Crystal | Obsidian Plate | Volcanic forges, magma extraction |
+| G | Gaseous | Plasma Vapor | Nebula Dust | Gas processing, atmospheric harvest |
+| S | Seed Planet | Genome Fragment | Spore Culture | Genetic diversity, growth catalysts |
+
+Production rates: unique resources produce at ~40-60% the rate of the planet's
+primary base commodity. Higher-tier planets (harder to colonize) produce rarer
+resources at lower rates but with higher value.
+
+### 4-Tier Production Chain
+
+```
+Tier 1: RAW MATERIALS
+  └── Direct planet production (existing commodities + new unique resources)
+  └── Collect via `collect` command at your planets
+
+Tier 2: PROCESSED MATERIALS (real-time, planet refinery)
+  └── Raw → Processed via planet refinery queue
+  └── Examples:
+      - Cyrillium → Refined Cyrillium (30 min per batch of 10)
+      - Bio-Fiber + Food → Nutrient Paste (20 min per batch)
+      - Magma Crystal + Cyrillium → Molten Alloy (45 min per batch)
+  └── Each planet can run 1 refinery queue (+1 per planet upgrade level above 3)
+
+Tier 3: REFINED MATERIALS (real-time, planet refinery, slower)
+  └── Processed → Refined via advanced refinery
+  └── Examples:
+      - Refined Cyrillium + Molten Alloy → Hardened Core (2 hours per batch)
+      - Nutrient Paste + Bio-Extract → Stim Compound (1.5 hours per batch)
+      - Frost Lattice + Plasma Vapor → Quantum Coolant (3 hours per batch)
+  └── Requires planet upgrade level 3+
+
+Tier 4: ASSEMBLED ITEMS (instant, at planet workshop)
+  └── Refined materials → final items (instant crafting)
+  └── Examples:
+      - Hardened Core + Quantum Coolant → Weapon MK3
+      - Stim Compound + Genome Fragment → Healing Stim (consumable)
+      - Obsidian Plate + Coral Alloy + Nebula Dust → Shield Tablet (equipment)
+  └── Requires planet upgrade level 5+
+```
+
+### Data Model
+
+#### Server: Migration — `resource_definitions`
+
+```sql
+CREATE TABLE resource_definitions (
+  id              VARCHAR(64) PRIMARY KEY,   -- e.g., 'bio_fiber', 'refined_cyrillium'
+  name            VARCHAR(128) NOT NULL,
+  description     TEXT,
+  tier            INT NOT NULL,              -- 1=raw, 2=processed, 3=refined, 4=assembled
+  category        VARCHAR(32) NOT NULL,      -- 'base', 'planet_unique', 'processed', 'refined'
+  planet_class    VARCHAR(4),                -- NULL for non-planet-specific resources
+  base_value      INT NOT NULL DEFAULT 0,    -- credit value for trade
+  icon            VARCHAR(32)                -- sprite reference
+);
+```
+
+#### Server: Migration — `recipes`
+
+```sql
+CREATE TABLE recipes (
+  id              VARCHAR(64) PRIMARY KEY,   -- e.g., 'recipe_refined_cyrillium'
+  name            VARCHAR(128) NOT NULL,
+  description     TEXT,
+  output_resource VARCHAR(64) NOT NULL,      -- resource_definitions.id or item reference
+  output_quantity INT NOT NULL DEFAULT 1,
+  output_type     VARCHAR(16) NOT NULL,      -- 'resource', 'item', 'tablet', 'deployable'
+  tier            INT NOT NULL,              -- production tier required (2, 3, or 4)
+  craft_time_min  INT NOT NULL DEFAULT 0,    -- minutes for real-time queue (0 = instant)
+  planet_level_req INT NOT NULL DEFAULT 1,   -- minimum planet upgrade level
+  credits_cost    INT NOT NULL DEFAULT 0,
+  unlocked_by     VARCHAR(64),              -- mission_id or achievement_id that unlocks recipe
+  discoverable    BOOLEAN NOT NULL DEFAULT false  -- hidden until discovered
+);
+```
+
+#### Server: Migration — `recipe_ingredients`
+
+```sql
+CREATE TABLE recipe_ingredients (
+  id              UUID PRIMARY KEY,
+  recipe_id       VARCHAR(64) NOT NULL REFERENCES recipes(id),
+  resource_id     VARCHAR(64) NOT NULL,      -- resource_definitions.id
+  quantity        INT NOT NULL
+);
+```
+
+#### Server: Migration — `planet_resources`
+
+```sql
+CREATE TABLE planet_resources (
+  planet_id       UUID NOT NULL REFERENCES planets(id),
+  resource_id     VARCHAR(64) NOT NULL REFERENCES resource_definitions(id),
+  stock           INT NOT NULL DEFAULT 0,
+  PRIMARY KEY(planet_id, resource_id)
+);
+```
+
+#### Server: Migration — `planet_refinery_queue`
+
+```sql
+CREATE TABLE planet_refinery_queue (
+  id              UUID PRIMARY KEY,
+  planet_id       UUID NOT NULL REFERENCES planets(id),
+  recipe_id       VARCHAR(64) NOT NULL REFERENCES recipes(id),
+  player_id       UUID NOT NULL REFERENCES players(id),
+  started_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completes_at    TIMESTAMP NOT NULL,
+  batch_size      INT NOT NULL DEFAULT 1,
+  collected       BOOLEAN NOT NULL DEFAULT false
+);
+```
+
+#### Server: Migration — Extend `players` cargo
+
+```sql
+-- Player resource inventory (separate from ship cargo which holds base commodities)
+CREATE TABLE player_resources (
+  player_id       UUID NOT NULL REFERENCES players(id),
+  resource_id     VARCHAR(64) NOT NULL REFERENCES resource_definitions(id),
+  quantity        INT NOT NULL DEFAULT 0,
+  PRIMARY KEY(player_id, resource_id)
+);
+```
+
+### Craftable Item Categories
+
+**Ship Upgrades (MK3+):**
+- Weapon MK3, MK4, MK5 — increasing damage
+- Engine MK3, MK4, MK5 — increasing speed/energy efficiency
+- Cargo MK3, MK4, MK5 — increasing hold capacity
+- Shield MK3, MK4, MK5 — increasing defense
+- Each tier requires higher-tier materials from diverse planet types
+
+**Consumables:**
+- Healing Stim — restore energy (20 AP)
+- Repair Kit — restore ship hull after combat
+- Scanner Booster — reveal more detail on scan for 1 hour
+- Fuel Cell — instant refuel (50 fuel)
+- Cloak Charge — 1 use of cloak ability
+- Warp Coil — instant warp to any explored sector
+
+**Tablets (from Item I, now crafted):**
+- Common tablets: single-resource recipes, Tier 2 materials
+- Uncommon tablets: 2-resource recipes, Tier 2-3 materials
+- Rare tablets: 3+ resource recipes, Tier 3 materials
+- Epic tablets: cross-planet-class recipes, Tier 3-4 materials
+- Legendary tablets: 5+ resources from 4+ planet classes, Tier 4
+- Mythic tablets: ultra-rare resources + Tier 4 + rare planet materials
+
+**Deployables/Defenses:**
+- Minefield MK2, MK3 — improved damage
+- Sensor Buoy MK2 — extended range
+- Planetary Shield Generator — new defense type
+- Warp Gate Components — reduce warp gate build cost
+- Turret Platforms — deployable combat drones
+
+**Refined Trade Goods:**
+- Refined Cyrillium Core (worth 5,000 cr) — high-value tradeable
+- Synthetic Food Crate (worth 3,000 cr)
+- Advanced Tech Module (worth 8,000 cr)
+- Luxury Goods (cross-planet crafted, worth 15,000 cr)
+
+### Planet Production Tick
+
+Extend the existing planet production tick (`engine/decay.ts` or separate engine):
+
+1. **Base commodity production** — unchanged (Cyrillium, Food, Tech per planet type)
+2. **Unique resource production** — new, 2 resources per planet class
+   - Rate: defined in `resource_definitions`, scales with colonist count
+   - Stored in `planet_resources` table
+   - Auto-production like existing commodities
+3. **Refinery processing** — check `planet_refinery_queue` for completed batches
+   - Completed batches sit until collected (don't auto-deliver)
+   - Queue slots: 1 base + 1 per planet upgrade level above 3
+
+### Client Commands
+
+- **`resources`** (alias: `res`) — show all resources in personal inventory
+- **`resources <planet name>`** — show resources stockpiled on a specific planet
+- **`recipes`** (alias: `rec`) — show all known recipes grouped by tier
+- **`recipes <search>`** — filter recipes by name or ingredient
+- **`craft <recipe> [quantity]`** — start crafting (instant for Tier 4, queued for Tier 2-3)
+- **`craft`** (no args) — show active refinery queues on current planet
+- **`collect`** — collect completed refinery batches + raw resources from planet
+- **`collect all`** — collect from all owned planets (must be docked at Star Mall)
+
+Display format:
+```
+=== RESOURCES ===
+  Raw Materials:
+    Cyrillium ×145    Food ×80    Tech ×32
+    Bio-Fiber ×24     Fertile Soil ×12
+  Processed:
+    Refined Cyrillium ×8    Nutrient Paste ×5
+  Refined:
+    Hardened Core ×2    Stim Compound ×1
+
+=== REFINERY QUEUES (Planet: New Eden) ===
+  [1] Refined Cyrillium — 8/10 complete (12 min remaining)
+  [2] Nutrient Paste — queued (starts after #1)
+  Slots: 2/3 used
+```
+
+### Files Modified
+- `server/src/db/migrations/` — 6 new migrations (resource_definitions, recipes, recipe_ingredients, planet_resources, planet_refinery_queue, player_resources)
+- `server/src/db/seeds/` — resource definitions, recipe definitions (50+ recipes)
+- `server/src/config/planet-types.ts` — add unique resource production rates
+- `server/src/config/game.ts` — crafting config (queue limits, tier requirements)
+- `server/src/engine/crafting.ts` — new file, crafting/refining logic
+- `server/src/engine/production.ts` — new file, planet resource production tick
+- `server/src/api/crafting.ts` — new file, crafting API endpoints
+- `server/src/api/planets.ts` — extend with resource collection endpoints
+- `client/src/services/api.ts` — new API calls
+- `client/src/services/commands.ts` — resources, recipes, craft, collect commands
+
+### Integration with Item I (Tablets)
+
+Item I's tablet system is absorbed into crafting. Instead of tablets being random drops
+and store purchases, they become crafted items:
+- `tablet_definitions` table still exists (from Item I) but tablets are crafted via recipes
+- Combining tablets (3x Common → 1x Uncommon) becomes a Tier 4 recipe
+- Equip slots, storage, swap cost — all from Item I unchanged
+- Rare tablets require resources from multiple planet classes, driving trade
+- NPC hints (Item H) can reveal hidden tablet recipes
+
+---
+
+## L. Rare Spawns + Exploration Grind (Phase 2)
+
+### Overview
+Dynamic sector events that spawn rare harvestable resources, creating the exploration
+grind loop. Asteroid fields, derelict ships, anomalies, and rare planet variants appear
+in random sectors with time-limited availability. Active scanning and exploration is
+rewarded with ultra-rare crafting materials that unlock the highest-tier recipes.
+
+This is what makes players scan every sector and explore relentlessly — the chance of
+finding something genuinely valuable.
+
+### Rare Planet Variants
+
+Extend planet generation with rare subtypes that produce ultra-rare minerals. These
+planets are scarce (1-2% of planets) and cannot be predicted — found only through
+exploration.
+
+| Variant | Base Class | Ultra-Rare Resource | Drop Rate | Description |
+|---------|-----------|-------------------|-----------|-------------|
+| Volcanic-Prime | V | Dark Matter Shard | Very rare | Hyperdense volcanic core |
+| Frozen-Ancient | F | Cryo-Fossil | Very rare | Preserved alien biological matter |
+| Gaseous-Storm | G | Ion Crystal | Rare | Perpetual lightning storms |
+| Ocean-Abyssal | O | Leviathan Pearl | Very rare | Deep trench formations |
+| Desert-Ruin | D | Artifact Fragment | Rare | Buried alien technology |
+| Alpine-Crystal | A | Harmonic Resonator | Very rare | Natural frequency amplifier |
+
+Ultra-rare resources are used in Mythic tablet recipes and top-tier equipment.
+A single rare planet variant might produce 1-3 units of its ultra-rare resource
+per production tick (very slow).
+
+#### Server: Migration — Extend `planets`
+
+```sql
+ALTER TABLE planets ADD COLUMN variant VARCHAR(32);      -- NULL for normal, 'prime', 'ancient', etc.
+ALTER TABLE planets ADD COLUMN rare_resource VARCHAR(64); -- resource_definitions.id for ultra-rare
+```
+
+### Dynamic Sector Events (Harvestable)
+
+Extend the existing sector events system with harvestable resource events. These spawn
+randomly, persist for a limited time, and can be harvested by any player who finds them.
+
+#### New Event Types
+
+**Asteroid Field:**
+- Spawns in empty sectors (no outpost/planet)
+- Contains 3-8 minable nodes of random resources (weighted toward processed-tier)
+- Each node: 1-5 units, depletes on harvest
+- Persists 4-8 hours
+- `mine` or `harvest` command to collect
+- Chance of rare materials (10% per node)
+
+**Derelict Ship:**
+- Spawns near combat zones or frontier sectors
+- Contains salvageable components: ship upgrade parts, fuel, credits, rare resources
+- Single-use: first player to salvage gets the loot
+- Persists 2-4 hours
+- `salvage` command (takes 1 energy)
+- 5% chance of tablet drop, 1% chance of legendary component
+
+**Resource Anomaly:**
+- Spawns anywhere, brief duration (1-2 hours)
+- High-yield single resource (20-50 units of a random processed/refined material)
+- Requires scanning to detect (`scan` in adjacent sector reveals it)
+- `harvest` command to collect
+
+**Alien Cache:**
+- Very rare spawn (1-2 per day across entire universe)
+- Contains ultra-rare resources, tablets, or unique recipe unlocks
+- Protected by NPC guardian (combat required, scales with player level)
+- Broadcasts sector-wide alert when found — pvp risk
+- Persists until claimed or 6 hours
+
+#### Spawn System
+
+```
+Spawn rates (per universe tick, e.g., every 30 min):
+  Asteroid Field:    2-4 new spawns
+  Derelict Ship:     1-3 new spawns
+  Resource Anomaly:  3-5 new spawns
+  Alien Cache:       0-1 new spawns (10% chance per tick)
+```
+
+Events despawn after their duration expires. Active events visible on scan results
+and sector map (icon overlay).
+
+#### Server: Migration — `sector_resource_events`
+
+```sql
+CREATE TABLE sector_resource_events (
+  id              UUID PRIMARY KEY,
+  sector_id       INT NOT NULL REFERENCES sectors(id),
+  event_type      VARCHAR(32) NOT NULL,    -- 'asteroid_field', 'derelict', 'anomaly', 'alien_cache'
+  resources       JSON NOT NULL,           -- [{resourceId, quantity, harvested: false}]
+  spawned_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at      TIMESTAMP NOT NULL,
+  guardian_hp     INT,                     -- for alien caches, NULL if no guardian
+  claimed_by      UUID,                    -- player who claimed (for single-use events)
+  metadata        JSON                     -- extra data (derelict ship type, anomaly details)
+);
+```
+
+### Scanner Improvements
+
+- `scan` now reveals resource events in current + adjacent sectors
+- Scan results show event type, estimated value, and time remaining
+- Scanner Booster consumable (crafted) extends scan range to 2 sectors
+- Higher-tier scanners (crafted) increase rare event detection chance
+
+### Client Commands
+
+- **`harvest`** (alias: `mine`) — harvest resources from a sector event
+- **`salvage`** — salvage a derelict ship
+- **`events`** — show active resource events in current sector
+- **`scan`** — updated to show resource events in range
+
+Display format:
+```
+=== SECTOR SCAN ===
+  Sector 142: Asteroid Field (3 nodes remaining, expires in 2h 15m)
+  Sector 145: Resource Anomaly — Refined Cyrillium ×30 (expires in 45m)
+  Sector 149: !! ALIEN CACHE !! (guardian active, expires in 4h)
+```
+
+### Files Modified
+- `server/src/db/migrations/` — extend planets (variant), sector_resource_events table
+- `server/src/db/seeds/` — rare resource definitions, rare planet variant spawn rules
+- `server/src/config/game.ts` — spawn rates, event durations, rare planet chance
+- `server/src/engine/events.ts` — extend with resource event spawning/despawning
+- `server/src/engine/crafting.ts` — extend with harvest/salvage logic
+- `server/src/api/events.ts` — extend with harvest/salvage endpoints
+- `server/src/api/game.ts` — scan results include resource events
+- `client/src/services/api.ts` — new API calls
+- `client/src/services/commands.ts` — harvest, salvage, updated scan display
+
+---
+
+## M. Syndicate Economy + Mega-Projects (Phase 3)
+
+### Overview
+Cooperative economic systems for syndicates: shared resource pools with leader-controlled
+whitelisting, syndicate factory planets with boosted production, and syndicate mega-projects
+that require massive multi-member resource contributions. This makes syndicates the endgame
+social structure and creates guild-level goals that drive long-term engagement.
+
+### Shared Resource Pool
+
+Syndicate leaders can enable a shared resource pool that whitelisted members can
+deposit into and withdraw from (with permission levels).
+
+#### Permission Levels (set per member by leader/officers):
+- **None** — no access to pool
+- **Deposit Only** — can deposit resources, cannot withdraw
+- **Full Access** — can deposit and withdraw
+- **Manager** — full access + can modify other members' permissions (officers only)
+
+#### Server: Migration — `syndicate_resource_pool`
+
+```sql
+CREATE TABLE syndicate_resource_pool (
+  syndicate_id    UUID NOT NULL REFERENCES syndicates(id),
+  resource_id     VARCHAR(64) NOT NULL REFERENCES resource_definitions(id),
+  quantity        INT NOT NULL DEFAULT 0,
+  PRIMARY KEY(syndicate_id, resource_id)
+);
+```
+
+#### Server: Migration — `syndicate_pool_permissions`
+
+```sql
+CREATE TABLE syndicate_pool_permissions (
+  syndicate_id    UUID NOT NULL REFERENCES syndicates(id),
+  player_id       UUID NOT NULL REFERENCES players(id),
+  permission      VARCHAR(16) NOT NULL DEFAULT 'none',  -- 'none', 'deposit', 'full', 'manager'
+  PRIMARY KEY(syndicate_id, player_id)
+);
+```
+
+#### Server: Migration — `syndicate_pool_log`
+
+```sql
+CREATE TABLE syndicate_pool_log (
+  id              UUID PRIMARY KEY,
+  syndicate_id    UUID NOT NULL REFERENCES syndicates(id),
+  player_id       UUID NOT NULL REFERENCES players(id),
+  action          VARCHAR(16) NOT NULL,    -- 'deposit', 'withdraw'
+  resource_id     VARCHAR(64) NOT NULL,
+  quantity        INT NOT NULL,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Syndicate Factory Planets
+
+Leaders can designate a planet as a "Syndicate Factory" — a shared production
+facility with boosted output.
+
+**Factory Planet Rules:**
+- Must be a planet owned by the syndicate leader or an officer
+- Planet must be upgrade level 5+
+- Designating a planet as factory costs 50,000 credits from syndicate treasury
+- Factory planets get:
+  - +50% resource production rate
+  - +2 refinery queue slots
+  - Access to syndicate-exclusive recipes (mega-project components)
+- Max 1 factory planet per syndicate (upgradeable to 2 at syndicate level milestones)
+- All whitelisted members can queue refinery jobs on factory planets
+- Factory planet's production goes to syndicate resource pool
+
+#### Server: Migration — Extend `planets`
+
+```sql
+ALTER TABLE planets ADD COLUMN is_syndicate_factory BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE planets ADD COLUMN factory_syndicate_id UUID REFERENCES syndicates(id);
+```
+
+### Syndicate Mega-Projects
+
+Large-scale construction projects that require contributions from multiple syndicate
+members over days/weeks. These produce unique structures and rewards unavailable
+through individual play.
+
+#### Mega-Project Types
+
+**Syndicate Space Station:**
+- Requirements: 500 Hardened Core, 200 Quantum Coolant, 1000 Refined Cyrillium, 500,000 credits
+- Build time: 7 days (real-time, contributions can be made incrementally)
+- Result: Permanent station in a sector — acts as mini Star Mall for syndicate members
+  - Crafting workshop (Tier 4 recipes)
+  - Resource storage (shared pool overflow)
+  - Docking (safe zone for syndicate members)
+
+**Warp Network Hub:**
+- Requirements: 300 Ion Crystal, 400 Plasma Vapor, 200 Resonite Ore, 300,000 credits
+- Build time: 5 days
+- Result: Syndicate warp gate network — free instant travel between all syndicate-owned warp gates
+
+**Mega Weapon Platform:**
+- Requirements: 800 Magma Crystal, 500 Obsidian Plate, 300 Dark Matter Shard, 750,000 credits
+- Build time: 10 days
+- Result: Deployable in one sector — massive damage to all non-syndicate ships entering
+  - 500 HP, deals 50 damage per tick to hostiles
+  - Requires ongoing maintenance (resources per week)
+
+**Colony Ship:**
+- Requirements: 1000 Bio-Fiber, 500 Genome Fragment, 300 Spore Culture, 400,000 credits
+- Build time: 7 days
+- Result: One-use ship that instantly colonizes an unclaimed planet with 5,000 colonists
+
+**Research Lab:**
+- Requirements: 400 Tech, 200 Harmonic Resonator, 150 Frost Lattice, 200,000 credits
+- Build time: 5 days
+- Result: Unlocks syndicate-exclusive recipe tree (unique tablets and upgrades)
+  - Generates 1 "Research Point" per day
+  - Research Points unlock progressively better recipes
+
+#### Server: Migration — `syndicate_projects`
+
+```sql
+CREATE TABLE syndicate_projects (
+  id              UUID PRIMARY KEY,
+  syndicate_id    UUID NOT NULL REFERENCES syndicates(id),
+  project_type    VARCHAR(64) NOT NULL,        -- 'space_station', 'warp_network', etc.
+  status          VARCHAR(16) NOT NULL DEFAULT 'active',  -- 'active', 'completed', 'cancelled'
+  target_sector   INT REFERENCES sectors(id),  -- where it will be built
+  contributions   JSON NOT NULL DEFAULT '{}',  -- {resourceId: {contributed: X, required: Y}}
+  started_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completes_at    TIMESTAMP,                   -- set when fully funded
+  completed_at    TIMESTAMP,
+  metadata        JSON                         -- project-specific data
+);
+```
+
+#### Server: Migration — `syndicate_project_contributions`
+
+```sql
+CREATE TABLE syndicate_project_contributions (
+  id              UUID PRIMARY KEY,
+  project_id      UUID NOT NULL REFERENCES syndicate_projects(id),
+  player_id       UUID NOT NULL REFERENCES players(id),
+  resource_id     VARCHAR(64) NOT NULL,
+  quantity        INT NOT NULL,
+  contributed_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### Server: Migration — `syndicate_structures`
+
+```sql
+CREATE TABLE syndicate_structures (
+  id              UUID PRIMARY KEY,
+  syndicate_id    UUID NOT NULL REFERENCES syndicates(id),
+  structure_type  VARCHAR(64) NOT NULL,    -- matches project_type
+  sector_id       INT REFERENCES sectors(id),
+  hp              INT,
+  metadata        JSON,                    -- structure-specific data
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Client Commands
+
+**Resource Pool:**
+- **`syndicate pool`** (alias: `sp`) — view shared resource pool contents
+- **`syndicate deposit <resource> <quantity>`** (alias: `sd`) — deposit resources
+- **`syndicate withdraw <resource> <quantity>`** (alias: `sw`) — withdraw resources
+- **`syndicate pool-access <player> <level>`** — set member permission (leader/officer)
+- **`syndicate pool-log`** — view recent deposits/withdrawals
+
+**Factory Planets:**
+- **`syndicate factory <planet>`** — designate a planet as syndicate factory
+- **`syndicate factory`** — view factory planet status and queues
+
+**Mega-Projects:**
+- **`syndicate projects`** — list active and completed projects
+- **`syndicate start <project-type> [sector]`** — start a new mega-project (leader only)
+- **`syndicate contribute <resource> <quantity>`** — contribute to active project
+- **`syndicate project <#>`** — view project progress and contribution breakdown
+
+Display format:
+```
+=== SYNDICATE PROJECTS ===
+  [1] Space Station (Sector 88) — IN PROGRESS
+      Hardened Core:       320/500 (64%)
+      Quantum Coolant:     180/200 (90%)
+      Refined Cyrillium:   450/1000 (45%)
+      Credits:             350k/500k (70%)
+      Overall: 67% — est. completion in 3 days
+      Top contributors: Player1 (34%), Player2 (28%), Player3 (22%)
+
+  [2] Research Lab — COMPLETED
+      Unlocked: 4 syndicate recipes
+      Research Points: 12 (next unlock at 15)
+```
+
+### Files Modified
+- `server/src/db/migrations/` — 6 new migrations (pool, permissions, log, extend planets, projects, contributions, structures)
+- `server/src/db/seeds/` — mega-project definitions, syndicate recipe unlocks
+- `server/src/config/game.ts` — syndicate config (factory cost, project requirements, permission defaults)
+- `server/src/engine/syndicate-economy.ts` — new file, pool/factory/project logic
+- `server/src/api/syndicate-economy.ts` — new file, syndicate economy endpoints
+- `server/src/api/social.ts` — extend with factory planet designation
+- `server/src/engine/production.ts` — factory planet boost logic
+- `client/src/services/api.ts` — new API calls
+- `client/src/services/commands.ts` — syndicate pool, factory, project commands
+
+---
+
 ## J. Single Player Mode
 
 ### Overview
@@ -867,7 +1472,7 @@ Tier 4 (Missions 16-20): End-game
   17. Production Master — Reach 100 colonists on 3 planets
   18. Full Network — Unlock final Star Mall
       [UNLOCKS: Star Mall 3]
-  19. Tablet Hunter — Find and equip 3 tablets
+  19. Tablet Crafter — Craft and equip 3 tablets
   20. Frontier Ready — Reach Level 15
       [COMPLETION: Prompt to join multiplayer]
 ```
@@ -912,14 +1517,23 @@ C (Seed Planet Guard) ───────────────────�
 D (Planet Numbering) ───────────────────────────────────────► standalone
 E (Mall Scenes) ────────────────────────────────────────────► standalone
 
-F (Leveling System) ────► G (Mission Expansion) ──┐
-                    ├───► I (Tablet System) ───────┤
-                    │                              ▼
-                    └───► H (NPC System) ────► J (Single Player Mode)
+F (Leveling) ─────► G (Mission Expansion) ──────────────────────────┐
+              ├───► H (NPC System) ─────────────────────────────────┤
+              │                                                     │
+              └───► I (Tablet System) ──► K (Resource + Crafting) ──┤
+                                              │                     │
+                                              ├──► L (Rare Spawns)  │
+                                              │                     │
+                                              └──► M (Syndicate Econ)│
+                                                                    ▼
+                                                       J (Single Player Mode)
 ```
 
 Items A-E have no dependencies and can be done in any order.
-F (Leveling) must come before G, H, I, J.
+F (Leveling) must come before G, H, I, J, K, L, M.
 G (Missions) and H (NPCs) can be done in parallel after F.
-I (Tablets) needs F.
-J (Single Player) needs F + G + H + I.
+I (Tablets) needs F. Tablet data model is prerequisite for K (crafting absorbs tablets).
+K (Resource + Crafting) needs I (tablet definitions exist to make them craftable).
+L (Rare Spawns) needs K (resource definitions, harvesting targets crafting system).
+M (Syndicate Economy) needs K (shared resource pool requires resource system).
+J (Single Player) needs F + G + H + I + K + L + M (all systems available in SP).

@@ -8,6 +8,7 @@ import { buildUndockScene } from '../config/scenes/undock-scene';
 import { buildCombatScene } from '../config/scenes/combat-scene';
 import { buildFleeScene } from '../config/scenes/flee-scene';
 import { buildTradeScene } from '../config/scenes/trade-scene';
+import { buildNPCEncounterScene } from '../config/scenes/npc-scene';
 
 export interface PlayerState {
   id: string;
@@ -51,6 +52,7 @@ export interface SectorState {
   deployables: { id: string; type: string; ownerId: string }[];
   events: { id: string; eventType: string }[];
   warpGates: { id: string; destinationSectorId: number; tollAmount: number; syndicateFree: boolean; syndicateId: string }[];
+  npcs?: { id: string; name: string; title: string; race: string; encountered: boolean }[];
 }
 
 export interface TerminalLine {
@@ -282,6 +284,22 @@ export function useGameState() {
       }
       if (data.planets.length > 0) {
         addLine(`Planets: ${data.planets.map((p: any) => p.name).join(', ')}`, 'info');
+      }
+      if (data.npcs?.length > 0) {
+        addLine(`NPCs: ${data.npcs.map((n: any) => n.name).join(', ')}`, 'info');
+      }
+      if (data.npcEncounters?.length > 0) {
+        const enc = data.npcEncounters[0];
+        addLine(`You notice ${enc.name}${enc.title ? `, ${enc.title},` : ''} nearby...`, 'info');
+        const encounterScene = buildNPCEncounterScene({
+          name: enc.name,
+          title: enc.title,
+          race: enc.race,
+          spriteConfig: enc.spriteConfig,
+          sceneHint: enc.firstEncounter?.sceneHint,
+        });
+        setSceneQueue(prev => [...prev, encounterScene]);
+        api.markNPCEncountered(enc.id).catch(() => {});
       }
       await refreshSector();
       await refreshStatus();

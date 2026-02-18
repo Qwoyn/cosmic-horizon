@@ -203,4 +203,24 @@ export const disconnectWallet = () => api.post('/wallet/disconnect');
 export const getWalletBalance = () => api.get('/wallet/balance');
 export const getWalletStatus = () => api.get('/wallet/status');
 
+// NPCs
+export const getNPCsInSector = () => api.get('/npcs/sector');
+export const talkToNPC = (npcId: string, choiceIndex?: number) =>
+  api.post(`/npcs/${npcId}/talk`, choiceIndex !== undefined ? { choiceIndex } : {});
+export const getContacts = () => api.get('/npcs/contacts');
+export const getNPCDetail = (npcId: string) => api.get(`/npcs/${npcId}`);
+export const markNPCEncountered = (npcId: string) => api.post(`/npcs/${npcId}/encountered`);
+
+// Tablets
+export const getTablets = () => api.get('/tablets');
+export const equipTablet = (tabletId: string, slot: number) =>
+  api.post('/tablets/equip', { tabletId, slot });
+export const unequipTablet = (slot: number) =>
+  api.post('/tablets/unequip', { slot });
+export const combineTablets = (tabletIds: string[]) =>
+  api.post('/tablets/combine', { tabletIds });
+export const getTabletRecipes = () => api.get('/tablets/recipes');
+export const tradeTablet = (targetPlayerName: string, tabletId: string) =>
+  api.post('/tablets/trade', { targetPlayerName, tabletId });
+
 export default api;

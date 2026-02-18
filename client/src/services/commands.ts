@@ -14,6 +14,7 @@ import { buildMissionBoardScene } from '../config/scenes/mission-board-scene';
 import { buildBountyBoardScene } from '../config/scenes/bounty-board-scene';
 import { buildLookScene } from '../config/scenes/look-scene';
 import { buildScanScene } from '../config/scenes/scan-scene';
+import { buildNPCEncounterScene } from '../config/scenes/npc-scene';
 
 interface CommandContext {
   addLine: (text: string, type: 'info' | 'success' | 'error' | 'warning' | 'system' | 'combat' | 'trade') => void;
@@ -49,6 +50,8 @@ const ALIASES: Record<string, string> = {
   mb: 'missionboard',
   cr: 'claimreward',
   ct: 'cantinatalk',
+  t: 'talk',
+  con: 'contacts',
   n: 'note',
   fuel: 'refuel',
   ud: 'undock',
@@ -56,7 +59,12 @@ const ALIASES: Record<string, string> = {
   rank: 'profile',
   lvl: 'profile',
   ach: 'achievements',
+  tab: 'tablets',
+  eq: 'equip',
+  uneq: 'unequip',
 };
+
+let activeNpcId: string | null = null;
 
 function resolveItem(
   query: string,
@@ -82,6 +90,25 @@ function resolveItem(
   matches.forEach((m, i) => ctx.addLine(`  [${i + 1}] ${m.name} (${m.id})`, 'info'));
   ctx.setLastListing(matches.map(m => ({ id: m.id, label: m.name })));
   return 'ambiguous';
+}
+
+function formatTabletEffects(effects: any): string {
+  const parts: string[] = [];
+  if (effects.weaponBonus) parts.push(`+${effects.weaponBonus} wpn`);
+  if (effects.engineBonus) parts.push(`+${effects.engineBonus} eng`);
+  if (effects.cargoBonus) parts.push(`+${effects.cargoBonus} cargo`);
+  if (effects.shieldBonus) parts.push(`+${effects.shieldBonus} shld`);
+  if (effects.fleeBonus) parts.push(`+${Math.round(effects.fleeBonus * 100)}% flee`);
+  if (effects.xpMultiplier) parts.push(`+${Math.round(effects.xpMultiplier * 100)}% XP`);
+  return parts.join(', ');
+}
+
+function rarityTag(rarity: string): string {
+  const colors: Record<string, string> = {
+    common: 'Common', uncommon: 'Uncommon', rare: 'Rare',
+    epic: 'Epic', legendary: 'Legendary', mythic: 'Mythic',
+  };
+  return colors[rarity] || rarity;
 }
 
 function parse(input: string): ParsedCommand {
@@ -149,6 +176,9 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       }
       if (s.events?.length > 0) {
         ctx.addLine(`Anomalies: ${s.events.map((e: any) => e.eventType.replace(/_/g, ' ')).join(', ')}`, 'warning');
+      }
+      if (s.npcs?.length > 0) {
+        ctx.addLine(`NPCs: ${s.npcs.map((n: any) => `${n.name}${n.encountered ? '' : ' [NEW]'}`).join(', ')}`, 'info');
       }
       if (s.warpGates?.length > 0) {
         ctx.addLine(`Warp Gates: ${s.warpGates.map((g: any) => `→ Sector ${g.destinationSectorId}${g.tollAmount > 0 ? ` (${g.tollAmount} cr toll)` : ''}`).join(', ')}`, 'success');
@@ -878,6 +908,9 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           if (data.creditsGained) ctx.addLine(`+${data.creditsGained} credits`, 'trade');
           if (data.creditsLost) ctx.addLine(`-${data.creditsLost} credits`, 'warning');
           if (data.cargoGained) ctx.addLine(`+${data.cargoGained.quantity} ${data.cargoGained.commodity}`, 'trade');
+          if (data.tabletDrop) {
+            ctx.addLine(`You found a tablet: ${data.tabletDrop.name} (${data.tabletDrop.rarity})!`, 'success');
+          }
           ctx.refreshStatus();
           ctx.refreshSector();
         }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Investigation failed', 'error'));
@@ -887,6 +920,9 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           if (data.creditsGained) ctx.addLine(`+${data.creditsGained} credits`, 'trade');
           if (data.creditsLost) ctx.addLine(`-${data.creditsLost} credits`, 'warning');
           if (data.cargoGained) ctx.addLine(`+${data.cargoGained.quantity} ${data.cargoGained.commodity}`, 'trade');
+          if (data.tabletDrop) {
+            ctx.addLine(`You found a tablet: ${data.tabletDrop.name} (${data.tabletDrop.rarity})!`, 'success');
+          }
           ctx.refreshStatus();
           ctx.refreshSector();
         }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Investigation failed', 'error'));
@@ -1117,6 +1153,255 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       break;
     }
 
+    // === NPCs ===
+    case 'talk': {
+      const npcs = (ctx.sector?.npcs ?? []) as any[];
+      // If args is a number and we're in active dialogue, treat as choice
+      if (args.length === 1 && !isNaN(parseInt(args[0])) && activeNpcId) {
+        const choiceIndex = parseInt(args[0]) - 1;
+        api.talkToNPC(activeNpcId, choiceIndex).then(({ data }) => {
+          if (data.isEnd) {
+            ctx.addLine(`${data.npcName}: "${data.text}"`, 'info');
+            ctx.addLine('[Conversation ended]', 'system');
+            activeNpcId = null;
+          } else {
+            ctx.addLine(`=== ${data.npcName}${data.npcTitle ? ` — ${data.npcTitle}` : ''} ===`, 'system');
+            ctx.addLine(`  "${data.text}"`, 'info');
+            if (data.options) {
+              data.options.forEach((opt: any, i: number) => {
+                const lock = opt.locked ? ` [Requires: ${opt.lockReason}]` : '';
+                ctx.addLine(`  [${i + 1}] ${opt.label}${lock}`, opt.locked ? 'warning' : 'info');
+              });
+            }
+            if (data.effects?.reputation) {
+              ctx.addLine(`  (Reputation ${data.effects.reputation > 0 ? '+' : ''}${data.effects.reputation})`, 'trade');
+            }
+          }
+        }).catch((err: any) => {
+          ctx.addLine(err.response?.data?.error || 'Talk failed', 'error');
+          activeNpcId = null;
+        });
+        break;
+      }
+      // No args + 1 NPC → auto-target
+      let targetNpc: any = null;
+      if (args.length === 0 && npcs.length === 1) {
+        targetNpc = npcs[0];
+      } else if (args.length === 0 && npcs.length > 1) {
+        ctx.addLine('Multiple NPCs here. Specify who to talk to:', 'info');
+        npcs.forEach((n: any, i: number) => {
+          ctx.addLine(`  [${i + 1}] ${n.name}${n.title ? ` — ${n.title}` : ''}${n.encountered ? '' : ' [NEW]'}`, 'info');
+        });
+        ctx.setLastListing(npcs.map((n: any) => ({ id: n.id, label: n.name })));
+        break;
+      } else if (args.length === 0 && npcs.length === 0) {
+        ctx.addLine('No NPCs in this sector', 'error');
+        break;
+      } else {
+        const items = npcs.map((n: any) => ({ id: n.id, name: n.name }));
+        const result = resolveItem(args.join(' '), items, ctx);
+        if (result === null) { ctx.addLine('NPC not found in sector', 'error'); break; }
+        if (result === 'ambiguous') break;
+        targetNpc = npcs.find((n: any) => n.id === result.id);
+      }
+      if (!targetNpc) { ctx.addLine('NPC not found', 'error'); break; }
+      // Check if first encounter — trigger cutscene
+      if (!targetNpc.encountered) {
+        ctx.enqueueScene?.(buildNPCEncounterScene({
+          name: targetNpc.name,
+          title: targetNpc.title,
+          race: targetNpc.race,
+          spriteConfig: targetNpc.spriteConfig,
+          sceneHint: targetNpc.firstEncounter?.sceneHint,
+        }));
+        api.markNPCEncountered(targetNpc.id).catch(() => {});
+      }
+      activeNpcId = targetNpc.id;
+      api.talkToNPC(targetNpc.id).then(({ data }) => {
+        if (data.isEnd) {
+          ctx.addLine(`${data.npcName}: "${data.text}"`, 'info');
+          activeNpcId = null;
+        } else {
+          ctx.addLine(`=== ${data.npcName}${data.npcTitle ? ` — ${data.npcTitle}` : ''} ===`, 'system');
+          ctx.addLine(`  "${data.text}"`, 'info');
+          if (data.options) {
+            data.options.forEach((opt: any, i: number) => {
+              const lock = opt.locked ? ` [Requires: ${opt.lockReason}]` : '';
+              ctx.addLine(`  [${i + 1}] ${opt.label}${lock}`, opt.locked ? 'warning' : 'info');
+            });
+          }
+        }
+      }).catch((err: any) => {
+        ctx.addLine(err.response?.data?.error || 'Talk failed', 'error');
+        activeNpcId = null;
+      });
+      break;
+    }
+
+    case 'contacts': {
+      api.getContacts().then(({ data }) => {
+        if (data.contacts.length === 0) { ctx.addLine('No NPC contacts yet. Explore to find NPCs.', 'info'); return; }
+        ctx.addLine('=== NPC CONTACTS ===', 'system');
+        data.contacts.forEach((c: any, i: number) => {
+          const factionStr = c.factionName ? ` [${c.factionName}]` : '';
+          const repLabel = c.reputation < -20 ? 'Hostile' : c.reputation < 20 ? 'Neutral' : c.reputation < 50 ? 'Friendly' : 'Trusted';
+          ctx.addLine(`  [${i + 1}] ${c.name}${c.title ? ` — ${c.title}` : ''}${factionStr} | Sector ${c.sectorId} | Rep: ${c.reputation} (${repLabel})`, 'info');
+        });
+        ctx.setLastListing(data.contacts.map((c: any) => ({ id: c.id, label: c.name })));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch contacts', 'error'));
+      break;
+    }
+
+    case 'contact': {
+      if (args.length < 1) { ctx.addLine('Usage: contact <name or #>', 'error'); break; }
+      const query = args.join(' ');
+      api.getContacts().then(({ data }) => {
+        const items = data.contacts.map((c: any) => ({ id: c.id, name: c.name }));
+        const result = resolveItem(query, items, ctx);
+        if (result === null) { ctx.addLine(`No contact matching "${query}". Type "contacts" to see known NPCs.`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.getNPCDetail(result.id).then(({ data: detail }) => {
+          const repLabel = detail.reputation < -20 ? 'Hostile' : detail.reputation < 20 ? 'Neutral' : detail.reputation < 50 ? 'Friendly' : 'Trusted';
+          ctx.addLine(`=== ${detail.name}${detail.title ? ` — ${detail.title}` : ''} ===`, 'system');
+          if (detail.race) ctx.addLine(`  Race: ${detail.race.charAt(0).toUpperCase() + detail.race.slice(1)}`, 'info');
+          if (detail.factionName) ctx.addLine(`  Faction: ${detail.factionName}`, 'info');
+          ctx.addLine(`  Sector: ${detail.sectorId}`, 'info');
+          ctx.addLine(`  Reputation: ${detail.reputation} (${repLabel})`, detail.reputation >= 20 ? 'success' : 'info');
+          if (detail.services?.length > 0) ctx.addLine(`  Services: ${detail.services.join(', ')}`, 'info');
+          if (detail.lastVisited) ctx.addLine(`  Last visited: ${new Date(detail.lastVisited).toLocaleString()}`, 'info');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Detail failed', 'error'));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      break;
+    }
+
+    // === TABLETS ===
+    case 'tablets': {
+      api.getTablets().then(({ data }) => {
+        const total = data.tablets?.length || 0;
+        const max = data.storage?.max || 5;
+        ctx.addLine(`=== TABLETS (${total}/${max}) ===`, 'system');
+
+        // Equipped section
+        ctx.addLine('  EQUIPPED:', 'info');
+        for (let slot = 1; slot <= 3; slot++) {
+          const equipped = data.equipped?.find((t: any) => t.equippedSlot === slot);
+          const unlocked = data.slots?.unlocked?.includes(slot);
+          if (equipped) {
+            const effects = typeof equipped.effects === 'string' ? JSON.parse(equipped.effects) : equipped.effects;
+            ctx.addLine(`    [Slot ${slot}] ${equipped.name} (${rarityTag(equipped.rarity)}) — ${formatTabletEffects(effects)}`, 'success');
+          } else if (unlocked) {
+            ctx.addLine(`    [Slot ${slot}] (empty)`, 'info');
+          } else {
+            const unlockLevel = slot === 1 ? 10 : slot === 2 ? 30 : 60;
+            ctx.addLine(`    [Slot ${slot}] (locked — unlocks at level ${unlockLevel})`, 'warning');
+          }
+        }
+
+        // Inventory section
+        const inventory = data.tablets?.filter((t: any) => !t.equippedSlot) || [];
+        if (inventory.length > 0) {
+          ctx.addLine('  INVENTORY:', 'info');
+          inventory.forEach((t: any, i: number) => {
+            const effects = typeof t.effects === 'string' ? JSON.parse(t.effects) : t.effects;
+            ctx.addLine(`    [${i + 1}] ${t.name.padEnd(22)} (${rarityTag(t.rarity).padEnd(9)}) — ${formatTabletEffects(effects)}`, 'info');
+          });
+          ctx.setLastListing(inventory.map((t: any) => ({ id: t.id, label: t.name })));
+        } else {
+          ctx.addLine('  INVENTORY: (empty)', 'info');
+        }
+        ctx.addLine(`  Storage: ${total}/${max} | Use "equip <#> <slot>" at Star Mall`, 'info');
+      }).catch((err: any) => {
+        ctx.addLine(err.response?.data?.error || 'Failed to load tablets', 'error');
+      });
+      break;
+    }
+
+    case 'equip': {
+      if (args.length < 2) {
+        ctx.addLine('Usage: equip <tablet # or name> <slot 1-3>', 'error');
+        break;
+      }
+      const slotArg = parseInt(args[args.length - 1]);
+      if (isNaN(slotArg) || slotArg < 1 || slotArg > 3) {
+        ctx.addLine('Slot must be 1, 2, or 3', 'error');
+        break;
+      }
+      const tabletQuery = args.slice(0, -1).join(' ');
+      api.getTablets().then(({ data }) => {
+        const inventory = (data.tablets || []).filter((t: any) => !t.equippedSlot);
+        const items = inventory.map((t: any) => ({ id: t.id, name: t.name }));
+        const result = resolveItem(tabletQuery, items, ctx);
+        if (result === null) { ctx.addLine(`No tablet matching "${tabletQuery}"`, 'error'); return; }
+        if (result === 'ambiguous') return;
+        api.equipTablet(result.id, slotArg).then(({ data: eqData }) => {
+          ctx.addLine(`Equipped ${eqData.name} (${rarityTag(eqData.rarity)}) to slot ${eqData.slot}. Cost: ${eqData.cost?.toLocaleString()} cr`, 'success');
+          ctx.addLine(`Credits: ${eqData.newCredits?.toLocaleString()}`, 'info');
+          ctx.refreshStatus();
+        }).catch((err: any) => {
+          ctx.addLine(err.response?.data?.error || 'Equip failed', 'error');
+        });
+      });
+      break;
+    }
+
+    case 'unequip': {
+      if (args.length < 1) {
+        ctx.addLine('Usage: unequip <slot 1-3>', 'error');
+        break;
+      }
+      const slot = parseInt(args[0]);
+      if (isNaN(slot) || slot < 1 || slot > 3) {
+        ctx.addLine('Slot must be 1, 2, or 3', 'error');
+        break;
+      }
+      api.unequipTablet(slot).then(({ data }) => {
+        ctx.addLine(`Unequipped ${data.name} from slot ${data.slot}`, 'success');
+      }).catch((err: any) => {
+        ctx.addLine(err.response?.data?.error || 'Unequip failed', 'error');
+      });
+      break;
+    }
+
+    case 'combine': {
+      if (args.length < 3) {
+        ctx.addLine('Usage: combine <#> <#> <#> — combine 3 same-tier tablets', 'error');
+        break;
+      }
+      const listing = ctx.getLastListing();
+      const ids: string[] = [];
+      for (const arg of args.slice(0, 3)) {
+        const num = parseInt(arg);
+        if (!isNaN(num) && listing && num >= 1 && num <= listing.length) {
+          ids.push(listing[num - 1].id);
+        } else {
+          ctx.addLine(`Invalid tablet reference: "${arg}". Use numbers from tablets listing.`, 'error');
+          return;
+        }
+      }
+      api.combineTablets(ids).then(({ data }) => {
+        const effects = typeof data.result.effects === 'string' ? JSON.parse(data.result.effects) : data.result.effects;
+        ctx.addLine(`Combined 3 tablets into: ${data.result.name} (${rarityTag(data.result.rarity)})!`, 'success');
+        ctx.addLine(`  ${formatTabletEffects(effects)}`, 'info');
+        ctx.addLine(`Cost: ${data.cost?.toLocaleString()} cr | Credits: ${data.newCredits?.toLocaleString()}`, 'info');
+        ctx.refreshStatus();
+      }).catch((err: any) => {
+        ctx.addLine(err.response?.data?.error || 'Combine failed', 'error');
+      });
+      break;
+    }
+
+    case 'recipes': {
+      ctx.addLine('=== TABLET RECIPES ===', 'system');
+      ctx.addLine('  Combine 3 tablets of the same tier:', 'info');
+      ctx.addLine('  3x Common    → 1x Uncommon    (500 cr)', 'info');
+      ctx.addLine('  3x Uncommon  → 1x Rare        (1,500 cr)', 'info');
+      ctx.addLine('  3x Rare      → 1x Epic        (5,000 cr)', 'info');
+      ctx.addLine('  3x Epic      → 1x Legendary   (15,000 cr)', 'info');
+      ctx.addLine('  3x Legendary → 1x Mythic      (50,000 cr)', 'info');
+      ctx.addLine('  Must be at a Star Mall to combine.', 'info');
+      break;
+    }
+
     case 'tips': {
       ctx.addLine('=== TIPS ===', 'system');
       ctx.addLine('Type "help <category>" for commands in a specific area.', 'info');
@@ -1166,6 +1451,8 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         ctx.addLine('  notes         Notes (note, notes)', 'info');
         ctx.addLine('  warp          Warp gates (warp use/build/toll/list)', 'info');
         ctx.addLine('  progression   Leveling & achievements (profile, achievements, ranks)', 'info');
+        ctx.addLine('  npcs          NPC interactions (talk, contacts, contact)', 'info');
+        ctx.addLine('  tablets       Tablets & equip slots (tablets, equip, unequip, combine, recipes)', 'info');
         ctx.addLine('  events        Events (investigate)', 'info');
         ctx.addLine('', 'info');
         ctx.addLine('Type "help <category>" for commands or "help <command>" for details.', 'info');
@@ -1317,6 +1604,25 @@ function getHelpForCategory(category: string): { text: string; type: 'info' | 's
         'ranks                      View rank tiers and ship level gates',
       ],
     },
+    npcs: {
+      title: 'NPCs',
+      commands: [
+        'talk [name or #]  (t)  Talk to an NPC in your sector',
+        'talk <choice #>        Select a dialogue option',
+        'contacts         (con) View your NPC contact journal',
+        'contact <name or #>   View detailed NPC info',
+      ],
+    },
+    tablets: {
+      title: 'TABLETS',
+      commands: [
+        'tablets              View your tablets & equipped slots',
+        'equip <#> <slot>     Equip tablet to slot 1-3 (Star Mall)',
+        'unequip <slot>       Unequip tablet from slot (Star Mall)',
+        'combine <#> <#> <#>  Combine 3 same-tier tablets (Star Mall)',
+        'recipes              Show tablet combination recipes',
+      ],
+    },
     events: {
       title: 'EVENTS',
       commands: [
@@ -1392,6 +1698,14 @@ function getHelpForCommand(cmd: string): string[] {
     retrieve: ['retrieve <name or #>', '  Retrieve a ship from your garage.', '  Accepts ship name, partial match, or # from last listing.'],
     salvage: ['salvage [name or #]', '  View salvage options or sell a ship for credits.', '  Accepts ship name, partial match, or # from last listing.'],
     combatlog: ['combatlog', '  View your recent combat history.'],
+    talk: ['talk [name or #]', '  Talk to an NPC in your sector. If only one NPC, auto-targets them.', '  During dialogue, use "talk <#>" to select an option.', '  Aliases: t'],
+    contacts: ['contacts', '  View all NPCs you have encountered, with faction, sector, and reputation.', '  Aliases: con'],
+    contact: ['contact <name or #>', '  View detailed information about a specific NPC contact.', '  Accepts NPC name, partial match, or # from contacts listing.'],
+    tablets: ['tablets', '  View all tablets you own, equipped slots, and storage capacity.'],
+    equip: ['equip <tablet # or name> <slot 1-3>', '  Equip a tablet to a slot. Must be at a Star Mall. Costs credits based on rarity.', '  Examples: equip 1 1, equip "Iron Focus" 2'],
+    unequip: ['unequip <slot 1-3>', '  Remove a tablet from an equip slot. Must be at a Star Mall.', '  Examples: unequip 1, unequip 3'],
+    combine: ['combine <#> <#> <#>', '  Combine 3 tablets of the same tier into 1 of the next tier. Must be at a Star Mall.', '  Example: combine 1 2 3'],
+    recipes: ['recipes', '  Show tablet combination recipes and costs.'],
     tips: ['tips', '  Show contextual tips and guidance based on your current situation.'],
   };
   return help[cmd] || [`No detailed help for "${cmd}". Try "help" to see categories.`];

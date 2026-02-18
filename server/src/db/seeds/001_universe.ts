@@ -54,6 +54,11 @@ export async function seed(knex: Knex): Promise<void> {
   await knex('outposts').del();
   await knex('ships').del();
   await knex('dodge_pods').del();
+  await knex('player_tablets').del();
+  await knex('player_faction_rep').del();
+  await knex('player_npc_state').del();
+  await knex('npc_definitions').del();
+  await knex('factions').del();
   await knex('players').del();
   await knex('sector_edges').del();
   await knex('sectors').del();
