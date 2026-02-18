@@ -8,7 +8,6 @@ const STORAGE_KEY_VOLUME = 'cosmic-horizon-volume';
 
 // Track whether user has interacted with the page (for autoplay policy)
 let userHasInteracted = false;
-let pendingContext: string | null = null;
 let interactionCallback: (() => void) | null = null;
 
 function onFirstInteraction() {
@@ -177,7 +176,6 @@ export function useAudio() {
   }, [muted, volume, fadeOut, startTrack]);
 
   const play = useCallback(async (contextId: string) => {
-    pendingContext = contextId;
     if (!userHasInteracted) {
       // Defer until first user interaction
       interactionCallback = () => playInternal(contextId);

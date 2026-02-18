@@ -63,9 +63,16 @@ router.post('/deploy', requireAuth, async (req, res) => {
       }
     }
 
-    // Check credits
-    if (Number(player.credits) < item.price) {
-      return res.status(400).json({ error: 'Not enough credits' });
+    // Check if player has this item in inventory (purchased from store)
+    const inventoryItem = await db('game_events')
+      .where({ player_id: player.id, event_type: `item:${itemId}`, read: false })
+      .first();
+
+    if (!inventoryItem) {
+      // Fallback: allow direct purchase if not in inventory
+      if (Number(player.credits) < item.price) {
+        return res.status(400).json({ error: 'Not enough credits. Buy from store first or ensure sufficient credits.' });
+      }
     }
 
     const newEnergy = deductEnergy(player.energy, 'deploy');
@@ -86,16 +93,23 @@ router.post('/deploy', requireAuth, async (req, res) => {
       last_maintained_at: now,
     });
 
-    await db('players').where({ id: player.id }).update({
-      credits: Number(player.credits) - item.price,
-      energy: newEnergy,
-    });
+    if (inventoryItem) {
+      // Consume from inventory
+      await db('game_events').where({ id: inventoryItem.id }).update({ read: true });
+      await db('players').where({ id: player.id }).update({ energy: newEnergy });
+    } else {
+      // Direct purchase (backwards compat)
+      await db('players').where({ id: player.id }).update({
+        credits: Number(player.credits) - item.price,
+        energy: newEnergy,
+      });
+    }
 
     res.json({
       deployableId,
       type: item.deployableType,
       sectorId: player.current_sector_id,
-      newCredits: Number(player.credits) - item.price,
+      newCredits: inventoryItem ? Number(player.credits) : Number(player.credits) - item.price,
       energy: newEnergy,
     });
   } catch (err) {

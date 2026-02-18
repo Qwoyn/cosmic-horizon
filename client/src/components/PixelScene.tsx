@@ -5,7 +5,6 @@ import type {
   SceneRenderMode,
   SceneActor,
   SceneEffect,
-  ActorTransition,
 } from '../config/scene-types';
 
 // --- Shared utility: render a SpriteDefinition as SVG rects ---

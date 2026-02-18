@@ -66,7 +66,7 @@ export const GAME_CONFIG = {
   // Leaderboards
   LEADERBOARD_TOP_N: 20,
   LEADERBOARD_CACHE_TTL_MS: 300000,
-  LEADERBOARD_CATEGORIES: ['credits', 'planets', 'combat', 'explored', 'trade', 'syndicate'] as readonly string[],
+  LEADERBOARD_CATEGORIES: ['credits', 'planets', 'combat', 'explored', 'trade', 'syndicate', 'level'] as readonly string[],
 
   // Messages
   MAX_MESSAGES_PER_PLAYER: 50,
@@ -75,6 +75,32 @@ export const GAME_CONFIG = {
   // Ship Upgrades
   MAX_UPGRADES_PER_SHIP: 6,
   UPGRADE_DIMINISHING_BASE: 0.8,
+
+  // Leveling / Progression
+  MAX_LEVEL: 100,
+  XP_COMBAT_DESTROY: 150,
+  XP_COMBAT_VOLLEY: 15,
+  XP_MISSION_COMPLETE_BASE: 50,
+  XP_TRADE_SELL: 5,
+  XP_TRADE_BUY: 2,
+  XP_EXPLORE_NEW_SECTOR: 10,
+  XP_CLAIM_PLANET: 75,
+  XP_COLONIZE: 1,
+  XP_INVESTIGATE_EVENT: 25,
+  LEVEL_UP_MAX_ENERGY_BONUS: 1,
+  SHIP_LEVEL_GATES: {
+    corvette: 5,
+    cruiser: 15,
+    battleship: 25,
+    stealth: 35,
+    colony_ship: 45,
+  } as Record<string, number>,
+
+  // Mission Expansion
+  MISSION_TIER_LEVELS: { 1: 0, 2: 10, 3: 20, 4: 35, 5: 50 } as Record<number, number>,
+  CANTINA_MISSION_CHANCE: 0.25,
+  CANTINA_GATE_MISSION_ID: 'b0000000-0000-0000-0000-000000000008',
+  CANTINA_TALK_COST: 0,
 
   // Warp Gates
   WARP_GATE_COST_CREDITS: 100000,

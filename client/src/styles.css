@@ -1312,6 +1312,55 @@ body {
   color: var(--yellow);
 }
 
+/* === Planets Panel === */
+.planet-panel-item {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.planet-panel-item:last-child {
+  border-bottom: none;
+}
+
+.planet-panel-item__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.planet-panel-item__name {
+  font-size: 12px;
+  color: var(--foreground);
+  font-weight: bold;
+}
+
+.planet-panel-item__class {
+  font-size: 10px;
+  color: var(--cyan);
+}
+
+.planet-panel-item__details {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--comment);
+  margin-top: 2px;
+}
+
+.planet-panel-item__stocks {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--yellow);
+  margin-top: 2px;
+}
+
+.planet-panel-item__production {
+  font-size: 10px;
+  color: var(--green);
+  margin-top: 2px;
+}
+
 /* === Sector Chat Panel === */
 .chat-messages {
   max-height: 120px;

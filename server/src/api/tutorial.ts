@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { getTutorialStep, TUTORIAL_STEPS, TUTORIAL_REWARD_CREDITS, TOTAL_TUTORIAL_STEPS } from '../config/tutorial';
 import { resetPlayerForRealGame } from '../services/tutorial-sandbox';
+import { buildObjectivesDetail } from '../engine/missions';
 import crypto from 'crypto';
 import db from '../db/connection';
 
@@ -26,10 +27,14 @@ async function assignStarterMissions(playerId: string): Promise<void> {
       ? JSON.parse(template.objectives) : template.objectives;
 
     // Build initial progress based on mission type
-    let progress: Record<string, number> = {};
-    if (template.type === 'visit_sector') progress = { sectorsVisited: 0 };
+    let progress: Record<string, any> = {};
+    if (template.type === 'visit_sector') progress = { sectorsVisited: [] };
     else if (template.type === 'trade_units') progress = { unitsTraded: 0 };
     else if (template.type === 'scan_sectors') progress = { scansCompleted: 0 };
+
+    // Build objectives detail for expanded mission display
+    const hints = typeof template.hints === 'string' ? JSON.parse(template.hints) : (template.hints || []);
+    const objectivesDetail = buildObjectivesDetail(template.type, objectives, hints);
 
     await db('player_missions').insert({
       id: crypto.randomUUID(),
@@ -39,6 +44,8 @@ async function assignStarterMissions(playerId: string): Promise<void> {
       progress: JSON.stringify(progress),
       reward_credits: template.reward_credits,
       reward_item_id: template.reward_item_id,
+      objectives_detail: JSON.stringify(objectivesDetail),
+      claim_status: 'auto',
     });
   }
 }

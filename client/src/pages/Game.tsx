@@ -8,6 +8,7 @@ import ActiveMissionsPanel from '../components/ActiveMissionsPanel';
 import SectorChatPanel, { type ChatMessage } from '../components/SectorChatPanel';
 import PlayerListPanel from '../components/PlayerListPanel';
 import InventoryPanel from '../components/InventoryPanel';
+import PlanetsPanel from '../components/PlanetsPanel';
 import NotesPanel from '../components/NotesPanel';
 import WalletPanel from '../components/WalletPanel';
 import TutorialOverlay from '../components/TutorialOverlay';
@@ -21,6 +22,7 @@ import { POST_TUTORIAL_SCENE } from '../config/scenes/post-tutorial-scene';
 import { buildIdleSpaceScene, buildIdleOutpostScene, buildIdleDockedScene } from '../config/scenes/ambient-scenes';
 import { buildCombatScene } from '../config/scenes/combat-scene';
 import { buildDestroyedScene } from '../config/scenes/destroyed-scene';
+import { buildMallInteriorScene } from '../config/scenes/mall-interior-scene';
 import { useGameState } from '../hooks/useGameState';
 import { useSocket } from '../hooks/useSocket';
 import { useAudio } from '../hooks/useAudio';
@@ -57,13 +59,16 @@ export default function Game({ onLogout }: GameProps) {
       sectorId: game.sector?.sectorId,
     };
     if (game.player?.dockedAtOutpostId) {
+      if (game.sector?.hasStarMall) {
+        return buildMallInteriorScene();
+      }
       return buildIdleDockedScene(ctx);
     }
     if ((game.sector?.outposts?.length ?? 0) > 0) {
       return buildIdleOutpostScene(ctx);
     }
     return buildIdleSpaceScene(ctx);
-  }, [game.player?.dockedAtOutpostId, game.sector?.outposts?.length, game.player?.currentShip?.shipTypeId, game.sector?.sectorId, game.sector?.type, game.sector?.planets?.length, game.sector?.players?.length]);
+  }, [game.player?.dockedAtOutpostId, game.sector?.hasStarMall, game.sector?.outposts?.length, game.player?.currentShip?.shipTypeId, game.sector?.sectorId, game.sector?.type, game.sector?.planets?.length, game.sector?.players?.length]);
 
   // Clear chat when changing sectors
   useEffect(() => {
@@ -203,6 +208,7 @@ export default function Game({ onLogout }: GameProps) {
       case 'combat': return <CombatView sector={game.sector} onFire={game.doFire} onFlee={game.doFlee} weaponEnergy={game.player?.currentShip?.weaponEnergy ?? 0} combatAnimation={game.combatAnimation} onCombatAnimationDone={game.clearCombatAnimation} bare />;
       case 'players': return <PlayerListPanel sector={game.sector} onFire={game.doFire} bare />;
       case 'missions': return <ActiveMissionsPanel refreshKey={refreshKey} bare />;
+      case 'planets': return <PlanetsPanel refreshKey={refreshKey} bare />;
       case 'inventory': return <InventoryPanel refreshKey={refreshKey} onItemUsed={handleItemUsed} bare />;
       case 'chat': return <SectorChatPanel messages={chatMessages} onSend={handleChatSend} bare />;
       case 'notes': return <NotesPanel refreshKey={refreshKey} bare />;

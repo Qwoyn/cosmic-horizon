@@ -70,6 +70,8 @@ export const ejectCargo = (commodity: string, quantity: number) =>
   api.post('/ships/eject-cargo', { commodity, quantity });
 
 // Planets
+export const getOwnedPlanets = () => api.get('/planets/owned');
+export const getDiscoveredPlanets = () => api.get('/planets/discovered');
 export const getPlanet = (id: string) => api.get(`/planets/${id}`);
 export const claimPlanet = (id: string) => api.post(`/planets/${id}/claim`);
 export const colonizePlanet = (id: string, quantity: number) =>
@@ -130,6 +132,7 @@ export const getSalvageOptions = () => api.get('/starmall/salvage');
 export const salvageShip = (shipId: string) => api.post(`/starmall/salvage/sell/${shipId}`);
 export const getCantina = () => api.get('/starmall/cantina');
 export const buyCantineIntel = () => api.post('/starmall/cantina/intel');
+export const talkBartender = () => api.post('/starmall/cantina/talk');
 
 // Lore sequences
 export const markIntroSeen = () => api.post('/game/seen-intro');
@@ -147,6 +150,8 @@ export const acceptMission = (templateId: string) => api.post(`/missions/accept/
 export const getActiveMissions = () => api.get('/missions/active');
 export const getCompletedMissions = () => api.get('/missions/completed');
 export const abandonMission = (missionId: string) => api.post(`/missions/abandon/${missionId}`);
+export const getClaimableMissions = () => api.get('/missions/claimable');
+export const claimMission = (missionId: string) => api.post(`/missions/claim/${missionId}`);
 
 // Sector Events
 export const getSectorEvents = () => api.get('/events/sector');
@@ -155,6 +160,11 @@ export const investigateEvent = (eventId: string) => api.post(`/events/investiga
 // Leaderboards
 export const getLeaderboardOverview = () => api.get('/leaderboards');
 export const getLeaderboard = (category: string) => api.get(`/leaderboards/${category}`);
+
+// Progression
+export const getProfile = () => api.get('/progression/profile');
+export const getAchievements = () => api.get('/progression/achievements');
+export const getRanks = () => api.get('/progression/ranks');
 
 // Messages
 export const getInbox = () => api.get('/messages/inbox');

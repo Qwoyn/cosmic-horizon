@@ -1,3 +1,4 @@
+import type { SpriteDefinition } from '../pixel-sprites';
 import { SPRITES } from '../pixel-sprites';
 import { makeExhaustFrames, SCENE_SPRITES } from '../scene-sprites';
 import type { SceneDefinition } from '../scene-types';
@@ -55,8 +56,8 @@ export function buildLookScene(shipTypeId: string, hasPlanets: boolean, hasOutpo
         ...(hasPlanets ? [{ actorId: 'ping1', opacity: 0.7, duration: 400, easing: 'ease-out' } as const] : []),
       ],
       addActors: [
-        ...(hasOutpost ? [{ id: 'ping2', frames: [SCENE_SPRITES.outpost_frame1, SCENE_SPRITES.outpost_frame2], frameDuration: 500, x: 80, y: 65, size: 7, opacity: 0 } as const] : []),
-        ...(hasPlayers ? [{ id: 'ping3', frames: [SPRITES.ship_scout], frameDuration: 200, x: 60, y: 75, size: 5, opacity: 0 } as const] : []),
+        ...(hasOutpost ? [{ id: 'ping2', frames: [SCENE_SPRITES.outpost_frame1, SCENE_SPRITES.outpost_frame2] as SpriteDefinition[], frameDuration: 500, x: 80, y: 65, size: 7, opacity: 0 }] : []),
+        ...(hasPlayers ? [{ id: 'ping3', frames: [SPRITES.ship_scout] as SpriteDefinition[], frameDuration: 200, x: 60, y: 75, size: 5, opacity: 0 }] : []),
       ],
       effects: [
         ...(hasOutpost ? [{ type: 'flash' as const, duration: 200, delay: 300, config: { color: '#3fb950' } }] : []),

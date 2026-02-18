@@ -3,9 +3,88 @@ import { requireAuth } from '../middleware/auth';
 import { calculateProduction, canUpgrade } from '../engine/planets';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
 import { applyUpgradesToShip } from '../engine/upgrades';
+import { awardXP } from '../engine/progression';
+import { checkAchievements } from '../engine/achievements';
+import { GAME_CONFIG } from '../config/game';
 import db from '../db/connection';
 
 const router = Router();
+
+// List planets owned by the player
+router.get('/owned', requireAuth, async (req, res) => {
+  try {
+    const planets = await db('planets')
+      .where({ owner_id: req.session.playerId })
+      .orderBy('created_at');
+
+    const result = planets.map((p: any) => {
+      const production = calculateProduction(p.planet_class, p.colonists || 0);
+      return {
+        id: p.id,
+        name: p.name,
+        planetClass: p.planet_class,
+        sectorId: p.sector_id,
+        upgradeLevel: p.upgrade_level,
+        colonists: p.colonists || 0,
+        cyrilliumStock: p.cyrillium_stock || 0,
+        foodStock: p.food_stock || 0,
+        techStock: p.tech_stock || 0,
+        droneCount: p.drone_count || 0,
+        production,
+      };
+    });
+
+    res.json({ planets: result });
+  } catch (err) {
+    console.error('Owned planets error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List all discovered planets (in explored sectors)
+router.get('/discovered', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    let explored: number[] = [];
+    try { explored = JSON.parse(player.explored_sectors || '[]'); } catch { explored = []; }
+
+    if (explored.length === 0) return res.json({ planets: [] });
+
+    const planets = await db('planets')
+      .whereIn('planets.sector_id', explored)
+      .leftJoin('players as owner', 'planets.owner_id', 'owner.id')
+      .select(
+        'planets.id', 'planets.name', 'planets.planet_class',
+        'planets.sector_id', 'planets.owner_id',
+        'planets.upgrade_level', 'planets.colonists',
+        'planets.cyrillium_stock', 'planets.food_stock', 'planets.tech_stock',
+        'owner.username as ownerName'
+      );
+
+    const result = planets.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      planetClass: p.planet_class,
+      sectorId: p.sector_id,
+      owned: p.owner_id === player.id,
+      ownerName: p.owner_id === player.id ? 'You' : (p.ownerName || null),
+      upgradeLevel: p.upgrade_level,
+      colonists: p.colonists || 0,
+      ...(p.owner_id === player.id ? {
+        cyrilliumStock: p.cyrillium_stock || 0,
+        foodStock: p.food_stock || 0,
+        techStock: p.tech_stock || 0,
+      } : {}),
+    }));
+
+    res.json({ planets: result });
+  } catch (err) {
+    console.error('Discovered planets error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Planet details
 router.get('/:id', requireAuth, async (req, res) => {
@@ -56,6 +135,9 @@ router.post('/:id/claim', requireAuth, async (req, res) => {
     if (planet.sector_id !== player.current_sector_id) {
       return res.status(400).json({ error: 'Planet is not in your sector' });
     }
+    if (planet.planet_class === 'S') {
+      return res.status(400).json({ error: 'Seed planets cannot be claimed — they belong to the galaxy' });
+    }
     if (planet.owner_id) {
       return res.status(400).json({ error: 'Planet already claimed' });
     }
@@ -64,7 +146,11 @@ router.post('/:id/claim', requireAuth, async (req, res) => {
       owner_id: player.id,
     });
 
-    res.json({ planetId: planet.id, ownerId: player.id });
+    // Award XP for claiming a planet
+    const xpResult = await awardXP(player.id, GAME_CONFIG.XP_CLAIM_PLANET, 'explore');
+    await checkAchievements(player.id, 'claim_planet', {});
+
+    res.json({ planetId: planet.id, ownerId: player.id, xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp } });
   } catch (err) {
     console.error('Claim error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -106,10 +192,14 @@ router.post('/:id/colonize', requireAuth, async (req, res) => {
     // Mission progress: colonize
     checkAndUpdateMissions(player.id, 'colonize', { quantity: toDeposit });
 
+    // Award XP for colonizing
+    const xpResult = await awardXP(player.id, toDeposit * GAME_CONFIG.XP_COLONIZE, 'explore');
+
     res.json({
       deposited: toDeposit,
       planetColonists: (planet.colonists || 0) + toDeposit,
       shipColonists: available - toDeposit,
+      xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
     });
   } catch (err) {
     console.error('Colonize error:', err);

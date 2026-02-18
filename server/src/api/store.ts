@@ -101,7 +101,7 @@ router.post('/buy/:itemId', requireAuth, async (req, res) => {
       // PGD and scanner are inherent ship capabilities; purchasing "unlocks" for that session
     }
 
-    // Handle consumable items - use immediately or add effect
+    // Handle consumable items - use immediately or add to inventory
     if (item.category === 'consumable') {
       if (item.id === 'fuel_cell') {
         const newEnergy = Math.min(player.energy + 50, player.max_energy);
@@ -116,7 +116,10 @@ router.post('/buy/:itemId', requireAuth, async (req, res) => {
           newEnergy,
         });
       }
-      // Other consumables are stored as game_events for later use
+    }
+
+    // Store consumables and deployables in inventory for later use
+    if (item.category === 'consumable' || item.category === 'deployable') {
       const crypto = require('crypto');
       await db('game_events').insert({
         id: crypto.randomUUID(),
@@ -204,22 +207,36 @@ router.post('/use/:itemId', requireAuth, async (req, res) => {
   }
 });
 
-// View player's consumable inventory
+// View player's inventory (consumables + deployables, with quantities)
 router.get('/inventory', requireAuth, async (req, res) => {
   try {
     const items = await db('game_events')
       .where({ player_id: req.session.playerId, read: false })
       .andWhere('event_type', 'like', 'item:%')
-      .select('id', 'event_type', 'created_at');
+      .select('event_type')
+      .count('* as count')
+      .groupBy('event_type');
 
-    const inventory = items.map(i => ({
-      id: i.id,
-      itemId: i.event_type.replace('item:', ''),
-      name: getStoreItem(i.event_type.replace('item:', ''))?.name ?? 'Unknown',
-      acquiredAt: i.created_at,
-    }));
+    const inventory = items.map((row: any) => {
+      const itemId = row.event_type.replace('item:', '');
+      const storeItem = getStoreItem(itemId);
+      return {
+        itemId,
+        name: storeItem?.name ?? 'Unknown',
+        category: storeItem?.category ?? 'unknown',
+        quantity: Number(row.count),
+      };
+    });
 
-    res.json({ inventory });
+    // Also include equipped equipment from current ship
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    const equipped: { name: string; itemId: string }[] = [];
+    if (player?.current_ship_id) {
+      const ship = await db('ships').where({ id: player.current_ship_id }).first();
+      if (ship?.has_jump_drive) equipped.push({ name: 'Jump Drive', itemId: 'jump_drive' });
+    }
+
+    res.json({ inventory, equipped });
   } catch (err) {
     console.error('Inventory error:', err);
     res.status(500).json({ error: 'Internal server error' });

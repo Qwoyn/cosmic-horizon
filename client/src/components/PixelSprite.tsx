@@ -31,7 +31,7 @@ export default function PixelSprite({ spriteKey, size = 16, className, title }: 
       width={size}
       height={size}
       style={{ imageRendering: 'pixelated', display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}
-      title={title}
+      aria-label={title}
     >
       {rects}
     </svg>

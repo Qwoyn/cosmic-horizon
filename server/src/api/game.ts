@@ -3,6 +3,9 @@ import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
 import { applyUpgradesToShip } from '../engine/upgrades';
+import { awardXP, getPlayerProgress, getPlayerLevelBonuses } from '../engine/progression';
+import { checkAchievements } from '../engine/achievements';
+import { GAME_CONFIG } from '../config/game';
 import {
   handleTutorialStatus,
   handleTutorialSector,
@@ -26,6 +29,8 @@ router.get('/status', requireAuth, async (req, res) => {
       : null;
 
     const upgrades = ship ? await applyUpgradesToShip(ship.id) : null;
+    const progress = await getPlayerProgress(player.id);
+    const levelBonuses = await getPlayerLevelBonuses(player.id);
 
     res.json({
       id: player.id,
@@ -41,15 +46,18 @@ router.get('/status', requireAuth, async (req, res) => {
       hasSeenPostTutorial: !!player.has_seen_post_tutorial,
       walletAddress: player.wallet_address || null,
       dockedAtOutpostId: player.docked_at_outpost_id || null,
+      level: progress.level,
+      rank: progress.rank,
+      xp: progress.totalXp,
       currentShip: ship ? {
         id: ship.id,
         shipTypeId: ship.ship_type_id,
-        weaponEnergy: ship.weapon_energy + (upgrades?.weaponBonus ?? 0),
-        engineEnergy: ship.engine_energy + (upgrades?.engineBonus ?? 0),
+        weaponEnergy: ship.weapon_energy + (upgrades?.weaponBonus ?? 0) + levelBonuses.weaponBonus,
+        engineEnergy: ship.engine_energy + (upgrades?.engineBonus ?? 0) + levelBonuses.engineBonus,
         hullHp: ship.hull_hp,
         maxHullHp: ship.max_hull_hp,
         cargoHolds: ship.cargo_holds,
-        maxCargoHolds: ship.max_cargo_holds + (upgrades?.cargoBonus ?? 0),
+        maxCargoHolds: ship.max_cargo_holds + (upgrades?.cargoBonus ?? 0) + levelBonuses.cargoBonus,
         cyrilliumCargo: ship.cyrillium_cargo,
         foodCargo: ship.food_cargo,
         techCargo: ship.tech_cargo,
@@ -90,7 +98,8 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     // Update explored sectors
     let explored: number[] = [];
     try { explored = JSON.parse(player.explored_sectors || '[]'); } catch { explored = []; }
-    if (!explored.includes(targetSectorId)) {
+    const isNewSector = !explored.includes(targetSectorId);
+    if (isNewSector) {
       explored.push(targetSectorId);
     }
 
@@ -130,6 +139,13 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     // Mission progress: move
     checkAndUpdateMissions(player.id, 'move', { sectorId: targetSectorId });
 
+    // Award explore XP for new sector discovery
+    let xpResult = null;
+    if (isNewSector) {
+      xpResult = await awardXP(player.id, GAME_CONFIG.XP_EXPLORE_NEW_SECTOR, 'explore');
+      await checkAchievements(player.id, 'explore', { sectorId: targetSectorId, explored });
+    }
+
     res.json({
       sectorId: targetSectorId,
       sectorType: sector?.type,
@@ -138,6 +154,7 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
       outposts: outpostsInSector.map(o => ({ id: o.id, name: o.name })),
       planets: planetsInSector.map(p => ({ id: p.id, name: p.name, ownerId: p.owner_id })),
       meteorDamage,
+      xp: xpResult ? { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp } : undefined,
     });
   } catch (err) {
     console.error('Move error:', err);

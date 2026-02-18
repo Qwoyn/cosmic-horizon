@@ -260,7 +260,7 @@ export function useGameState() {
       setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null } : null);
 
       // Enqueue warp animation
-      setSceneQueue(prev => {
+      setSceneQueue(_prev => {
         const shipTypeId = player?.currentShip?.shipTypeId ?? 'scout';
         const scenes = [buildWarpScene(shipTypeId)];
         if (data.outposts.length > 0) {
@@ -350,11 +350,42 @@ export function useGameState() {
         addLine(`  ${commodity.padEnd(12)} ${String(info.price).padStart(5)} cr  [${info.stock}/${info.capacity}]  ${info.mode}`, modeColor as any);
       }
       addLine('Use "buy <commodity> <qty>" or "sell <commodity> <qty>"', 'info');
+
+      // Show Star Mall services if docked at a Star Mall
+      if (sector?.hasStarMall) {
+        const MALL_SERVICES: Record<string, { label: string; cmd: string }> = {
+          shipDealer:   { label: 'Ship Dealer',   cmd: 'dealer' },
+          generalStore: { label: 'General Store',  cmd: 'store' },
+          garage:       { label: 'Garage',         cmd: 'garage' },
+          salvageYard:  { label: 'Salvage Yard',   cmd: 'salvage' },
+          cantina:      { label: 'Cantina',        cmd: 'cantina' },
+          refueling:    { label: 'Refueling',      cmd: 'refuel' },
+          bountyBoard:  { label: 'Bounty Board',   cmd: 'bounties' },
+        };
+        try {
+          const { data: mallData } = await api.getStarMallOverview();
+          addLine('', 'info');
+          addLine('=== STAR MALL ===', 'system');
+          addLine('Welcome to the Star Mall! Services available:', 'success');
+          for (const [key, svc] of Object.entries(mallData.services) as [string, any][]) {
+            const info = MALL_SERVICES[key] ?? { label: key, cmd: '' };
+            const extra = svc.storedShips != null ? ` (${svc.storedShips} ships stored)` :
+              svc.activeBounties != null ? ` (${svc.activeBounties} active)` : '';
+            const hint = info.cmd ? `  → type "${info.cmd}"` : '';
+            addLine(`  ${info.label.padEnd(16)} ${(svc.available ? 'OPEN' : 'CLOSED').padEnd(8)}${extra}${hint}`, svc.available ? 'success' : 'warning');
+          }
+        } catch {
+          addLine('', 'info');
+          addLine('=== STAR MALL ===', 'system');
+          addLine('Welcome to the Star Mall! Type "mall" to see services.', 'success');
+        }
+      }
+
       advanceTutorial('dock');
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Dock failed', 'error');
     }
-  }, [addLine, advanceTutorial, enqueueScene, player?.currentShip?.shipTypeId]);
+  }, [addLine, advanceTutorial, enqueueScene, player?.currentShip?.shipTypeId, sector?.hasStarMall]);
 
   const doUndock = useCallback(async () => {
     try {

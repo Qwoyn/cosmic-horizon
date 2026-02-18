@@ -5,6 +5,9 @@ import { calculatePrice, executeTrade, CommodityType, OutpostState } from '../en
 import { getRace, RaceId } from '../config/races';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
 import { applyUpgradesToShip } from '../engine/upgrades';
+import { awardXP } from '../engine/progression';
+import { checkAchievements } from '../engine/achievements';
+import { GAME_CONFIG } from '../config/game';
 import {
   handleTutorialOutpost,
   handleTutorialBuy,
@@ -149,6 +152,10 @@ router.post('/buy', requireAuth, async (req, res) => {
     // Mission progress: trade (buy)
     checkAndUpdateMissions(player.id, 'trade', { quantity: result.quantity, tradeType: 'buy', commodity });
 
+    // Award trade XP for buying
+    const xpResult = await awardXP(player.id, result.quantity * GAME_CONFIG.XP_TRADE_BUY, 'trade');
+    await checkAchievements(player.id, 'trade', {});
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -157,6 +164,7 @@ router.post('/buy', requireAuth, async (req, res) => {
       tradeBonus: tradeDiscount,
       newCredits: Number(player.credits) - adjustedCost,
       energy: newEnergy,
+      xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
     });
   } catch (err) {
     console.error('Buy error:', err);
@@ -251,6 +259,10 @@ router.post('/sell', requireAuth, async (req, res) => {
     // Mission progress: trade (sell) + deliver_cargo
     checkAndUpdateMissions(player.id, 'trade', { quantity: result.quantity, tradeType: 'sell', commodity });
 
+    // Award trade XP for selling
+    const xpResult = await awardXP(player.id, result.quantity * GAME_CONFIG.XP_TRADE_SELL, 'trade');
+    await checkAchievements(player.id, 'trade', {});
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -259,6 +271,7 @@ router.post('/sell', requireAuth, async (req, res) => {
       tradeBonus: tradeBoost,
       newCredits: Number(player.credits) + adjustedRevenue,
       energy: newEnergy,
+      xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
     });
   } catch (err) {
     console.error('Sell error:', err);
