@@ -6,6 +6,7 @@ import { processDecay, processDefenseDecay, isDeployableExpired } from './decay'
 import { notifyPlayer, getConnectedPlayers } from '../ws/handlers';
 import { spawnSectorEvents, expireSectorEvents } from './events';
 import { refreshLeaderboardCache } from './leaderboards';
+import { producePlanetUniqueResources } from './crafting';
 
 let tickInterval: ReturnType<typeof setInterval> | null = null;
 let tickCount = 0;
@@ -62,6 +63,13 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
         colonists: newColonists,
       });
     }
+
+    // 2b. Planet unique resource production
+    try {
+      for (const planet of planets) {
+        await producePlanetUniqueResources(planet);
+      }
+    } catch { /* crafting tables may not exist yet */ }
 
     // 3. Decay - inactive player planets
     const inactivePlayers = await db('players')

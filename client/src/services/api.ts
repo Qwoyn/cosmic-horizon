@@ -223,4 +223,14 @@ export const getTabletRecipes = () => api.get('/tablets/recipes');
 export const tradeTablet = (targetPlayerName: string, tabletId: string) =>
   api.post('/tablets/trade', { targetPlayerName, tabletId });
 
+// Crafting
+export const getPlayerResources = () => api.get('/crafting/resources');
+export const getPlanetCraftingResources = (planetId: string) => api.get(`/crafting/resources/planet/${planetId}`);
+export const getRecipes = () => api.get('/crafting/recipes');
+export const startCraft = (planetId: string, recipeId: string, batchSize?: number) =>
+  api.post('/crafting/craft', { planetId, recipeId, batchSize });
+export const collectRefinery = (queueId: string) => api.post('/crafting/collect', { queueId });
+export const collectPlanetResources = (planetId: string) => api.post('/crafting/collect-planet', { planetId });
+export const collectAllRefinery = (planetId: string) => api.post('/crafting/collect-all', { planetId });
+
 export default api;

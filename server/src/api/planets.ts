@@ -6,6 +6,7 @@ import { applyUpgradesToShip } from '../engine/upgrades';
 import { awardXP } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
+import { getRefineryQueue, getRefinerySlots } from '../engine/crafting';
 import db from '../db/connection';
 
 const router = Router();
@@ -16,6 +17,40 @@ router.get('/owned', requireAuth, async (req, res) => {
     const planets = await db('planets')
       .where({ owner_id: req.session.playerId })
       .orderBy('created_at');
+
+    // Load unique resources for all owned planets
+    let planetResourceMap: Record<string, { id: string; name: string; stock: number }[]> = {};
+    try {
+      const allPlanetIds = planets.map((p: any) => p.id);
+      if (allPlanetIds.length > 0) {
+        const planetRes = await db('planet_resources')
+          .join('resource_definitions', 'planet_resources.resource_id', 'resource_definitions.id')
+          .whereIn('planet_resources.planet_id', allPlanetIds)
+          .where('planet_resources.stock', '>', 0)
+          .select('planet_resources.planet_id', 'resource_definitions.id', 'resource_definitions.name', 'planet_resources.stock');
+        for (const pr of planetRes) {
+          if (!planetResourceMap[pr.planet_id]) planetResourceMap[pr.planet_id] = [];
+          planetResourceMap[pr.planet_id].push({ id: pr.id, name: pr.name, stock: pr.stock });
+        }
+      }
+    } catch { /* crafting tables may not exist yet */ }
+
+    // Load refinery queue counts
+    let queueCountMap: Record<string, number> = {};
+    try {
+      const allPlanetIds = planets.map((p: any) => p.id);
+      if (allPlanetIds.length > 0) {
+        const queueCounts = await db('planet_refinery_queue')
+          .whereIn('planet_id', allPlanetIds)
+          .where({ collected: false })
+          .groupBy('planet_id')
+          .select('planet_id')
+          .count('id as count');
+        for (const qc of queueCounts) {
+          queueCountMap[qc.planet_id as string] = Number(qc.count);
+        }
+      }
+    } catch { /* crafting tables may not exist yet */ }
 
     const result = planets.map((p: any) => {
       const production = calculateProduction(p.planet_class, p.colonists || 0);
@@ -31,6 +66,8 @@ router.get('/owned', requireAuth, async (req, res) => {
         techStock: p.tech_stock || 0,
         droneCount: p.drone_count || 0,
         production,
+        uniqueResources: planetResourceMap[p.id] || [],
+        refineryQueueCount: queueCountMap[p.id] || 0,
       };
     });
 
@@ -94,6 +131,23 @@ router.get('/:id', requireAuth, async (req, res) => {
 
     const production = calculateProduction(planet.planet_class, planet.colonists || 0);
 
+    // Load unique resources and refinery for owned planets
+    let uniqueResources: any[] = [];
+    let refineryQueue: any[] = [];
+    let refinerySlots = 0;
+    if (planet.owner_id === req.session.playerId) {
+      try {
+        const planetRes = await db('planet_resources')
+          .join('resource_definitions', 'planet_resources.resource_id', 'resource_definitions.id')
+          .where({ 'planet_resources.planet_id': planet.id })
+          .where('planet_resources.stock', '>', 0)
+          .select('resource_definitions.id', 'resource_definitions.name', 'planet_resources.stock');
+        uniqueResources = planetRes;
+        refineryQueue = await getRefineryQueue(planet.id);
+        refinerySlots = getRefinerySlots(planet.upgrade_level);
+      } catch { /* crafting tables may not exist yet */ }
+    }
+
     res.json({
       id: planet.id,
       name: planet.name,
@@ -107,6 +161,9 @@ router.get('/:id', requireAuth, async (req, res) => {
       techStock: planet.tech_stock,
       droneCount: planet.drone_count,
       production,
+      uniqueResources,
+      refineryQueue,
+      refinerySlots,
       canUpgrade: planet.owner_id === req.session.playerId
         ? canUpgrade({
             upgradeLevel: planet.upgrade_level,

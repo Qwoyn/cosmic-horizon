@@ -62,6 +62,8 @@ const ALIASES: Record<string, string> = {
   tab: 'tablets',
   eq: 'equip',
   uneq: 'unequip',
+  res: 'resources',
+  rec: 'recipes',
 };
 
 let activeNpcId: string | null = null;
@@ -277,6 +279,17 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         ctx.addLine(`Owner: ${data.ownerId || 'Unclaimed'} | Level: ${data.upgradeLevel} | Colonists: ${data.colonists.toLocaleString()}`, 'info');
         ctx.addLine(`Stocks: Cyr=${data.cyrilliumStock} Food=${data.foodStock} Tech=${data.techStock} Drones=${data.droneCount}`, 'info');
         ctx.addLine(`Production/tick: Cyr=${data.production.cyrillium} Food=${data.production.food} Tech=${data.production.tech}`, 'trade');
+        if (data.uniqueResources?.length > 0) {
+          ctx.addLine(`Unique Resources: ${data.uniqueResources.map((r: any) => `${r.name} x${r.stock}`).join(', ')}`, 'trade');
+        }
+        if (data.refineryQueue?.length > 0) {
+          ctx.addLine(`Refinery Queue (${data.refineryQueue.length}/${data.refinerySlots} slots):`, 'info');
+          data.refineryQueue.forEach((q: any, i: number) => {
+            const status = q.ready ? 'READY' : `${Math.ceil((new Date(q.completesAt).getTime() - Date.now()) / 60000)} min remaining`;
+            ctx.addLine(`  [${i + 1}] ${q.recipeName} x${q.batchSize} — ${status}`, q.ready ? 'success' : 'info');
+          });
+          ctx.setLastListing(data.refineryQueue.map((q: any) => ({ id: q.id, label: q.recipeName })));
+        }
         if (data.canUpgrade) ctx.addLine('This planet can be upgraded! Type "upgrade <name or #>"', 'success');
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Landing failed', 'error'));
       break;
@@ -314,6 +327,86 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     }
 
     case 'collect': {
+      if (args.length < 1) {
+        ctx.addLine('Usage:', 'info');
+        ctx.addLine('  collect <name or #> <quantity>    Collect colonists from seed planet', 'info');
+        ctx.addLine('  collect resources <planet>        Collect all resources from planet', 'info');
+        ctx.addLine('  collect refinery <#>              Collect completed refinery batch', 'info');
+        ctx.addLine('  collect all <planet>              Collect resources + all refinery batches', 'info');
+        break;
+      }
+
+      // "collect resources <planet>"
+      if (args[0].toLowerCase() === 'resources') {
+        if (args.length < 2) { ctx.addLine('Usage: collect resources <planet name or #>', 'error'); break; }
+        const pQuery = args.slice(1).join(' ');
+        const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+        const result = resolveItem(pQuery, planets, ctx);
+        if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+        if (result === 'ambiguous') break;
+        api.collectPlanetResources(result.id).then(({ data }) => {
+          if (data.collected.length === 0) { ctx.addLine('No resources to collect', 'info'); return; }
+          ctx.addLine(`Collected resources from ${result.name}:`, 'success');
+          for (const c of data.collected) {
+            ctx.addLine(`  ${c.name} x${c.quantity}`, 'trade');
+          }
+          if (data.xp?.awarded) ctx.addLine(`+${data.xp.awarded} XP`, 'info');
+          ctx.refreshStatus();
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Collect failed', 'error'));
+        break;
+      }
+
+      // "collect refinery <#>"
+      if (args[0].toLowerCase() === 'refinery') {
+        if (args.length < 2) { ctx.addLine('Usage: collect refinery <queue #>', 'error'); break; }
+        const listing = ctx.getLastListing();
+        const num = parseInt(args[1]);
+        if (!isNaN(num) && listing && num >= 1 && num <= listing.length) {
+          const queueId = listing[num - 1].id;
+          api.collectRefinery(queueId).then(({ data }) => {
+            ctx.addLine(`Collected: ${data.recipeName} x${data.batchSize}`, 'success');
+            if (data.output) ctx.addLine(`  Output: ${data.output.name || data.output.type} x${data.output.quantity || 1}`, 'trade');
+            if (data.xp?.awarded) ctx.addLine(`+${data.xp.awarded} XP`, 'info');
+            ctx.refreshStatus();
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Collect failed', 'error'));
+        } else {
+          ctx.addLine(`Invalid queue #. View planet resources first to see queue.`, 'error');
+        }
+        break;
+      }
+
+      // "collect all <planet>"
+      if (args[0].toLowerCase() === 'all') {
+        if (args.length < 2) { ctx.addLine('Usage: collect all <planet name or #>', 'error'); break; }
+        const pQuery = args.slice(1).join(' ');
+        const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+        const result = resolveItem(pQuery, planets, ctx);
+        if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+        if (result === 'ambiguous') break;
+        // Collect resources + refinery
+        api.collectPlanetResources(result.id).then(({ data }) => {
+          if (data.collected.length > 0) {
+            ctx.addLine(`Resources from ${result.name}:`, 'success');
+            for (const c of data.collected) ctx.addLine(`  ${c.name} x${c.quantity}`, 'trade');
+          }
+          // Then collect all refinery
+          api.collectAllRefinery(result.id).then(({ data: rData }) => {
+            if (rData.collected > 0) {
+              ctx.addLine(`Refinery batches collected: ${rData.collected}`, 'success');
+              for (const r of rData.results) {
+                ctx.addLine(`  ${r.recipeName} x${r.batchSize}`, 'trade');
+              }
+            }
+            if (data.collected.length === 0 && rData.collected === 0) {
+              ctx.addLine('Nothing to collect', 'info');
+            }
+            ctx.refreshStatus();
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Refinery collect failed', 'error'));
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Collect failed', 'error'));
+        break;
+      }
+
+      // Default: collect colonists from seed planet
       if (args.length < 2) { ctx.addLine('Usage: collect <name or #> <quantity>', 'error'); break; }
       const qty = parseInt(args[args.length - 1]);
       if (isNaN(qty)) { ctx.addLine('Quantity must be a number', 'error'); break; }
@@ -363,8 +456,12 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           if (data.planets.length === 0) { ctx.addLine('You do not own any planets', 'info'); return; }
           ctx.addLine('=== YOUR PLANETS ===', 'system');
           data.planets.forEach((p: any, i: number) => {
-            ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}] Sector ${p.sectorId}    Level ${p.upgradeLevel}`, 'info');
+            const queueTag = p.refineryQueueCount > 0 ? ` | Refinery: ${p.refineryQueueCount} active` : '';
+            ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}] Sector ${p.sectorId}    Level ${p.upgradeLevel}${queueTag}`, 'info');
             ctx.addLine(`      Colonists: ${p.colonists.toLocaleString()} | Cyr: ${p.cyrilliumStock} Food: ${p.foodStock} Tech: ${p.techStock}`, 'info');
+            if (p.uniqueResources?.length > 0) {
+              ctx.addLine(`      Resources: ${p.uniqueResources.map((r: any) => `${r.name} x${r.stock}`).join(', ')}`, 'trade');
+            }
             ctx.addLine(`      Production/tick: Cyr=${p.production.cyrillium} Food=${p.production.food} Tech=${p.production.tech}`, 'trade');
           });
         }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch planets', 'error'));
@@ -1275,6 +1372,126 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     }
 
     // === TABLETS ===
+    // === CRAFTING ===
+    case 'resources': {
+      if (args.length > 0) {
+        // Planet resources: "resources <planet name or #>"
+        const pQuery = args.join(' ');
+        const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+        const result = resolveItem(pQuery, planets, ctx);
+        if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+        if (result === 'ambiguous') break;
+        api.getPlanetCraftingResources(result.id).then(({ data }) => {
+          ctx.addLine(`=== PLANET: ${data.planetName} (${data.planetClass}-Class, Level ${data.upgradeLevel}) ===`, 'system');
+          if (data.resources.length > 0) {
+            ctx.addLine('  Stocks:', 'info');
+            for (const r of data.resources) {
+              ctx.addLine(`    ${r.name} x${r.stock}`, 'trade');
+            }
+          } else {
+            ctx.addLine('  No unique resources stockpiled', 'info');
+          }
+          const slots = data.refinerySlots;
+          const active = data.refineryQueue.filter((q: any) => !q.collected);
+          ctx.addLine(`  Refinery Queue (${active.length}/${slots} slots):`, 'info');
+          if (active.length > 0) {
+            active.forEach((q: any, i: number) => {
+              const status = q.ready ? 'READY' : `${Math.ceil((new Date(q.completesAt).getTime() - Date.now()) / 60000)} min remaining`;
+              ctx.addLine(`    [${i + 1}] ${q.recipeName} x${q.batchSize} — ${status}`, q.ready ? 'success' : 'info');
+            });
+            ctx.setLastListing(active.map((q: any) => ({ id: q.id, label: q.recipeName })));
+          } else {
+            ctx.addLine('    (empty)', 'info');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to load planet resources', 'error'));
+      } else {
+        // Personal resource inventory
+        api.getPlayerResources().then(({ data }) => {
+          const resources = data.resources || [];
+          if (resources.length === 0) { ctx.addLine('=== RESOURCES ===\n  (empty)', 'info'); return; }
+          ctx.addLine('=== RESOURCES ===', 'system');
+          const tiers: Record<number, any[]> = {};
+          for (const r of resources) {
+            if (!tiers[r.tier]) tiers[r.tier] = [];
+            tiers[r.tier].push(r);
+          }
+          const tierNames: Record<number, string> = { 1: 'Raw Materials', 2: 'Processed', 3: 'Refined' };
+          for (const [tier, items] of Object.entries(tiers).sort()) {
+            ctx.addLine(`  ${tierNames[Number(tier)] || `Tier ${tier}`}:`, 'info');
+            const line = items.map((r: any) => `${r.name} x${r.quantity}`).join('    ');
+            ctx.addLine(`    ${line}`, 'trade');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to load resources', 'error'));
+      }
+      break;
+    }
+
+    case 'craft': {
+      if (args.length < 1) {
+        ctx.addLine('Usage: craft <recipe # or name> [batch size]', 'error');
+        ctx.addLine('  Use "recipes" to see available recipes.', 'info');
+        break;
+      }
+
+      // Check if last arg is a batch number
+      let batchSize = 1;
+      let recipeQuery: string;
+      const lastArg = parseInt(args[args.length - 1]);
+      if (!isNaN(lastArg) && args.length > 1 && lastArg >= 1 && lastArg <= 5) {
+        batchSize = lastArg;
+        recipeQuery = args.slice(0, -1).join(' ');
+      } else {
+        recipeQuery = args.join(' ');
+      }
+
+      // Find planet in sector owned by player
+      const ownedInSector = (ctx.sector?.planets ?? []).filter((p: any) => p.ownerId === ctx.player?.id);
+      if (ownedInSector.length === 0) {
+        ctx.addLine('You need an owned planet in this sector to craft', 'error');
+        break;
+      }
+      const craftPlanet = ownedInSector[0];
+
+      // Resolve recipe from listing
+      const listing = ctx.getLastListing();
+      const num = parseInt(recipeQuery);
+      let recipeId: string | null = null;
+
+      if (!isNaN(num) && listing && num >= 1 && num <= listing.length) {
+        recipeId = listing[num - 1].id;
+      } else {
+        // Try to find by name from last listing
+        if (listing) {
+          const q = recipeQuery.toLowerCase();
+          const match = listing.find(l => l.label.toLowerCase().includes(q));
+          if (match) {
+            recipeId = match.id;
+          }
+        }
+      }
+
+      if (!recipeId) {
+        ctx.addLine(`No recipe matching "${recipeQuery}". Type "recipes" first.`, 'error');
+        break;
+      }
+
+      api.startCraft(craftPlanet.id, recipeId, batchSize).then(({ data }) => {
+        if (data.queued) {
+          const eta = Math.ceil((new Date(data.completesAt).getTime() - Date.now()) / 60000);
+          ctx.addLine(`Queued: ${data.recipeName} x${data.batchSize} — ready in ${eta} min`, 'success');
+        } else {
+          ctx.addLine(`Crafted: ${data.recipeName} x${data.batchSize}`, 'success');
+          if (data.output) {
+            ctx.addLine(`  Output: ${data.output.name || data.output.type} x${data.output.quantity || 1}`, 'trade');
+          }
+        }
+        if (data.creditsCost > 0) ctx.addLine(`  Cost: ${data.creditsCost.toLocaleString()} credits`, 'info');
+        if (data.xp?.awarded) ctx.addLine(`  +${data.xp.awarded} XP`, 'info');
+        ctx.refreshStatus();
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Craft failed', 'error'));
+      break;
+    }
+
     case 'tablets': {
       api.getTablets().then(({ data }) => {
         const total = data.tablets?.length || 0;
@@ -1391,14 +1608,43 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     }
 
     case 'recipes': {
-      ctx.addLine('=== TABLET RECIPES ===', 'system');
-      ctx.addLine('  Combine 3 tablets of the same tier:', 'info');
-      ctx.addLine('  3x Common    → 1x Uncommon    (500 cr)', 'info');
-      ctx.addLine('  3x Uncommon  → 1x Rare        (1,500 cr)', 'info');
-      ctx.addLine('  3x Rare      → 1x Epic        (5,000 cr)', 'info');
-      ctx.addLine('  3x Epic      → 1x Legendary   (15,000 cr)', 'info');
-      ctx.addLine('  3x Legendary → 1x Mythic      (50,000 cr)', 'info');
-      ctx.addLine('  Must be at a Star Mall to combine.', 'info');
+      api.getRecipes().then(({ data }) => {
+        ctx.addLine('=== RECIPES ===', 'system');
+        const grouped = data.grouped || {};
+        const tierNames: Record<number, string> = {
+          2: 'Tier 2 — Processed (planet level 1+)',
+          3: 'Tier 3 — Refined (planet level 3+)',
+          4: 'Tier 4 — Assembly (planet level 5+, instant)',
+        };
+        let idx = 1;
+        const allRecipes: { id: string; label: string }[] = [];
+        for (const tier of [2, 3, 4]) {
+          const recipes = grouped[tier];
+          if (!recipes || recipes.length === 0) continue;
+          ctx.addLine(`  ${tierNames[tier]}:`, 'info');
+          for (const r of recipes) {
+            const ingStr = r.ingredients.map((i: any) => `${i.quantity} ${i.name}`).join(' + ');
+            const outputName = r.name;
+            const timeStr = r.craftTimeMinutes > 0
+              ? (r.craftTimeMinutes >= 60 ? `${Math.floor(r.craftTimeMinutes / 60)} hr ${r.craftTimeMinutes % 60 > 0 ? r.craftTimeMinutes % 60 + ' min' : ''}`.trim() : `${r.craftTimeMinutes} min`)
+              : 'instant';
+            const costStr = r.creditsCost > 0 ? ` (${r.creditsCost.toLocaleString()} cr)` : '';
+            ctx.addLine(`    [${idx}] ${outputName.padEnd(24)} ${ingStr} → ${outputName} (${timeStr})${costStr}`, 'info');
+            allRecipes.push({ id: r.id, label: r.name });
+            idx++;
+          }
+        }
+        ctx.setLastListing(allRecipes);
+
+        // Tablet combine recipes
+        ctx.addLine('  TABLET RECIPES:', 'info');
+        ctx.addLine('    3x Common    → 1x Uncommon    (500 cr)', 'info');
+        ctx.addLine('    3x Uncommon  → 1x Rare        (1,500 cr)', 'info');
+        ctx.addLine('    3x Rare      → 1x Epic        (5,000 cr)', 'info');
+        ctx.addLine('    3x Epic      → 1x Legendary   (15,000 cr)', 'info');
+        ctx.addLine('    3x Legendary → 1x Mythic      (50,000 cr)', 'info');
+        ctx.addLine('  Must be at a Star Mall to combine tablets.', 'info');
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to load recipes', 'error'));
       break;
     }
 
@@ -1452,7 +1698,8 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         ctx.addLine('  warp          Warp gates (warp use/build/toll/list)', 'info');
         ctx.addLine('  progression   Leveling & achievements (profile, achievements, ranks)', 'info');
         ctx.addLine('  npcs          NPC interactions (talk, contacts, contact)', 'info');
-        ctx.addLine('  tablets       Tablets & equip slots (tablets, equip, unequip, combine, recipes)', 'info');
+        ctx.addLine('  crafting      Resources & crafting (resources, recipes, craft, collect resources)', 'info');
+        ctx.addLine('  tablets       Tablets & equip slots (tablets, equip, unequip, combine)', 'info');
         ctx.addLine('  events        Events (investigate)', 'info');
         ctx.addLine('', 'info');
         ctx.addLine('Type "help <category>" for commands or "help <command>" for details.', 'info');
@@ -1613,6 +1860,18 @@ function getHelpForCategory(category: string): { text: string; type: 'info' | 's
         'contact <name or #>   View detailed NPC info',
       ],
     },
+    crafting: {
+      title: 'CRAFTING',
+      commands: [
+        'resources       (res) View personal resource inventory',
+        'resources <planet>    View planet resources & refinery queue',
+        'recipes         (rec) Show all crafting + tablet recipes',
+        'craft <# or name> [batch]  Craft a recipe at owned planet',
+        'collect resources <planet>  Collect all resources from planet',
+        'collect refinery <#>   Collect completed refinery batch',
+        'collect all <planet>   Collect resources + refinery batches',
+      ],
+    },
     tablets: {
       title: 'TABLETS',
       commands: [
@@ -1620,7 +1879,7 @@ function getHelpForCategory(category: string): { text: string; type: 'info' | 's
         'equip <#> <slot>     Equip tablet to slot 1-3 (Star Mall)',
         'unequip <slot>       Unequip tablet from slot (Star Mall)',
         'combine <#> <#> <#>  Combine 3 same-tier tablets (Star Mall)',
-        'recipes              Show tablet combination recipes',
+        'recipes              Also shows tablet combination recipes',
       ],
     },
     events: {
@@ -1659,7 +1918,7 @@ function getHelpForCommand(cmd: string): string[] {
     land: ['land <name or #>', '  View details of a planet in your sector: class, colonists, stocks, and production.', '  Accepts planet name, partial match, or # from look listing.'],
     claim: ['claim <name or #>', '  Claim an unclaimed planet in your sector as your own.', '  Accepts planet name, partial match, or # from look listing.'],
     colonize: ['colonize <name or #> <quantity>', '  Deposit colonists from your ship onto a planet you own.', '  Accepts planet name, partial match, or # from look listing.'],
-    collect: ['collect <name or #> <quantity>', '  Collect colonists from a seed planet onto your ship.', '  Accepts planet name, partial match, or # from look listing.'],
+    collect: ['collect <name or #> <quantity> | collect resources <planet> | collect refinery <#> | collect all <planet>', '  Collect colonists from seed planet, or collect resources/refinery batches.', '  "collect resources <planet>" — gather all raw + unique resources from planet', '  "collect refinery <#>" — collect a completed refinery batch', '  "collect all <planet>" — collect everything from a planet'],
     upgrade: ['upgrade <name or #>', '  Upgrade a planet you own to the next level (requires resources).', '  Accepts planet name, partial match, or # from look listing.'],
     dealer: ['dealer', '  View ships available for purchase at a Star Mall.', '  Aliases: ships'],
     buyship: ['buyship <ship_type>', '  Purchase a new ship at a Star Mall.'],
@@ -1705,7 +1964,9 @@ function getHelpForCommand(cmd: string): string[] {
     equip: ['equip <tablet # or name> <slot 1-3>', '  Equip a tablet to a slot. Must be at a Star Mall. Costs credits based on rarity.', '  Examples: equip 1 1, equip "Iron Focus" 2'],
     unequip: ['unequip <slot 1-3>', '  Remove a tablet from an equip slot. Must be at a Star Mall.', '  Examples: unequip 1, unequip 3'],
     combine: ['combine <#> <#> <#>', '  Combine 3 tablets of the same tier into 1 of the next tier. Must be at a Star Mall.', '  Example: combine 1 2 3'],
-    recipes: ['recipes', '  Show tablet combination recipes and costs.'],
+    resources: ['resources [planet]', '  View your personal resource inventory, or a specific planet\'s resources + refinery queue.', '  Aliases: res'],
+    craft: ['craft <recipe # or name> [batch size]', '  Craft a recipe at an owned planet in your sector.', '  Use "recipes" to see available recipes and their numbers.', '  Batch size 1-5, default 1. Timed recipes queue in the refinery.'],
+    recipes: ['recipes', '  Show all crafting recipes (Tier 2-4) and tablet combination recipes.', '  Aliases: rec'],
     tips: ['tips', '  Show contextual tips and guidance based on your current situation.'],
   };
   return help[cmd] || [`No detailed help for "${cmd}". Try "help" to see categories.`];

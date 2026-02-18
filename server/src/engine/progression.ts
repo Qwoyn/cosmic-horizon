@@ -25,7 +25,7 @@ export interface XpAwardResult {
 export async function awardXP(
   playerId: string,
   amount: number,
-  source: 'combat' | 'mission' | 'trade' | 'explore'
+  source: 'combat' | 'mission' | 'trade' | 'explore' | 'craft'
 ): Promise<XpAwardResult> {
   if (amount <= 0) return getPlayerProgress(playerId);
 
