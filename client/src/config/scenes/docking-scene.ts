@@ -3,7 +3,7 @@ import { makeExhaustFrames, SCENE_SPRITES } from '../scene-sprites';
 import type { SceneDefinition } from '../scene-types';
 
 const STAGE_W = 48;
-const STAGE_H = 24;
+const STAGE_H = 32;
 
 export function buildDockingScene(shipTypeId: string, _outpostName: string): SceneDefinition {
   const shipKey = `ship_${shipTypeId}`;

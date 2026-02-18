@@ -12,6 +12,7 @@ interface Props {
   currentSectorId: number | null;
   adjacentSectorIds: number[];
   onMoveToSector: (sectorId: number) => void;
+  compact?: boolean;
 }
 
 const WIDTH = 400;
@@ -170,7 +171,7 @@ function computeLayout(
   return positions;
 }
 
-export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds, onMoveToSector }: Props) {
+export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds, onMoveToSector, compact }: Props) {
   const positionCache = useRef<Map<number, { x: number; y: number }>>(new Map());
   const [zoomIndex, setZoomIndex] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -236,6 +237,9 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
     dragging.current = false;
   }, []);
 
+  const effectiveWidth = compact ? 240 : WIDTH;
+  const effectiveHeight = compact ? 200 : HEIGHT;
+
   if (!mapData || currentSectorId == null) return null;
 
   const adjacentSet = new Set(adjacentSectorIds);
@@ -253,10 +257,10 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   const dedupedEdges = Array.from(edgeMap.values());
 
   // Compute viewBox based on zoom and pan
-  const vw = WIDTH / zoom;
-  const vh = HEIGHT / zoom;
-  const vx = (WIDTH - vw) / 2 + pan.x;
-  const vy = (HEIGHT - vh) / 2 + pan.y;
+  const vw = effectiveWidth / zoom;
+  const vh = effectiveHeight / zoom;
+  const vx = (effectiveWidth - vw) / 2 + pan.x;
+  const vy = (effectiveHeight - vh) / 2 + pan.y;
 
   const zoomControls = (
     <span className="sector-map-controls">
@@ -265,147 +269,161 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
     </span>
   );
 
+  const svgContent = (
+    <svg
+      className="sector-map-svg"
+      viewBox={`${vx} ${vy} ${vw} ${vh}`}
+      xmlns="http://www.w3.org/2000/svg"
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      style={{ cursor: dragging.current ? 'grabbing' : 'grab' }}
+    >
+      <defs>
+        <marker
+          id="arrowhead"
+          markerWidth="8"
+          markerHeight="6"
+          refX="7"
+          refY="3"
+          orient="auto"
+          className="sector-map-arrowhead"
+        >
+          <polygon points="0 0, 8 3, 0 6" />
+        </marker>
+      </defs>
+
+      {/* Layer 1: Edges */}
+      {dedupedEdges.map((e) => {
+        const from = positions.get(e.from);
+        const to = positions.get(e.to);
+        if (!from || !to) return null;
+
+        // Shorten line by NODE_RADIUS at each end
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1) return null;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const x1 = from.x + nx * NODE_RADIUS;
+        const y1 = from.y + ny * NODE_RADIUS;
+        const x2 = to.x - nx * NODE_RADIUS;
+        const y2 = to.y - ny * NODE_RADIUS;
+
+        const key = `edge-${e.from}-${e.to}`;
+        return (
+          <line
+            key={key}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            className={`sector-map-edge${e.oneWay ? ' sector-map-edge--oneway' : ''}`}
+            markerEnd={e.oneWay ? 'url(#arrowhead)' : undefined}
+          />
+        );
+      })}
+
+      {/* Layer 2: Nodes */}
+      {mapData.sectors.map((s) => {
+        const pos = positions.get(s.id);
+        if (!pos) return null;
+
+        const isCurrent = s.id === currentSectorId;
+        const isAdjacent = adjacentSet.has(s.id);
+        const fill = TYPE_FILLS[s.type] || TYPE_FILLS.standard;
+
+        let nodeClass = 'sector-map-node';
+        if (isCurrent) nodeClass += ' sector-map-node--current';
+        else if (isAdjacent) nodeClass += ' sector-map-node--adjacent';
+
+        const typeClass = `sector-map-node--${s.type}`;
+
+        return (
+          <g
+            key={`node-${s.id}`}
+            transform={`translate(${pos.x}, ${pos.y})`}
+            className={`${nodeClass} ${typeClass}`}
+            onClick={isAdjacent ? () => handleNodeClick(s.id) : undefined}
+            style={isAdjacent ? { cursor: 'pointer' } : undefined}
+          >
+            {/* Pulse ring for current sector */}
+            {isCurrent && (
+              <circle
+                r={NODE_RADIUS + 4}
+                className="sector-node-pulse"
+              />
+            )}
+
+            {/* Hover glow for adjacent */}
+            {isAdjacent && (
+              <circle
+                r={NODE_RADIUS + 2}
+                className="sector-map-node-glow"
+              />
+            )}
+
+            {/* Main circle */}
+            <circle r={NODE_RADIUS} fill={fill} />
+
+            {/* Sector ID label */}
+            <text
+              className={`sector-node-label${isCurrent ? ' sector-node-label--current' : ''}`}
+              textAnchor="middle"
+              dy="0.35em"
+            >
+              {s.id}
+            </text>
+
+            {/* Star Mall icon */}
+            {s.hasStarMall && (
+              <polygon
+                className="sector-star-mall-icon"
+                points="0,-8 1.8,-3 7,-3 2.8,0.5 4.3,5.5 0,2.5 -4.3,5.5 -2.8,0.5 -7,-3 -1.8,-3"
+                transform={`translate(0, ${-NODE_RADIUS - 8}) scale(0.55)`}
+              />
+            )}
+
+            {/* Outpost icon — diamond below-left */}
+            {s.hasOutposts && (
+              <polygon
+                className="sector-outpost-icon"
+                points="0,-4 4,0 0,4 -4,0"
+                transform={`translate(-6, ${NODE_RADIUS + 8})`}
+              />
+            )}
+
+            {/* Planet icon — circle below-right */}
+            {s.hasPlanets && (
+              <circle
+                className="sector-planet-icon"
+                cx={6}
+                cy={NODE_RADIUS + 8}
+                r={3.5}
+              />
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+
+  if (compact) {
+    return (
+      <div className="sector-map-compact" style={{ border: '1px solid var(--border)', borderRadius: 4 }}>
+        <div className="sector-map-body" style={{ padding: 4 }}>
+          {svgContent}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <CollapsiblePanel title="SECTOR MAP" className="sector-map-container" headerExtra={zoomControls}>
       <div className="sector-map-body" style={{ padding: 4 }}>
-        <svg
-          className="sector-map-svg"
-          viewBox={`${vx} ${vy} ${vw} ${vh}`}
-          xmlns="http://www.w3.org/2000/svg"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          style={{ cursor: dragging.current ? 'grabbing' : 'grab' }}
-        >
-          <defs>
-            <marker
-              id="arrowhead"
-              markerWidth="8"
-              markerHeight="6"
-              refX="7"
-              refY="3"
-              orient="auto"
-              className="sector-map-arrowhead"
-            >
-              <polygon points="0 0, 8 3, 0 6" />
-            </marker>
-          </defs>
-
-          {/* Layer 1: Edges */}
-          {dedupedEdges.map((e) => {
-            const from = positions.get(e.from);
-            const to = positions.get(e.to);
-            if (!from || !to) return null;
-
-            // Shorten line by NODE_RADIUS at each end
-            const dx = to.x - from.x;
-            const dy = to.y - from.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < 1) return null;
-            const nx = dx / dist;
-            const ny = dy / dist;
-            const x1 = from.x + nx * NODE_RADIUS;
-            const y1 = from.y + ny * NODE_RADIUS;
-            const x2 = to.x - nx * NODE_RADIUS;
-            const y2 = to.y - ny * NODE_RADIUS;
-
-            const key = `edge-${e.from}-${e.to}`;
-            return (
-              <line
-                key={key}
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                className={`sector-map-edge${e.oneWay ? ' sector-map-edge--oneway' : ''}`}
-                markerEnd={e.oneWay ? 'url(#arrowhead)' : undefined}
-              />
-            );
-          })}
-
-          {/* Layer 2: Nodes */}
-          {mapData.sectors.map((s) => {
-            const pos = positions.get(s.id);
-            if (!pos) return null;
-
-            const isCurrent = s.id === currentSectorId;
-            const isAdjacent = adjacentSet.has(s.id);
-            const fill = TYPE_FILLS[s.type] || TYPE_FILLS.standard;
-
-            let nodeClass = 'sector-map-node';
-            if (isCurrent) nodeClass += ' sector-map-node--current';
-            else if (isAdjacent) nodeClass += ' sector-map-node--adjacent';
-
-            const typeClass = `sector-map-node--${s.type}`;
-
-            return (
-              <g
-                key={`node-${s.id}`}
-                transform={`translate(${pos.x}, ${pos.y})`}
-                className={`${nodeClass} ${typeClass}`}
-                onClick={isAdjacent ? () => handleNodeClick(s.id) : undefined}
-                style={isAdjacent ? { cursor: 'pointer' } : undefined}
-              >
-                {/* Pulse ring for current sector */}
-                {isCurrent && (
-                  <circle
-                    r={NODE_RADIUS + 4}
-                    className="sector-node-pulse"
-                  />
-                )}
-
-                {/* Hover glow for adjacent */}
-                {isAdjacent && (
-                  <circle
-                    r={NODE_RADIUS + 2}
-                    className="sector-map-node-glow"
-                  />
-                )}
-
-                {/* Main circle */}
-                <circle r={NODE_RADIUS} fill={fill} />
-
-                {/* Sector ID label */}
-                <text
-                  className={`sector-node-label${isCurrent ? ' sector-node-label--current' : ''}`}
-                  textAnchor="middle"
-                  dy="0.35em"
-                >
-                  {s.id}
-                </text>
-
-                {/* Star Mall icon */}
-                {s.hasStarMall && (
-                  <polygon
-                    className="sector-star-mall-icon"
-                    points="0,-8 1.8,-3 7,-3 2.8,0.5 4.3,5.5 0,2.5 -4.3,5.5 -2.8,0.5 -7,-3 -1.8,-3"
-                    transform={`translate(0, ${-NODE_RADIUS - 8}) scale(0.55)`}
-                  />
-                )}
-
-                {/* Outpost icon — diamond below-left */}
-                {s.hasOutposts && (
-                  <polygon
-                    className="sector-outpost-icon"
-                    points="0,-4 4,0 0,4 -4,0"
-                    transform={`translate(-6, ${NODE_RADIUS + 8})`}
-                  />
-                )}
-
-                {/* Planet icon — circle below-right */}
-                {s.hasPlanets && (
-                  <circle
-                    className="sector-planet-icon"
-                    cx={6}
-                    cy={NODE_RADIUS + 8}
-                    r={3.5}
-                  />
-                )}
-              </g>
-            );
-          })}
-        </svg>
+        {svgContent}
         <div className="sector-map-legend">
           <span className="sector-map-legend-item"><span style={{ color: 'var(--magenta)' }}>●</span> You</span>
           <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)' }}>●</span> Adjacent</span>

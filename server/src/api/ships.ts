@@ -71,6 +71,8 @@ router.post('/buy/:shipTypeId', requireAuth, async (req, res) => {
       max_engine_energy: shipType.baseEngineEnergy,
       cargo_holds: shipType.baseCargoHolds,
       max_cargo_holds: shipType.baseCargoHolds,
+      hull_hp: shipType.baseHullHp,
+      max_hull_hp: shipType.maxHullHp,
     });
 
     await db('players').where({ id: player.id }).update({

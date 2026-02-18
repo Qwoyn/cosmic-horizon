@@ -13,6 +13,7 @@ interface MissionData {
 
 interface Props {
   refreshKey?: number; // increment to re-fetch
+  bare?: boolean;
 }
 
 function progressSummary(type: string, progress: Record<string, number>): string {
@@ -27,7 +28,7 @@ function progressSummary(type: string, progress: Record<string, number>): string
   }
 }
 
-export default function ActiveMissionsPanel({ refreshKey }: Props) {
+export default function ActiveMissionsPanel({ refreshKey, bare }: Props) {
   const [missions, setMissions] = useState<MissionData[]>([]);
 
   useEffect(() => {
@@ -36,21 +37,22 @@ export default function ActiveMissionsPanel({ refreshKey }: Props) {
       .catch(() => setMissions([]));
   }, [refreshKey]);
 
-  return (
-    <CollapsiblePanel title="MISSIONS" badge={missions.length || null}>
-      {missions.length === 0 ? (
-        <div className="text-muted">No active missions</div>
-      ) : (
-        missions.map(m => (
-          <div key={m.missionId} className="mission-item">
-            <div className="mission-item__title"><PixelSprite spriteKey={`mission_${m.type}`} size={12} />{m.title}</div>
-            <div className="mission-item__progress">
-              {progressSummary(m.type, m.progress)}
-              <span className="mission-item__reward">+{m.rewardCredits} cr</span>
-            </div>
+  const content = missions.length === 0 ? (
+    <div className="text-muted">No active missions</div>
+  ) : (
+    <>
+      {missions.map(m => (
+        <div key={m.missionId} className="mission-item">
+          <div className="mission-item__title"><PixelSprite spriteKey={`mission_${m.type}`} size={12} />{m.title}</div>
+          <div className="mission-item__progress">
+            {progressSummary(m.type, m.progress)}
+            <span className="mission-item__reward">+{m.rewardCredits} cr</span>
           </div>
-        ))
-      )}
-    </CollapsiblePanel>
+        </div>
+      ))}
+    </>
   );
+
+  if (bare) return <div className="panel-content">{content}</div>;
+  return <CollapsiblePanel title="MISSIONS" badge={missions.length || null}>{content}</CollapsiblePanel>;
 }

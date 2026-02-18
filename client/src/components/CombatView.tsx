@@ -12,20 +12,19 @@ interface CombatViewProps {
   weaponEnergy: number;
   combatAnimation?: { attackerShipType: string; damage: number } | null;
   onCombatAnimationDone?: () => void;
+  bare?: boolean;
 }
 
-export default function CombatView({ sector, onFire, onFlee, weaponEnergy, combatAnimation, onCombatAnimationDone }: CombatViewProps) {
+export default function CombatView({ sector, onFire, onFlee, weaponEnergy, combatAnimation, onCombatAnimationDone, bare }: CombatViewProps) {
   const [energy, setEnergy] = useState(10);
   const [target, setTarget] = useState<string>('');
 
   const players = sector?.players || [];
 
-  if (players.length === 0) {
-    return null; // No combat panel when alone
-  }
-
-  return (
-    <CollapsiblePanel title="COMBAT" className="panel-combat">
+  const content = players.length === 0 ? (
+    <div className="text-muted">No hostiles in sector</div>
+  ) : (
+    <>
       {combatAnimation && onCombatAnimationDone && (
         <PixelScene
           scene={buildCombatScene(combatAnimation.attackerShipType, combatAnimation.damage)}
@@ -70,6 +69,9 @@ export default function CombatView({ sector, onFire, onFlee, weaponEnergy, comba
           </div>
         </div>
       )}
-    </CollapsiblePanel>
+    </>
   );
+
+  if (bare) return <div className="panel-content">{content}</div>;
+  return <CollapsiblePanel title="COMBAT" className="panel-combat">{content}</CollapsiblePanel>;
 }

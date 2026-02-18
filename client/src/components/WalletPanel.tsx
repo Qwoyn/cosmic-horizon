@@ -6,11 +6,12 @@ import { getWalletNonce, verifyWallet, disconnectWallet, getWalletBalance, getWa
 
 interface WalletPanelProps {
   inline?: boolean;
+  bare?: boolean;
   onConnected?: (address: string) => void;
   onSkipped?: () => void;
 }
 
-export default function WalletPanel({ inline, onConnected, onSkipped }: WalletPanelProps) {
+export default function WalletPanel({ inline, bare, onConnected, onSkipped }: WalletPanelProps) {
   const { address, isConnected } = useAccount();
   const { connectors: allConnectors, connect } = useConnect();
   const connectors = allConnectors.filter(
@@ -187,6 +188,8 @@ export default function WalletPanel({ inline, onConnected, onSkipped }: WalletPa
       </div>
     );
   }
+
+  if (bare) return <div className="panel-content">{content}</div>;
 
   return (
     <CollapsiblePanel

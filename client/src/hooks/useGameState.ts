@@ -4,6 +4,10 @@ import type { MapData } from '../components/SectorMap';
 import type { SceneDefinition } from '../config/scene-types';
 import { buildWarpScene } from '../config/scenes/warp-scene';
 import { buildDockingScene } from '../config/scenes/docking-scene';
+import { buildUndockScene } from '../config/scenes/undock-scene';
+import { buildCombatScene } from '../config/scenes/combat-scene';
+import { buildFleeScene } from '../config/scenes/flee-scene';
+import { buildTradeScene } from '../config/scenes/trade-scene';
 
 export interface PlayerState {
   id: string;
@@ -18,11 +22,14 @@ export interface PlayerState {
   hasSeenIntro: boolean;
   hasSeenPostTutorial: boolean;
   walletAddress: string | null;
+  dockedAtOutpostId: string | null;
   currentShip: {
     id: string;
     shipTypeId: string;
     weaponEnergy: number;
     engineEnergy: number;
+    hullHp: number;
+    maxHullHp: number;
     cargoHolds: number;
     maxCargoHolds: number;
     cyrilliumCargo: number;
@@ -250,7 +257,7 @@ export function useGameState() {
   const doMove = useCallback(async (sectorId: number) => {
     try {
       const { data } = await api.moveTo(sectorId);
-      setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId } : null);
+      setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null } : null);
 
       // Enqueue warp animation
       setSceneQueue(prev => {
@@ -264,6 +271,9 @@ export function useGameState() {
 
       addLine(`Warping to sector ${data.sectorId}...`, 'info');
       addLine(`Arrived in sector ${data.sectorId} [${data.sectorType}]`, 'success');
+      if (data.meteorDamage > 0) {
+        addLine(`Meteor strike! Hull took ${data.meteorDamage} damage on approach.`, 'warning');
+      }
       if (data.players.length > 0) {
         addLine(`Players here: ${data.players.map((p: any) => p.username).join(', ')}`, 'warning');
       }
@@ -274,36 +284,39 @@ export function useGameState() {
         addLine(`Planets: ${data.planets.map((p: any) => p.name).join(', ')}`, 'info');
       }
       await refreshSector();
+      await refreshStatus();
       await refreshMap();
       advanceTutorial('move');
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Move failed', 'error');
     }
-  }, [addLine, refreshSector, refreshMap, advanceTutorial, player?.currentShip?.shipTypeId]);
+  }, [addLine, refreshSector, refreshStatus, refreshMap, advanceTutorial, player?.currentShip?.shipTypeId]);
 
   const doBuy = useCallback(async (outpostId: string, commodity: string, quantity: number) => {
     try {
       const { data } = await api.buyFromOutpost(outpostId, commodity, quantity);
       setPlayer(prev => prev ? { ...prev, credits: data.newCredits, energy: data.energy } : null);
+      enqueueScene(buildTradeScene(player?.currentShip?.shipTypeId ?? 'scout', commodity, true));
       addLine(`Bought ${data.quantity} ${commodity} at ${data.pricePerUnit} cr/unit (total: ${data.totalCost} cr)`, 'trade');
       await refreshStatus();
       advanceTutorial('buy');
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Purchase failed', 'error');
     }
-  }, [addLine, refreshStatus, advanceTutorial]);
+  }, [addLine, refreshStatus, advanceTutorial, enqueueScene, player?.currentShip?.shipTypeId]);
 
   const doSell = useCallback(async (outpostId: string, commodity: string, quantity: number) => {
     try {
       const { data } = await api.sellToOutpost(outpostId, commodity, quantity);
       setPlayer(prev => prev ? { ...prev, credits: data.newCredits, energy: data.energy } : null);
+      enqueueScene(buildTradeScene(player?.currentShip?.shipTypeId ?? 'scout', commodity, false));
       addLine(`Sold ${data.quantity} ${commodity} at ${data.pricePerUnit} cr/unit (total: ${data.totalCost} cr)`, 'trade');
       await refreshStatus();
       advanceTutorial('sell');
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Sale failed', 'error');
     }
-  }, [addLine, refreshStatus, advanceTutorial]);
+  }, [addLine, refreshStatus, advanceTutorial, enqueueScene, player?.currentShip?.shipTypeId]);
 
   const doFire = useCallback(async (targetPlayerId: string, energy: number) => {
     try {
@@ -312,6 +325,7 @@ export function useGameState() {
         attackerShipType: player?.currentShip?.shipTypeId ?? 'scout',
         damage: data.damageDealt,
       });
+      enqueueScene(buildCombatScene(player?.currentShip?.shipTypeId ?? 'scout', data.damageDealt));
       addLine(`Fired! Dealt ${data.damageDealt} damage (${data.attackerEnergySpent} energy spent)`, 'combat');
       if (data.defenderDestroyed) {
         addLine('Target destroyed!', 'success');
@@ -321,12 +335,45 @@ export function useGameState() {
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Attack failed', 'error');
     }
-  }, [addLine, refreshStatus, player?.currentShip?.shipTypeId]);
+  }, [addLine, refreshStatus, enqueueScene, player?.currentShip?.shipTypeId]);
+
+  const doDock = useCallback(async () => {
+    try {
+      const { data } = await api.dock();
+      setPlayer(prev => prev ? { ...prev, dockedAtOutpostId: data.outpostId } : null);
+      const shipTypeId = player?.currentShip?.shipTypeId ?? 'scout';
+      enqueueScene(buildDockingScene(shipTypeId, data.name));
+      addLine(`Docked at ${data.name}`, 'success');
+      addLine(`Treasury: ${data.treasury.toLocaleString()} cr`, 'info');
+      for (const [commodity, info] of Object.entries(data.prices) as [string, any][]) {
+        const modeColor = info.mode === 'sell' ? 'success' : info.mode === 'buy' ? 'trade' : 'info';
+        addLine(`  ${commodity.padEnd(12)} ${String(info.price).padStart(5)} cr  [${info.stock}/${info.capacity}]  ${info.mode}`, modeColor as any);
+      }
+      addLine('Use "buy <commodity> <qty>" or "sell <commodity> <qty>"', 'info');
+      advanceTutorial('dock');
+    } catch (err: any) {
+      addLine(err.response?.data?.error || 'Dock failed', 'error');
+    }
+  }, [addLine, advanceTutorial, enqueueScene, player?.currentShip?.shipTypeId]);
+
+  const doUndock = useCallback(async () => {
+    try {
+      await api.undock();
+      setPlayer(prev => prev ? { ...prev, dockedAtOutpostId: null } : null);
+      const shipTypeId = player?.currentShip?.shipTypeId ?? 'scout';
+      enqueueScene(buildUndockScene(shipTypeId));
+      addLine('Undocked from outpost', 'info');
+    } catch (err: any) {
+      addLine(err.response?.data?.error || 'Undock failed', 'error');
+    }
+  }, [addLine, enqueueScene, player?.currentShip?.shipTypeId]);
 
   const doFlee = useCallback(async () => {
     try {
       const { data } = await api.flee();
       if (data.success) {
+        const shipTypeId = player?.currentShip?.shipTypeId ?? 'scout';
+        enqueueScene(buildFleeScene(shipTypeId));
         addLine('You escaped!', 'success');
         await refreshSector();
         await refreshStatus();
@@ -336,13 +383,13 @@ export function useGameState() {
     } catch (err: any) {
       addLine(err.response?.data?.error || 'Flee failed', 'error');
     }
-  }, [addLine, refreshSector, refreshStatus]);
+  }, [addLine, refreshSector, refreshStatus, enqueueScene, player?.currentShip?.shipTypeId]);
 
   return {
     player, sector, lines, isLoggedIn, mapData,
     addLine, clearLines, refreshStatus, refreshSector, refreshMap,
     doLogin, doRegister, doLogout,
-    doMove, doBuy, doSell, doFire, doFlee,
+    doMove, doBuy, doSell, doFire, doFlee, doDock, doUndock,
     setPlayer, setSector,
     advanceTutorial, refreshTutorial, skipTutorial,
     markIntroSeen, markPostTutorialSeen,

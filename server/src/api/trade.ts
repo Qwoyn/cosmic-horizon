@@ -80,6 +80,11 @@ router.post('/buy', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Outpost is not in your sector' });
     }
 
+    // Require docking
+    if (player.docked_at_outpost_id !== outpost.id) {
+      return res.status(400).json({ error: 'Must be docked at this outpost to trade. Type "dock" first.' });
+    }
+
     const ship = await db('ships').where({ id: player.current_ship_id }).first();
     if (!ship) return res.status(400).json({ error: 'No active ship' });
 
@@ -191,6 +196,11 @@ router.post('/sell', requireAuth, async (req, res) => {
     if (!outpost) return res.status(404).json({ error: 'Outpost not found' });
     if (outpost.sector_id !== player.current_sector_id) {
       return res.status(400).json({ error: 'Outpost is not in your sector' });
+    }
+
+    // Require docking
+    if (player.docked_at_outpost_id !== outpost.id) {
+      return res.status(400).json({ error: 'Must be docked at this outpost to trade. Type "dock" first.' });
     }
 
     const sellQuantity = Math.min(quantity, availableCargo);

@@ -7,6 +7,7 @@ interface TradeTableProps {
   outpostId: string | null;
   onBuy: (outpostId: string, commodity: string, quantity: number) => void;
   onSell: (outpostId: string, commodity: string, quantity: number) => void;
+  bare?: boolean;
 }
 
 interface OutpostData {
@@ -21,7 +22,7 @@ interface OutpostData {
   }>;
 }
 
-export default function TradeTable({ outpostId, onBuy, onSell }: TradeTableProps) {
+export default function TradeTable({ outpostId, onBuy, onSell, bare }: TradeTableProps) {
   const [data, setData] = useState<OutpostData | null>(null);
   const [qty, setQty] = useState(10);
 
@@ -31,15 +32,13 @@ export default function TradeTable({ outpostId, onBuy, onSell }: TradeTableProps
   }, [outpostId]);
 
   if (!data) {
-    return (
-      <CollapsiblePanel title="TRADE">
-        <div>Dock at an outpost to trade</div>
-      </CollapsiblePanel>
-    );
+    const empty = <div>Dock at an outpost to trade</div>;
+    if (bare) return <div className="panel-content">{empty}</div>;
+    return <CollapsiblePanel title="TRADE">{empty}</CollapsiblePanel>;
   }
 
-  return (
-    <CollapsiblePanel title={`TRADE - ${data.name}`}>
+  const content = (
+    <>
       <table className="trade-table">
         <thead>
           <tr>
@@ -85,6 +84,9 @@ export default function TradeTable({ outpostId, onBuy, onSell }: TradeTableProps
           className="qty-input"
         />
       </div>
-    </CollapsiblePanel>
+    </>
   );
+
+  if (bare) return <div className="panel-content">{content}</div>;
+  return <CollapsiblePanel title={`TRADE - ${data.name}`}>{content}</CollapsiblePanel>;
 }

@@ -36,6 +36,12 @@ export default function ShipStatusPanel({ player }: Props) {
             <span className="panel-label">Engines:</span>
             <span className="text-info">{ship.engineEnergy}</span>
           </div>
+          <div className="panel-row">
+            <span className="panel-label">Hull:</span>
+            <span className={`${ship.hullHp < ship.maxHullHp * 0.25 ? 'text-error hull-critical' : ship.hullHp < ship.maxHullHp * 0.5 ? 'text-warning' : 'text-success'}`}>
+              {ship.hullHp}/{ship.maxHullHp}
+            </span>
+          </div>
         </div>
       </div>
 

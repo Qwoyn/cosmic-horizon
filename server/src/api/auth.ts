@@ -84,6 +84,8 @@ router.post('/register', async (req, res) => {
       max_engine_energy: shipTypeConfig.maxEngineEnergy,
       cargo_holds: shipTypeConfig.baseCargoHolds,
       max_cargo_holds: shipTypeConfig.maxCargoHolds,
+      hull_hp: shipTypeConfig.baseHullHp,
+      max_hull_hp: shipTypeConfig.maxHullHp,
     });
 
     await db('players').where({ id: playerId }).update({ current_ship_id: shipId });

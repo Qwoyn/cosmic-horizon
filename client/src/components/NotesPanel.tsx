@@ -10,9 +10,10 @@ interface Note {
 
 interface Props {
   refreshKey?: number;
+  bare?: boolean;
 }
 
-export default function NotesPanel({ refreshKey }: Props) {
+export default function NotesPanel({ refreshKey, bare }: Props) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
@@ -49,8 +50,8 @@ export default function NotesPanel({ refreshKey }: Props) {
     fetchNotes(value);
   };
 
-  return (
-    <CollapsiblePanel title="NOTES" badge={notes.length || null}>
+  const content = (
+    <>
       <div className="notes-panel__input-row">
         <input
           className="notes-panel__input"
@@ -85,6 +86,9 @@ export default function NotesPanel({ refreshKey }: Props) {
           </div>
         ))
       )}
-    </CollapsiblePanel>
+    </>
   );
+
+  if (bare) return <div className="panel-content">{content}</div>;
+  return <CollapsiblePanel title="NOTES" badge={notes.length || null}>{content}</CollapsiblePanel>;
 }

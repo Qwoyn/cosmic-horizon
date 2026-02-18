@@ -1,6 +1,6 @@
 # Cosmic Horizon
 
-A persistent multiplayer space trading game inspired by TradeWars 2002. Explore a galaxy of 5,000 sectors, trade commodities between outposts, claim and colonize planets, build syndicates, and fight for dominance — all through a retro terminal interface.
+A persistent multiplayer space trading game inspired by TradeWars 2002. Explore a galaxy of 5,000 sectors, trade commodities between outposts, claim and colonize planets, build syndicates, and fight for dominance — all through a retro terminal interface with animated pixel art scenes.
 
 Based on the [Cosmic Horizon Whitepaper](whitepaper.md) by W. Moglia, D. Pittman, and S. Lott.
 
@@ -10,25 +10,40 @@ Based on the [Cosmic Horizon Whitepaper](whitepaper.md) by W. Moglia, D. Pittman
 
 ## Features
 
-- **5,000-sector procedurally generated galaxy** with regions, chokepoints, and one-way warps
-- **Three-commodity trading economy** (cyrillium, food, tech) with supply/demand pricing
-- **8 planet classes** with colonization, production, and 7 upgrade tiers
-- **8 ship classes** from scouts to battleships, each with unique capabilities
-- **Real-time multiplayer** via WebSocket — see players enter your sector, chat, fight
-- **Combat system** with weapon/engine energy, flee mechanics, and ship destruction
-- **Deployables** — mines, drones, buoys, probes
-- **Syndicates** — player organizations with treasury, governance, shared planets
-- **Bounty system** — place bounties, auto-claimed on ship destruction
-- **Star Malls** — ship dealer, general store, garage, salvage yard, cantina, intel
-- **Missions & Quests** — 25 mission templates across 6 types with progress tracking and rewards
-- **Sector Events** — 6 anomaly types spawn randomly (asteroid fields, nebulae, derelicts, etc.)
+### Galaxy & Exploration
+- **5,000-sector procedurally generated galaxy** with seeded RNG, regional clusters, chokepoints, and one-way warps
+- **200 outposts** with unique commodity profiles (buy/sell/none per commodity)
+- **300+ planets** across 8 classes (Hospitable, Desert, Ocean, Alpine, Frozen, Volcanic, Gaseous, Seed)
+- **8 Star Malls** — protected trading hubs with ship dealer, general store, garage, salvage yard, cantina, intel, upgrades, mission board, bounty board, and refueling
+- **6 sector event types** — asteroid fields, nebulae, distress signals, derelict ships, resource caches, ion storms
+
+### Ships & Combat
+- **8 ship classes** — Dodge Pod, Scout, Freighter, Corvette, Cruiser, Battleship, Stealth Runner, Colony Ship
+- **Real-time multiplayer combat** via WebSocket — weapon/engine energy allocation, flee mechanics, ship destruction with dodge pod ejection
+- **Ship upgrades** — 8 upgrade types (weapon/engine/cargo/shield mk1/mk2) with stacking and diminishing returns
+- **Deployables** — offensive/defensive/toll drones, halberd/barnacle mines, buoys, probes
+
+### Economy & Trading
+- **Three-commodity economy** (cyrillium, food, tech) with outpost supply/demand pricing
+- **Planet colonization** — deposit colonists, upgrade through 7 tiers, production per tick
+- **General store** — consumables (probes, torpedoes, fuel cells), equipment (jump drives, scanners, PGDs), deployables
+- **Syndicates** — player organizations with treasury, governance, shared planets, warp gate construction
+
+### Social & Progression
+- **4 playable races** — Muscarian (combat), Vedic (scanning), Kalin (defense), Tar'ri (trade) — each with permanent traits and starting bonuses
+- **Missions** — 21 mission templates across 6 types (deliver cargo, visit sector, destroy ship, colonize planet, trade units, scan sectors) with progress tracking
+- **Bounty system** — place bounties on players, auto-claimed on destruction
 - **Leaderboards** — rankings across 6 categories (credits, planets, combat, explored, trade, syndicate)
-- **Player Messaging** — in-game mail system with inbox, sent, read/unread tracking
-- **Ship Upgrades** — 8 upgrade types (weapon/engine/cargo/shield mk1/mk2) with diminishing returns
-- **Warp Gates** — syndicate-built instant travel links with toll collection
+- **Player messaging** — in-game mail with inbox, sent, read/unread, delete
+- **Warp gates** — syndicate-built instant travel links with toll collection
+
+### Interface
+- **Retro terminal UI** — 54 commands with aliases, fuzzy matching, and numbered listings for quick item/ship/mission selection
+- **Animated pixel art viewport** — ambient scenes (space, outpost, docked), action scenes (combat, docking, warping, refueling, salvaging, colonizing), and full-screen story sequences
+- **Guided onboarding** — intro lore sequence, interactive tutorial with sandbox, post-tutorial story transition
+- **Contextual audio** — separate tracks for intro, gameplay, Star Mall, combat, and post-tutorial
 - **Action point system** — 1 AP/min regeneration, 500 max, 2x bonus for new players
 - **Decay mechanics** — inactive colonies lose population, deployables expire, defenses drain
-- **55+ terminal commands** with aliases
 
 ## Tech Stack
 
@@ -47,23 +62,30 @@ Based on the [Cosmic Horizon Whitepaper](whitepaper.md) by W. Moglia, D. Pittman
 cosmic-horizon/
   server/               # Express API + game engine
     src/
-      api/              # REST route handlers
-      config/           # Game constants, ship types, store items
-      db/               # Knex migrations and seeds
-      engine/           # Pure game logic (combat, trading, planets, energy, missions, events, upgrades)
+      api/              # REST route handlers (auth, planets, store, combat, missions, etc.)
+      config/           # Game constants (ship types, planet classes, races, store items, upgrades)
+      db/
+        migrations/     # 21 Knex migrations (players, sectors, ships, planets, deployables, etc.)
+        seeds/          # Universe generation (5,000 sectors, outposts, planets, missions)
+      engine/           # Pure game logic (combat, trading, planets, energy, missions, events, upgrades, universe gen)
       services/         # Shared services (mission tracker, push notifications)
       middleware/       # Auth middleware
-      ws/               # WebSocket event handlers
+      ws/               # WebSocket event handlers (chat, combat, notifications)
   client/               # React frontend
     src/
-      components/       # Terminal, StatusBar, MapPanel, TradeTable, CombatView
-      hooks/            # useGameState, useSocket
-      services/         # API client, command parser
+      components/       # Terminal, StatusBar, MapPanel, TradeTable, CombatView, PixelScene, SceneViewport, etc.
+      config/
+        scenes/         # Pixel art scene definitions (ambient, combat, docking, warp, deploy, etc.)
+        audio-tracks.ts # Audio track configuration
+      hooks/            # useGameState, useSocket, useAudio, useActivePanel
+      services/         # API client (100+ endpoints), command parser (54 commands)
       pages/            # Login, Register, Game
+      types/            # TypeScript type definitions
   docs/
-    plans/              # Design doc, implementation plan
+    plans/              # Design docs, implementation plans
     players-manual.md   # Full player's manual
     testing-guide.md    # Manual QA testing guide
+    ROADMAP_PLAN.md     # Feature roadmap with detailed specs
 ```
 
 ## Quick Start
@@ -151,29 +173,37 @@ Requires PostgreSQL. See `docker-compose.yml` for configuration.
 
 ## How to Play
 
-Register at the login screen. You spawn at a Star Mall with a Scout ship, 10,000 credits, and 500 energy.
+Register at the login screen. You choose a race, watch the intro lore sequence, then spawn at a Star Mall with a starter ship, 10,000 credits, and 500 energy. A guided tutorial walks you through the basics.
 
 ```
-help              Show all commands
-look              View current sector (shows events, warp gates)
+help              Show all command categories
+look              View current sector (players, planets, outposts, events, warp gates)
 move 42           Move to sector 42
+status            View pilot status (energy, credits, ship, cargo)
+mall              Star Mall services with command hints
 dock              Dock at an outpost to trade
 buy cyrillium 10  Buy 10 cyrillium
 sell food 5       Sell 5 food
 dealer            Browse ships at a star mall
-land Kepler VII   View planet details
-claim Kepler VII  Claim an unclaimed planet
+store             Browse general store (numbered items)
+purchase 1        Buy item #1 from last listing (or by name)
+inventory         View your items
+garage            View stored ships (numbered)
+retrieve scout    Retrieve a ship by name (or by #)
+upgrades          Browse ship upgrades (numbered)
+install cargo     Install an upgrade by name (fuzzy match)
+missionboard      Browse available missions (numbered)
+accept 1          Accept mission #1 from last listing
+missions          View active missions with progress
 fire player1 10   Fire 10 weapon energy at another player
 flee              Attempt to escape combat
-mall              Star mall services overview
-missions          View active missions
-missionboard      Browse available missions at star mall
 investigate       Investigate a sector anomaly
 leaderboard       View galaxy rankings
 mail              View your inbox
 warp              Use a warp gate in your sector
-upgrades          Browse ship upgrades at star mall
 ```
+
+Most listing commands show numbered items. Use the number or a name/keyword with action commands (e.g., `purchase 2`, `retrieve scout`, `accept deliver`). Ambiguous matches show a disambiguation list you can select from by number.
 
 See [docs/players-manual.md](docs/players-manual.md) for the full command reference, ship stats, planet classes, item catalog, and strategy tips.
 
@@ -196,19 +226,38 @@ See [docs/testing-guide.md](docs/testing-guide.md) for 15 structured test scenar
 
 ## Roadmap
 
-- [x] Phase 1-4: Core engine, database, API, universe generation
-- [x] Phase 5: React terminal frontend
-- [x] Phase 6: Docker, command parser, integration tests
-- [x] Phase 7: General store, syndicates, bounties, star mall
-- [x] Phase 14: Missions & quests (25 mission templates, 6 types, progress tracking)
-- [x] Phase 15: Sector events & anomalies (6 event types, investigation mechanic)
-- [x] Phase 16: Leaderboards (6 categories, cached rankings)
-- [x] Phase 17: Player messaging (in-game mail with inbox/sent/read/delete)
-- [x] Phase 18: Ship upgrades & customization (8 upgrade types, diminishing returns)
-- [x] Phase 19: Warp gates (syndicate-built instant travel with toll collection)
+### Completed
+
+- [x] Core engine, database, API, universe generation (5,000 seeded sectors)
+- [x] React terminal frontend with 54 commands, aliases, fuzzy matching, and numbered listings
+- [x] Docker, command parser, integration tests (95 tests across 7 suites)
+- [x] General store, syndicates, bounties, Star Mall services
+- [x] 4 playable races with unique traits and starting bonuses
+- [x] Guided onboarding — intro lore sequence, interactive tutorial, post-tutorial transition
+- [x] Animated pixel art viewport — ambient, action, and fullscreen scenes
+- [x] Contextual audio system — intro, gameplay, Star Mall, combat, post-tutorial tracks
+- [x] Missions & quests (21 templates, 6 types, progress tracking)
+- [x] Sector events & anomalies (6 event types, investigation mechanic)
+- [x] Leaderboards (6 categories, cached rankings)
+- [x] Player messaging (in-game mail with inbox/sent/read/delete)
+- [x] Ship upgrades & customization (8 upgrade types, diminishing returns, stacking)
+- [x] Warp gates (syndicate-built instant travel with toll collection)
+
+### In Progress
+
+- [ ] UX improvements — inventory fixes, planet info command, seed planet guards, planet commands by number, Star Mall interior scenes
+
+### Planned
+
+See [docs/ROADMAP_PLAN.md](docs/ROADMAP_PLAN.md) for detailed specs on each item.
+
+- [ ] **Leveling system** — 100 levels, named ranks, XP from combat/missions/trade/exploration, achievements (visible + hidden), stat bonuses per level
+- [ ] **Mission expansion** — 20 standard multiplayer missions (tiered, chained), 10 cantina-exclusive missions, detailed progress with hints, claim-at-mall mechanic, 3-5 active mission limit
+- [ ] **NPC system** — NPCs on outposts and planets, first-encounter cutscenes, branching dialogue trees, reputation per NPC, faction system, journal/contacts list
+- [ ] **Tablet system** — collectible upgrade tablets (6 rarity tiers: common to mythic), combining/recipes, 3 equip slots (unlocked at levels 10/30/60), stat boosts + abilities + perks, tradeable between players
+- [ ] **Single player mode** — 200-sector universe (fixed seed), 20 standalone missions, static NPC encounters, Star Malls unlock through progression, carries over to multiplayer
 - [ ] Android companion app (React Native) — [see plan](docs/plans/2026-02-14-mvp-implementation.md)
 - [ ] Jump drives, PGDs, vessel capture, towing mechanics
-- [ ] Advanced NPC traders and factions
 - [ ] Frontier expansion (new sectors via wormholes)
 - [ ] Terraforming with ecocredit integration
 - [ ] On-chain $COHO token mechanics

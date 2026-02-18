@@ -21,6 +21,8 @@ export interface ShipTypeConfig {
   hasPlanetaryScanner: boolean;
   maxDrones: number;
   towFuelMultiplier: number;
+  baseHullHp: number;
+  maxHullHp: number;
 }
 
 export const SHIP_TYPES: ShipTypeConfig[] = [
@@ -36,6 +38,7 @@ export const SHIP_TYPES: ShipTypeConfig[] = [
     canCloak: false, canCarryPgd: false, canCarryMines: false,
     canTow: false, hasJumpDriveSlot: false, hasPlanetaryScanner: false,
     maxDrones: 0, towFuelMultiplier: 1,
+    baseHullHp: 10, maxHullHp: 10,
   },
   {
     id: 'scout',
@@ -49,6 +52,7 @@ export const SHIP_TYPES: ShipTypeConfig[] = [
     canCloak: false, canCarryPgd: false, canCarryMines: false,
     canTow: false, hasJumpDriveSlot: false, hasPlanetaryScanner: false,
     maxDrones: 1, towFuelMultiplier: 1,
+    baseHullHp: 50, maxHullHp: 75,
   },
   {
     id: 'freighter',
@@ -62,6 +66,7 @@ export const SHIP_TYPES: ShipTypeConfig[] = [
     canCloak: false, canCarryPgd: false, canCarryMines: false,
     canTow: true, hasJumpDriveSlot: false, hasPlanetaryScanner: false,
     maxDrones: 1, towFuelMultiplier: 2.0,
+    baseHullHp: 80, maxHullHp: 120,
   },
   {
     id: 'corvette',
@@ -75,6 +80,7 @@ export const SHIP_TYPES: ShipTypeConfig[] = [
     canCloak: false, canCarryPgd: false, canCarryMines: true,
     canTow: true, hasJumpDriveSlot: false, hasPlanetaryScanner: false,
     maxDrones: 2, towFuelMultiplier: 1.8,
+    baseHullHp: 100, maxHullHp: 175,
   },
   {
     id: 'cruiser',
@@ -88,6 +94,7 @@ export const SHIP_TYPES: ShipTypeConfig[] = [
     canCloak: false, canCarryPgd: true, canCarryMines: true,
     canTow: true, hasJumpDriveSlot: true, hasPlanetaryScanner: true,
     maxDrones: 2, towFuelMultiplier: 1.5,
+    baseHullHp: 150, maxHullHp: 250,
   },
   {
     id: 'battleship',
@@ -101,6 +108,7 @@ export const SHIP_TYPES: ShipTypeConfig[] = [
     canCloak: false, canCarryPgd: true, canCarryMines: true,
     canTow: true, hasJumpDriveSlot: true, hasPlanetaryScanner: true,
     maxDrones: 3, towFuelMultiplier: 1.5,
+    baseHullHp: 200, maxHullHp: 350,
   },
   {
     id: 'stealth',
@@ -114,6 +122,7 @@ export const SHIP_TYPES: ShipTypeConfig[] = [
     canCloak: true, canCarryPgd: false, canCarryMines: true,
     canTow: false, hasJumpDriveSlot: false, hasPlanetaryScanner: false,
     maxDrones: 1, towFuelMultiplier: 1,
+    baseHullHp: 40, maxHullHp: 60,
   },
   {
     id: 'colony_ship',
@@ -127,5 +136,6 @@ export const SHIP_TYPES: ShipTypeConfig[] = [
     canCloak: false, canCarryPgd: false, canCarryMines: false,
     canTow: false, hasJumpDriveSlot: false, hasPlanetaryScanner: false,
     maxDrones: 0, towFuelMultiplier: 1,
+    baseHullHp: 60, maxHullHp: 100,
   },
 ];

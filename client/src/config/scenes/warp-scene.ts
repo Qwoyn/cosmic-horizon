@@ -3,7 +3,7 @@ import { makeExhaustFrames } from '../scene-sprites';
 import type { SceneDefinition } from '../scene-types';
 
 const STAGE_W = 48;
-const STAGE_H = 16;
+const STAGE_H = 32;
 
 export function buildWarpScene(shipTypeId: string): SceneDefinition {
   const shipKey = `ship_${shipTypeId}`;

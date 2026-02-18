@@ -5,19 +5,18 @@ import type { SectorState } from '../hooks/useGameState';
 interface MapPanelProps {
   sector: SectorState | null;
   onMoveToSector: (sectorId: number) => void;
+  bare?: boolean;
 }
 
-export default function MapPanel({ sector, onMoveToSector }: MapPanelProps) {
+export default function MapPanel({ sector, onMoveToSector, bare }: MapPanelProps) {
   if (!sector) {
-    return (
-      <CollapsiblePanel title="NAV MAP">
-        <div>No data</div>
-      </CollapsiblePanel>
-    );
+    const empty = <div>No data</div>;
+    if (bare) return <div className="panel-content">{empty}</div>;
+    return <CollapsiblePanel title="NAV MAP">{empty}</CollapsiblePanel>;
   }
 
-  return (
-    <CollapsiblePanel title={`NAV MAP - Sector ${sector.sectorId}`}>
+  const content = (
+    <>
       <div className="panel-row">
         <span className="panel-label">Type:</span>
         <span className={`sector-type-${sector.type}`}>{sector.type}</span>
@@ -77,6 +76,9 @@ export default function MapPanel({ sector, onMoveToSector }: MapPanelProps) {
           ))}
         </>
       )}
-    </CollapsiblePanel>
+    </>
   );
+
+  if (bare) return <div className="panel-content">{content}</div>;
+  return <CollapsiblePanel title={`NAV MAP - Sector ${sector.sectorId}`}>{content}</CollapsiblePanel>;
 }

@@ -56,6 +56,7 @@ router.post('/garage/store', requireAuth, async (req, res) => {
         weapon_energy: 0, max_weapon_energy: 0,
         engine_energy: 20, max_engine_energy: 20,
         cargo_holds: 0, max_cargo_holds: 0,
+        hull_hp: 10, max_hull_hp: 10,
       });
       await db('players').where({ id: player!.id }).update({ current_ship_id: podId });
       res.json({ stored: ship.id, switchedTo: podId, note: 'Boarding temporary dodge pod' });

@@ -51,6 +51,8 @@ export const moveTo = (sectorId: number) => api.post(`/game/move/${sectorId}`);
 export const getSector = () => api.get('/game/sector');
 export const getMap = () => api.get('/game/map');
 export const scan = () => api.post('/game/scan');
+export const dock = () => api.post('/game/dock');
+export const undock = () => api.post('/game/undock');
 
 // Trade
 export const getOutpost = (id: string) => api.get(`/trade/outpost/${id}`);

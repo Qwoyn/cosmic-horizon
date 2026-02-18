@@ -11,9 +11,10 @@ export interface ChatMessage {
 interface Props {
   messages: ChatMessage[];
   onSend: (message: string) => void;
+  bare?: boolean;
 }
 
-export default function SectorChatPanel({ messages, onSend }: Props) {
+export default function SectorChatPanel({ messages, onSend, bare }: Props) {
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -32,8 +33,8 @@ export default function SectorChatPanel({ messages, onSend }: Props) {
     setInput('');
   }, [input, onSend]);
 
-  return (
-    <CollapsiblePanel title="SECTOR CHAT" badge={messages.length || null}>
+  const content = (
+    <>
       <div className="chat-messages" ref={listRef}>
         {messages.length === 0 ? (
           <div className="text-muted">No messages yet</div>
@@ -55,6 +56,9 @@ export default function SectorChatPanel({ messages, onSend }: Props) {
           maxLength={500}
         />
       </form>
-    </CollapsiblePanel>
+    </>
   );
+
+  if (bare) return <div className="panel-content">{content}</div>;
+  return <CollapsiblePanel title="SECTOR CHAT" badge={messages.length || null}>{content}</CollapsiblePanel>;
 }
