@@ -2,6 +2,7 @@ import * as api from './api';
 
 interface CommandContext {
   addLine: (text: string, type: 'info' | 'success' | 'error' | 'warning' | 'system' | 'combat' | 'trade') => void;
+  clearLines: () => void;
   player: any;
   sector: any;
   doMove: (sectorId: number) => void;
@@ -26,6 +27,8 @@ const ALIASES: Record<string, string> = {
   ships: 'dealer', say: 'chat', jettison: 'eject',
   top: 'leaderboard', lb: 'leaderboard',
   missionboard: 'missions',
+  n: 'note',
+  fuel: 'refuel',
 };
 
 function parse(input: string): ParsedCommand {
@@ -268,7 +271,10 @@ export function handleCommand(input: string, ctx: CommandContext): void {
 
     case 'chat': {
       if (args.length < 1) { ctx.addLine('Usage: chat <message>', 'error'); break; }
-      ctx.emit('chat:sector', { message: args.join(' ') });
+      const msg = args.join(' ');
+      const name = ctx.player?.username || 'You';
+      ctx.addLine(`[${name}] ${msg}`, 'info');
+      ctx.emit('chat:sector', { message: msg });
       break;
     }
 
@@ -629,12 +635,28 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       break;
 
     case 'install': {
-      if (args.length < 1) { ctx.addLine('Usage: install <upgrade_type_id>', 'error'); break; }
-      api.installUpgrade(args[0]).then(({ data }) => {
-        ctx.addLine(`Installed ${data.name} [${data.slot}] +${data.effectiveBonus}`, 'success');
-        ctx.addLine(`Credits: ${data.newCredits.toLocaleString()}`, 'trade');
-        ctx.refreshStatus();
-      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Install failed', 'error'));
+      if (args.length < 1) { ctx.addLine('Usage: install <upgrade_name>', 'error'); break; }
+      const query = args.join(' ').toLowerCase();
+      api.getAvailableUpgrades().then(({ data }) => {
+        const matches = data.upgrades.filter((u: any) =>
+          u.id.toLowerCase().includes(query) || u.name.toLowerCase().includes(query)
+        );
+        if (matches.length === 0) {
+          ctx.addLine(`No upgrade matching "${query}". Type "upgrades" to see available options.`, 'error');
+        } else if (matches.length === 1) {
+          api.installUpgrade(matches[0].id).then(({ data: installData }) => {
+            ctx.addLine(`Installed ${installData.name} [${installData.slot}] +${installData.effectiveBonus}`, 'success');
+            ctx.addLine(`Credits: ${installData.newCredits.toLocaleString()}`, 'trade');
+            ctx.refreshStatus();
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Install failed', 'error'));
+        } else {
+          ctx.addLine(`Multiple matches for "${query}":`, 'warning');
+          for (const m of matches) {
+            ctx.addLine(`  ${m.name} (${m.id}) — ${m.price} cr [${m.slot}]`, 'info');
+          }
+          ctx.addLine('Be more specific, e.g. "install cargo_mk2"', 'info');
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Not at a star mall', 'error'));
       break;
     }
 
@@ -694,94 +716,305 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       break;
     }
 
-    case 'help': {
-      if (args.length > 0) {
-        const cmd = args[0].toLowerCase();
-        const helpLines = getHelpForCommand(cmd);
-        helpLines.forEach(line => ctx.addLine(line, 'info'));
+    // === NOTES ===
+    case 'note': {
+      if (args.length < 1) { ctx.addLine('Usage: note <text> — create a note, or: note del <id>', 'error'); break; }
+      if (args[0] === 'del' && args[1]) {
+        const prefix = args[1].toLowerCase();
+        api.getNotes().then(({ data }) => {
+          const match = data.notes.find((n: any) => n.id.toLowerCase().startsWith(prefix));
+          if (!match) { ctx.addLine('Note not found', 'error'); return; }
+          api.deleteNote(match.id).then(() => {
+            ctx.addLine('Note deleted', 'success');
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Delete failed', 'error'));
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
       } else {
-        ctx.addLine('=== COMMANDS ===', 'system');
-        ctx.addLine('  move <sector>       (m)   Move to adjacent sector', 'info');
-        ctx.addLine('  look                (l)   View current sector', 'info');
-        ctx.addLine('  scan                (s)   Scan adjacent sectors', 'info');
-        ctx.addLine('  status              (st)  View your status', 'info');
-        ctx.addLine('  map                        View explored map', 'info');
-        ctx.addLine('  dock                (d)   Dock at outpost', 'info');
-        ctx.addLine('  buy <item> <qty>           Buy from outpost', 'info');
-        ctx.addLine('  sell <item> <qty>          Sell to outpost', 'info');
-        ctx.addLine('  fire <player> <nrg> (f)   Attack player', 'info');
-        ctx.addLine('  flee                       Escape combat', 'info');
-        ctx.addLine('  land <planet>              View planet details', 'info');
-        ctx.addLine('  claim <planet>             Claim unclaimed planet', 'info');
-        ctx.addLine('  colonize <planet> <qty>    Deposit colonists', 'info');
-        ctx.addLine('  collect <planet> <qty>     Collect from seed planet', 'info');
-        ctx.addLine('  upgrade <planet>           Upgrade your planet', 'info');
-        ctx.addLine('  dealer              (ships) View ship dealer', 'info');
-        ctx.addLine('  buyship <type>             Purchase a ship', 'info');
-        ctx.addLine('  cloak                      Toggle cloaking', 'info');
-        ctx.addLine('  eject <item> <qty>         Jettison cargo', 'info');
-        ctx.addLine('  chat <msg>          (say)  Sector chat', 'info');
-        ctx.addLine('  bounties                   View active bounties', 'info');
-        ctx.addLine('--- Star Mall ---', 'system');
-        ctx.addLine('  mall                       Star mall overview', 'info');
-        ctx.addLine('  store                      Browse general store', 'info');
-        ctx.addLine('  purchase <id>              Buy store item', 'info');
-        ctx.addLine('  inventory                  View your items', 'info');
-        ctx.addLine('  use <id> [args]            Use consumable item', 'info');
-        ctx.addLine('  garage                     View stored ships', 'info');
-        ctx.addLine('  storeship                  Store current ship', 'info');
-        ctx.addLine('  retrieve <id>              Retrieve stored ship', 'info');
-        ctx.addLine('  salvage [id]               Salvage yard / sell ship', 'info');
-        ctx.addLine('  cantina                    Visit the cantina', 'info');
-        ctx.addLine('  intel                      Buy sector intelligence', 'info');
-        ctx.addLine('  refuel [qty]               Buy energy', 'info');
-        ctx.addLine('  deploy <item> [args]       Deploy mine/drone/buoy', 'info');
-        ctx.addLine('  combatlog                  View combat history', 'info');
-        ctx.addLine('--- Missions ---', 'system');
-        ctx.addLine('  missions [completed]       View active/completed missions', 'info');
-        ctx.addLine('  missionboard               Browse available missions', 'info');
-        ctx.addLine('  accept <id>                Accept a mission', 'info');
-        ctx.addLine('  abandon <id>               Abandon a mission', 'info');
-        ctx.addLine('--- Events ---', 'system');
-        ctx.addLine('  investigate [id]           Investigate sector anomaly', 'info');
-        ctx.addLine('--- Leaderboards ---', 'system');
-        ctx.addLine('  leaderboard [cat]   (lb)  View rankings', 'info');
-        ctx.addLine('--- Mail ---', 'system');
-        ctx.addLine('  mail                       View inbox', 'info');
-        ctx.addLine('  mail read <id>             Read message', 'info');
-        ctx.addLine('  mail send <to> <subj> <body> Send message', 'info');
-        ctx.addLine('  mail delete <id>           Delete message', 'info');
-        ctx.addLine('  mail sent                  View sent messages', 'info');
-        ctx.addLine('--- Upgrades ---', 'system');
-        ctx.addLine('  upgrades                   Available ship upgrades', 'info');
-        ctx.addLine('  shipupgrades               View installed upgrades', 'info');
-        ctx.addLine('  install <id>               Install upgrade', 'info');
-        ctx.addLine('  uninstall <id>             Remove upgrade', 'info');
-        ctx.addLine('--- Warp Gates ---', 'system');
-        ctx.addLine('  warp [gate_id]             Use warp gate', 'info');
-        ctx.addLine('  warp build <sector>        Build warp gate', 'info');
-        ctx.addLine('  warp toll <gate> <amt>     Set gate toll', 'info');
-        ctx.addLine('  warp list                  Syndicate gates', 'info');
-        ctx.addLine('---', 'system');
-        ctx.addLine('  help <cmd>          (?)   Detailed command help', 'info');
+        const content = args.join(' ');
+        api.createNote(content).then(({ data }) => {
+          ctx.addLine(`Note saved [${data.id.slice(0, 8)}]`, 'success');
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to save note', 'error'));
       }
       break;
     }
+
+    case 'notes': {
+      if (args[0] === 'search' && args.length > 1) {
+        const term = args.slice(1).join(' ');
+        api.getNotes(term).then(({ data }) => {
+          if (data.notes.length === 0) { ctx.addLine('No matching notes', 'info'); return; }
+          ctx.addLine(`=== NOTES (search: ${term}) ===`, 'system');
+          for (const n of data.notes) {
+            ctx.addLine(`  [${n.id.slice(0, 8)}] ${n.content}`, 'info');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      } else {
+        api.getNotes().then(({ data }) => {
+          if (data.notes.length === 0) { ctx.addLine('No notes yet', 'info'); return; }
+          ctx.addLine('=== NOTES ===', 'system');
+          for (const n of data.notes) {
+            ctx.addLine(`  [${n.id.slice(0, 8)}] ${n.content}`, 'info');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      }
+      break;
+    }
+
+    case 'tips': {
+      ctx.addLine('=== TIPS ===', 'system');
+      ctx.addLine('Type "help <category>" for commands in a specific area.', 'info');
+      const p = ctx.player;
+      const s = ctx.sector;
+      if (s?.hasStarMall) {
+        ctx.addLine('You\'re at a Star Mall! Try: "upgrades" to see ship improvements, "missionboard" for missions, "store" for items.', 'success');
+      }
+      if (p?.currentShip) {
+        const total = p.currentShip.cyrilliumCargo + p.currentShip.foodCargo + p.currentShip.techCargo + p.currentShip.colonistsCargo;
+        if (total > 0) {
+          ctx.addLine('You\'re carrying cargo. Find an outpost to "sell" it — buy low, sell high!', 'trade');
+        }
+      }
+      ctx.addLine('Explore more sectors to find Star Malls, outposts, and planets. Use "map" to see where you\'ve been.', 'info');
+      ctx.addLine('Outposts that BUY goods pay more. Outposts that SELL goods charge less. Check "dock" prices.', 'trade');
+      ctx.addLine('See another player? "fire <name> <energy>" to attack. "flee" to escape.', 'combat');
+      ctx.addLine('Check your mission progress with "missions".', 'info');
+      break;
+    }
+
+    case 'help': {
+      if (args.length > 0) {
+        const query = args[0].toLowerCase();
+        // Check if it's a category first
+        const categoryLines = getHelpForCategory(query);
+        if (categoryLines) {
+          categoryLines.forEach(line => ctx.addLine(line.text, line.type));
+        } else {
+          // Try as a command
+          const cmdLines = getHelpForCommand(query);
+          cmdLines.forEach(line => ctx.addLine(line, 'info'));
+        }
+      } else {
+        ctx.addLine('=== COMMAND CATEGORIES ===', 'system');
+        ctx.addLine('  navigation    Movement & exploration (move, look, scan, map)', 'info');
+        ctx.addLine('  trading       Buying & selling goods (dock, buy, sell)', 'info');
+        ctx.addLine('  combat        Fighting & fleeing (fire, flee)', 'info');
+        ctx.addLine('  planets       Planet management (land, claim, colonize, collect, upgrade)', 'info');
+        ctx.addLine('  ships         Ships & garage (dealer, buyship, cloak, eject, garage, storeship, retrieve, salvage)', 'info');
+        ctx.addLine('  upgrades      Ship upgrades (upgrades, shipupgrades, install, uninstall)', 'info');
+        ctx.addLine('  store         Store & items (mall, store, purchase, inventory, use, refuel)', 'info');
+        ctx.addLine('  deploy        Deployables (deploy)', 'info');
+        ctx.addLine('  missions      Missions (missions, missionboard, accept, abandon)', 'info');
+        ctx.addLine('  social        Social features (chat, bounties, leaderboard)', 'info');
+        ctx.addLine('  mail          Messaging (mail read/send/delete/sent)', 'info');
+        ctx.addLine('  notes         Notes (note, notes)', 'info');
+        ctx.addLine('  warp          Warp gates (warp use/build/toll/list)', 'info');
+        ctx.addLine('  events        Events (investigate)', 'info');
+        ctx.addLine('', 'info');
+        ctx.addLine('Type "help <category>" for commands or "help <command>" for details.', 'info');
+        ctx.addLine('Type "tips" for contextual guidance.', 'info');
+      }
+      break;
+    }
+
+    case 'clear':
+      ctx.clearLines();
+      break;
 
     default:
       ctx.addLine(`Unknown command: ${command}. Type "help" for commands.`, 'error');
   }
 }
 
+function getHelpForCategory(category: string): { text: string; type: 'info' | 'system' }[] | null {
+  const categories: Record<string, { title: string; commands: string[] }> = {
+    navigation: {
+      title: 'NAVIGATION',
+      commands: [
+        'move <sector>    (m)   Move to an adjacent sector',
+        'look             (l)   View current sector contents',
+        'scan             (s)   Scan adjacent sectors',
+        'map                    View your explored map',
+        'status           (st)  View your pilot status',
+      ],
+    },
+    trading: {
+      title: 'TRADING',
+      commands: [
+        'dock             (d)   Dock at outpost and view prices',
+        'buy <item> <qty>       Buy commodity from outpost',
+        'sell <item> <qty>      Sell commodity to outpost',
+      ],
+    },
+    combat: {
+      title: 'COMBAT',
+      commands: [
+        'fire <name> <nrg> (f)  Attack a player in your sector',
+        'flee                    Attempt to escape combat',
+        'combatlog               View combat history',
+      ],
+    },
+    planets: {
+      title: 'PLANETS',
+      commands: [
+        'land <planet>          View planet details',
+        'claim <planet>         Claim an unclaimed planet',
+        'colonize <planet> <qty> Deposit colonists on planet',
+        'collect <planet> <qty>  Collect colonists from seed planet',
+        'upgrade <planet>       Upgrade your planet',
+      ],
+    },
+    ships: {
+      title: 'SHIPS & GARAGE',
+      commands: [
+        'dealer           (ships) View ship dealer',
+        'buyship <type>          Purchase a new ship',
+        'cloak                   Toggle cloaking device',
+        'eject <item> <qty>      Jettison cargo',
+        'garage                  View stored ships',
+        'storeship               Store current ship in garage',
+        'retrieve <id>           Retrieve ship from garage',
+        'salvage [id]            Salvage yard / sell a ship',
+      ],
+    },
+    upgrades: {
+      title: 'SHIP UPGRADES',
+      commands: [
+        'upgrades                View available upgrades',
+        'shipupgrades            View installed upgrades',
+        'install <name>          Install an upgrade (fuzzy match)',
+        'uninstall <id>          Remove an upgrade',
+      ],
+    },
+    store: {
+      title: 'STORE & ITEMS',
+      commands: [
+        'mall                    Star Mall overview',
+        'store                   Browse the general store',
+        'purchase <id>           Buy a store item',
+        'inventory               View your items',
+        'use <id> [args]         Use a consumable item',
+        'refuel [qty]    (fuel)  Buy energy (10 cr/unit)',
+      ],
+    },
+    deploy: {
+      title: 'DEPLOYABLES',
+      commands: [
+        'deploy <item> [args]    Deploy mine, drone, or buoy',
+      ],
+    },
+    missions: {
+      title: 'MISSIONS',
+      commands: [
+        'missions [completed]    View active or completed missions',
+        'missionboard            Browse available missions',
+        'accept <id>             Accept a mission',
+        'abandon <id>            Abandon a mission',
+      ],
+    },
+    social: {
+      title: 'SOCIAL',
+      commands: [
+        'chat <msg>      (say)  Send sector chat message',
+        'bounties                View active bounties',
+        'leaderboard [cat] (lb) View rankings',
+      ],
+    },
+    mail: {
+      title: 'MAIL',
+      commands: [
+        'mail                    View inbox',
+        'mail read <id>          Read a message',
+        'mail send <to> <subj> <body>  Send a message',
+        'mail delete <id>        Delete a message',
+        'mail sent               View sent messages',
+      ],
+    },
+    notes: {
+      title: 'NOTES',
+      commands: [
+        'note <text>      (n)   Save a note',
+        'notes                   List all notes',
+        'notes search <term>     Search notes',
+        'note del <id>           Delete a note',
+      ],
+    },
+    warp: {
+      title: 'WARP GATES',
+      commands: [
+        'warp [gate_id]          Use a warp gate',
+        'warp build <sector>     Build a warp gate',
+        'warp toll <gate> <amt>  Set gate toll',
+        'warp list               View syndicate gates',
+      ],
+    },
+    events: {
+      title: 'EVENTS',
+      commands: [
+        'investigate [id]        Investigate a sector anomaly',
+      ],
+    },
+  };
+
+  const cat = categories[category];
+  if (!cat) return null;
+
+  const lines: { text: string; type: 'info' | 'system' }[] = [];
+  lines.push({ text: `=== ${cat.title} ===`, type: 'system' });
+  for (const cmd of cat.commands) {
+    lines.push({ text: `  ${cmd}`, type: 'info' });
+  }
+  return lines;
+}
+
 function getHelpForCommand(cmd: string): string[] {
   const help: Record<string, string[]> = {
-    move: ['move <sector_id>', '  Move your ship to an adjacent sector. Costs 1 AP.', '  Aliases: m'],
-    look: ['look', '  Display contents of your current sector.', '  Aliases: l'],
+    move: ['move <sector_id>', '  Move your ship to an adjacent sector. Costs 1 energy.', '  Aliases: m'],
+    look: ['look', '  Display contents of your current sector including players, outposts, planets, and anomalies.', '  Aliases: l'],
     scan: ['scan', '  Scan adjacent sectors for planets and players.', '  Requires a ship with a planetary scanner.', '  Aliases: s'],
-    buy: ['buy <commodity> <quantity>', '  Buy a commodity from the outpost in your sector.', '  Commodities: cyrillium, food, tech', '  Costs 1 AP.'],
-    sell: ['sell <commodity> <quantity>', '  Sell a commodity to the outpost in your sector.', '  Costs 1 AP.'],
-    fire: ['fire <player_name> <energy>', '  Fire weapons at a player in your sector.', '  Costs 2 AP.', '  Aliases: f, attack'],
+    status: ['status', '  View your pilot status: energy, credits, ship stats, and cargo.', '  Aliases: st'],
+    map: ['map', '  View your explored star chart including discovered Star Malls, outposts, and planets.'],
+    dock: ['dock', '  Dock at the outpost in your current sector and view commodity prices.', '  Aliases: d'],
+    buy: ['buy <commodity> <quantity>', '  Buy a commodity from the outpost in your sector.', '  Commodities: cyrillium, food, tech', '  Costs 1 energy.'],
+    sell: ['sell <commodity> <quantity>', '  Sell a commodity to the outpost in your sector.', '  Costs 1 energy.'],
+    fire: ['fire <player_name> <energy>', '  Fire weapons at a player in your sector.', '  Damage scales with energy spent.', '  Aliases: f, attack'],
     flee: ['flee', '  Attempt to escape when under attack.', '  Success chance depends on number of attackers.'],
+    land: ['land <planet_name>', '  View details of a planet in your sector: class, colonists, stocks, and production.'],
+    claim: ['claim <planet_name>', '  Claim an unclaimed planet in your sector as your own.'],
+    colonize: ['colonize <planet_name> <quantity>', '  Deposit colonists from your ship onto a planet you own.'],
+    collect: ['collect <planet_name> <quantity>', '  Collect colonists from a seed planet onto your ship.'],
+    upgrade: ['upgrade <planet_name>', '  Upgrade a planet you own to the next level (requires resources).'],
+    dealer: ['dealer', '  View ships available for purchase at a Star Mall.', '  Aliases: ships'],
+    buyship: ['buyship <ship_type>', '  Purchase a new ship at a Star Mall.'],
+    cloak: ['cloak', '  Toggle your cloaking device on or off.'],
+    eject: ['eject <commodity> <quantity>', '  Jettison cargo from your ship into space.', '  Aliases: jettison'],
+    chat: ['chat <message>', '  Send a message to all players in your sector.', '  Aliases: say'],
+    bounties: ['bounties', '  View all active bounties on players.'],
+    leaderboard: ['leaderboard [category]', '  View rankings.', '  Categories: credits, planets, combat, explored, trade, syndicate', '  Aliases: lb, top'],
+    mall: ['mall', '  View Star Mall services overview (requires Star Mall sector).'],
+    store: ['store', '  Browse items in the general store (requires Star Mall).'],
+    purchase: ['purchase <item_id>', '  Buy an item from the general store.'],
+    inventory: ['inventory', '  View items in your inventory.'],
+    use: ['use <item_id> [args]', '  Use a consumable item from your inventory.'],
+    refuel: ['refuel [quantity]', '  Buy energy at a Star Mall (10 credits per unit, max 200).', '  Aliases: fuel'],
+    deploy: ['deploy <item_id> [toll_amount] [buoy_message]', '  Deploy a mine, drone, or buoy in your sector.'],
+    missions: ['missions [completed]', '  View your active missions, or use "missions completed" to see finished ones.'],
+    missionboard: ['missionboard', '  Browse available missions at a Star Mall.'],
+    accept: ['accept <mission_id>', '  Accept a mission from the mission board.'],
+    abandon: ['abandon <mission_id>', '  Abandon an active mission.'],
+    investigate: ['investigate [event_id]', '  Investigate a sector anomaly. Costs 1 energy.'],
+    mail: ['mail [read|send|delete|sent]', '  View inbox, or use subcommands:', '  mail read <id> — Read a message', '  mail send <to> <subject> <body> — Send a message', '  mail delete <id> — Delete a message', '  mail sent — View sent messages'],
+    note: ['note <text>', '  Save a quick note. Use "note del <id>" to delete.', '  Aliases: n'],
+    notes: ['notes [search <term>]', '  List all notes, or search with "notes search <term>".'],
+    upgrades: ['upgrades', '  View available ship upgrades at a Star Mall.'],
+    shipupgrades: ['shipupgrades', '  View upgrades installed on your current ship.'],
+    install: ['install <name>', '  Install a ship upgrade. Accepts partial names (e.g. "install cargo").'],
+    uninstall: ['uninstall <install_id>', '  Remove an upgrade from your ship (at a Star Mall).'],
+    warp: ['warp [gate_id|build|toll|list]', '  Use a warp gate, or manage gates:', '  warp build <sector> — Build a warp gate', '  warp toll <gate> <amount> — Set gate toll', '  warp list — View syndicate gates'],
+    garage: ['garage', '  View ships stored in your garage (Star Mall).'],
+    storeship: ['storeship', '  Store your current ship in the garage (Star Mall).'],
+    retrieve: ['retrieve <ship_id>', '  Retrieve a ship from your garage.'],
+    salvage: ['salvage [ship_id]', '  View salvage options or sell a ship for credits.'],
+    combatlog: ['combatlog', '  View your recent combat history.'],
+    tips: ['tips', '  Show contextual tips and guidance based on your current situation.'],
   };
-  return help[cmd] || [`No detailed help for: ${cmd}`];
+  return help[cmd] || [`No detailed help for "${cmd}". Try "help" to see categories.`];
 }

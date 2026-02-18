@@ -221,13 +221,14 @@ export function generateUniverse(
       const sectorEdges = edges.get(sid) || [];
       if (sectorEdges.length < 2) continue; // need at least 2 edges to safely make one one-way
 
-      // Find an edge where the target has multiple incoming edges
+      // Find an edge where the target will still have outgoing edges after removing the reverse
       let converted = false;
       const shuffledEdges = shuffleArray([...sectorEdges], rng);
       for (const edge of shuffledEdges) {
-        // Count incoming edges to the target (edges from other sectors pointing to edge.to)
-        const targetIncoming = (edges.get(edge.to) || []).length;
-        if (targetIncoming >= 2) {
+        // Count outgoing edges from the target sector
+        const targetOutgoing = (edges.get(edge.to) || []).length;
+        // Target needs at least 2 outgoing edges so it keeps >=1 after we remove the reverse
+        if (targetOutgoing >= 2) {
           edge.oneWay = true;
           // Remove the reverse edge
           const reverseEdges = edges.get(edge.to) || [];

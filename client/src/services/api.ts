@@ -163,6 +163,11 @@ export const sendMessage = (recipientName: string, subject: string, body: string
 export const deleteMessage = (id: string) => api.delete(`/messages/${id}`);
 export const getUnreadCount = () => api.get('/messages/unread-count');
 
+// Notes
+export const getNotes = (search?: string) => api.get('/notes', { params: search ? { search } : {} });
+export const createNote = (content: string) => api.post('/notes', { content });
+export const deleteNote = (id: string) => api.delete(`/notes/${id}`);
+
 // Ship Upgrades
 export const getAvailableUpgrades = () => api.get('/starmall/garage/upgrades');
 export const getShipUpgrades = () => api.get('/starmall/garage/ship-upgrades');
@@ -177,5 +182,13 @@ export const useWarpGate = (gateId: string) => api.post(`/warp-gates/use/${gateI
 export const setWarpGateToll = (gateId: string, tollAmount: number) =>
   api.post(`/warp-gates/set-toll/${gateId}`, { tollAmount });
 export const getSyndicateWarpGates = () => api.get('/warp-gates/syndicate');
+
+// Wallet
+export const getWalletNonce = () => api.get('/wallet/nonce');
+export const verifyWallet = (message: string, signature: string) =>
+  api.post('/wallet/verify', { message, signature });
+export const disconnectWallet = () => api.post('/wallet/disconnect');
+export const getWalletBalance = () => api.get('/wallet/balance');
+export const getWalletStatus = () => api.get('/wallet/status');
 
 export default api;

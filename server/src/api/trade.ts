@@ -4,6 +4,7 @@ import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { calculatePrice, executeTrade, CommodityType, OutpostState } from '../engine/trading';
 import { getRace, RaceId } from '../config/races';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
+import { applyUpgradesToShip } from '../engine/upgrades';
 import {
   handleTutorialOutpost,
   handleTutorialBuy,
@@ -82,9 +83,10 @@ router.post('/buy', requireAuth, async (req, res) => {
     const ship = await db('ships').where({ id: player.current_ship_id }).first();
     if (!ship) return res.status(400).json({ error: 'No active ship' });
 
-    // Check cargo space
+    // Check cargo space (including upgrade bonuses)
+    const upgrades = await applyUpgradesToShip(ship.id);
     const currentCargo = (ship.cyrillium_cargo || 0) + (ship.food_cargo || 0) + (ship.tech_cargo || 0) + (ship.colonist_cargo || 0);
-    const freeSpace = ship.max_cargo_holds - currentCargo;
+    const freeSpace = (ship.max_cargo_holds + upgrades.cargoBonus) - currentCargo;
     const maxBuyable = Math.min(quantity, freeSpace);
     if (maxBuyable <= 0) {
       return res.status(400).json({ error: 'No cargo space available' });

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useCallback, useState } from 'react';
+import CollapsiblePanel from './CollapsiblePanel';
 
 export interface MapData {
   currentSectorId: number;
@@ -13,10 +14,11 @@ interface Props {
   onMoveToSector: (sectorId: number) => void;
 }
 
-const WIDTH = 296;
-const HEIGHT = 280;
+const WIDTH = 400;
+const HEIGHT = 380;
 const NODE_RADIUS = 14;
-const ITERATIONS = 60;
+const IDEAL_EDGE_LENGTH = 60;
+const ITERATIONS = 120;
 
 const ZOOM_LEVELS = [1, 1.5, 2];
 
@@ -61,8 +63,8 @@ function computeLayout(
           if (np) {
             const angle = Math.random() * Math.PI * 2;
             positions.set(s.id, {
-              x: np.x + Math.cos(angle) * 40,
-              y: np.y + Math.sin(angle) * 40,
+              x: np.x + Math.cos(angle) * IDEAL_EDGE_LENGTH,
+              y: np.y + Math.sin(angle) * IDEAL_EDGE_LENGTH,
             });
             placed = true;
             break;
@@ -70,10 +72,10 @@ function computeLayout(
         }
       }
       if (!placed) {
-        // Random position near center
+        // Random position spread across canvas
         positions.set(s.id, {
-          x: cx + (Math.random() - 0.5) * 100,
-          y: cy + (Math.random() - 0.5) * 100,
+          x: cx + (Math.random() - 0.5) * WIDTH * 0.6,
+          y: cy + (Math.random() - 0.5) * HEIGHT * 0.6,
         });
       }
     }
@@ -89,10 +91,13 @@ function computeLayout(
   const velocities = new Map<number, { vx: number; vy: number }>();
   for (const s of sectors) velocities.set(s.id, { vx: 0, vy: 0 });
 
-  const damping = 0.85;
-  const padding = NODE_RADIUS + 4;
+  const damping = 0.82;
+  const padding = NODE_RADIUS + 6;
+  const repulsionStrength = 3000;
 
   for (let iter = 0; iter < ITERATIONS; iter++) {
+    const temp = 1 - iter / ITERATIONS; // cooling factor
+
     // Repulsion between all pairs
     for (let i = 0; i < sectors.length; i++) {
       for (let j = i + 1; j < sectors.length; j++) {
@@ -102,9 +107,9 @@ function computeLayout(
         let dy = a.y - b.y;
         let dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 1) { dx = 1; dy = 0; dist = 1; }
-        const force = 800 / (dist * dist);
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
+        const force = repulsionStrength / (dist * dist);
+        const fx = (dx / dist) * force * temp;
+        const fy = (dy / dist) * force * temp;
         const va = velocities.get(sectors[i].id)!;
         const vb = velocities.get(sectors[j].id)!;
         va.vx += fx; va.vy += fy;
@@ -112,7 +117,7 @@ function computeLayout(
       }
     }
 
-    // Attraction along edges
+    // Attraction along edges — spring toward ideal length
     for (const e of edges) {
       const a = positions.get(e.from);
       const b = positions.get(e.to);
@@ -121,7 +126,9 @@ function computeLayout(
       const dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < 1) continue;
-      const force = 0.05 * dist;
+      // Spring force: pulls together if dist > ideal, pushes apart if dist < ideal
+      const displacement = dist - IDEAL_EDGE_LENGTH;
+      const force = 0.08 * displacement * temp;
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
       const va = velocities.get(e.from)!;
@@ -134,8 +141,16 @@ function computeLayout(
     const cp = positions.get(currentSectorId);
     if (cp) {
       const cv = velocities.get(currentSectorId)!;
-      cv.vx += (cx - cp.x) * 0.02;
-      cv.vy += (cy - cp.y) * 0.02;
+      cv.vx += (cx - cp.x) * 0.015 * temp;
+      cv.vy += (cy - cp.y) * 0.015 * temp;
+    }
+
+    // Light gravity toward center for all nodes (prevents drifting)
+    for (const s of sectors) {
+      const p = positions.get(s.id)!;
+      const v = velocities.get(s.id)!;
+      v.vx += (cx - p.x) * 0.003 * temp;
+      v.vy += (cy - p.y) * 0.003 * temp;
     }
 
     // Apply velocities
@@ -192,7 +207,6 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if (zoom <= 1) return;
     dragging.current = true;
     dragStart.current = { x: e.clientX, y: e.clientY };
     panStart.current = { x: pan.x, y: pan.y };
@@ -209,9 +223,9 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
     const scaleY = HEIGHT / rect.height;
     const dx = (e.clientX - dragStart.current.x) * scaleX / zoom;
     const dy = (e.clientY - dragStart.current.y) * scaleY / zoom;
-    // Pan limits: keep viewBox within 0..WIDTH / 0..HEIGHT
-    const maxPanX = (WIDTH - vw) / 2;
-    const maxPanY = (HEIGHT - vh) / 2;
+    // Pan limits: always allow a minimum pan range even at base zoom
+    const maxPanX = Math.max((WIDTH - vw) / 2, WIDTH * 0.3);
+    const maxPanY = Math.max((HEIGHT - vh) / 2, HEIGHT * 0.3);
     setPan({
       x: Math.max(-maxPanX, Math.min(maxPanX, panStart.current.x - dx)),
       y: Math.max(-maxPanY, Math.min(maxPanY, panStart.current.y - dy)),
@@ -244,16 +258,16 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   const vx = (WIDTH - vw) / 2 + pan.x;
   const vy = (HEIGHT - vh) / 2 + pan.y;
 
+  const zoomControls = (
+    <span className="sector-map-controls">
+      <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoomIndex === 0} title="Zoom out">−</button>
+      <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoomIndex === ZOOM_LEVELS.length - 1} title="Zoom in">+</button>
+    </span>
+  );
+
   return (
-    <div className="panel sector-map-container" style={{ position: 'relative' }}>
-      <div className="panel-header">
-        Sector Map
-        <span className="sector-map-controls">
-          <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoomIndex === 0} title="Zoom out">−</button>
-          <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoomIndex === ZOOM_LEVELS.length - 1} title="Zoom in">+</button>
-        </span>
-      </div>
-      <div className="panel-body sector-map-body" style={{ padding: 4 }}>
+    <CollapsiblePanel title="SECTOR MAP" className="sector-map-container" headerExtra={zoomControls}>
+      <div className="sector-map-body" style={{ padding: 4 }}>
         <svg
           className="sector-map-svg"
           viewBox={`${vx} ${vy} ${vw} ${vh}`}
@@ -262,7 +276,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          style={zoom > 1 ? { cursor: dragging.current ? 'grabbing' : 'grab' } : undefined}
+          style={{ cursor: dragging.current ? 'grabbing' : 'grab' }}
         >
           <defs>
             <marker
@@ -401,6 +415,6 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
           <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)' }}>⤏</span> One-way</span>
         </div>
       </div>
-    </div>
+    </CollapsiblePanel>
   );
 }

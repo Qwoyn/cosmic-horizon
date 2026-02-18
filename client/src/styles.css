@@ -773,7 +773,6 @@ body {
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
-  margin-left: auto;
 }
 
 .audio-toggle:hover {
@@ -784,6 +783,23 @@ body {
 .audio-toggle--muted {
   color: var(--text-muted);
   border-color: var(--text-muted);
+}
+
+.audio-toggle--logout {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.audio-toggle--logout:hover {
+  background: rgba(248, 81, 73, 0.15);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.status-bar__actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 
 /* === Sector Type Colors === */
@@ -799,7 +815,7 @@ body {
 
 .sector-map-svg {
   width: 100%;
-  height: 280px;
+  height: min(280px, 30vh);
   display: block;
 }
 
@@ -968,11 +984,475 @@ body {
 }
 
 .game-sidebar .panel-body {
-  max-height: 40vh;
+  max-height: 25vh;
   overflow-y: auto;
 }
 
 .game-sidebar .sector-map-body {
   max-height: none;
   overflow-y: visible;
+}
+
+/* === Collapsible Panels === */
+.collapsible-panel__header {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.collapsible-panel__header:hover {
+  background: var(--bg-primary);
+}
+
+.collapsible-panel__toggle {
+  font-size: 10px;
+  color: var(--cyan);
+  width: 12px;
+}
+
+.collapsible-panel__title {
+  flex: 1;
+}
+
+.collapsible-panel__badge {
+  background: var(--cyan);
+  color: var(--bg-primary);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: bold;
+}
+
+/* === Ship Status Panel === */
+.cargo-bar {
+  height: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.cargo-bar__fill {
+  height: 100%;
+  background: var(--cyan);
+  transition: width 0.3s ease;
+}
+
+.cargo-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.cargo-item {
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+}
+
+.cargo-item--cyr { color: var(--magenta); }
+.cargo-item--food { color: var(--green); }
+.cargo-item--tech { color: var(--cyan); }
+.cargo-item--col { color: var(--yellow); }
+
+/* === Active Missions Panel === */
+.mission-item {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.mission-item:last-child {
+  border-bottom: none;
+}
+
+.mission-item__title {
+  font-size: 12px;
+  color: var(--foreground);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mission-item__progress {
+  font-size: 11px;
+  color: var(--comment);
+  display: flex;
+  justify-content: space-between;
+}
+
+.mission-item__reward {
+  color: var(--yellow);
+}
+
+/* === Sector Chat Panel === */
+.chat-messages {
+  max-height: 120px;
+  overflow-y: auto;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.chat-msg {
+  padding: 2px 0;
+  word-break: break-word;
+}
+
+.chat-msg--own {
+  color: var(--cyan);
+}
+
+.chat-msg__name {
+  color: var(--green);
+  font-weight: bold;
+}
+
+.chat-msg--own .chat-msg__name {
+  color: var(--cyan);
+}
+
+.chat-input-form {
+  display: flex;
+}
+
+.chat-input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: 3px;
+  outline: none;
+}
+
+.chat-input:focus {
+  border-color: var(--cyan);
+}
+
+/* === Player List Panel === */
+.player-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.player-list-item__name {
+  color: var(--yellow);
+  font-size: 12px;
+}
+
+/* === Inventory Panel === */
+.inventory-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.inventory-item__name {
+  font-size: 12px;
+  color: var(--foreground);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-sm.btn-use {
+  background: var(--cyan);
+  color: var(--bg-primary);
+  border: none;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.btn-sm.btn-use:hover {
+  opacity: 0.8;
+}
+
+.btn-sm.btn-use:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* === Notes Panel === */
+.notes-panel__input-row { display: flex; gap: 4px; margin-bottom: 6px; }
+.notes-panel__input { flex: 1; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); padding: 4px 6px; font-size: 11px; font-family: inherit; }
+.notes-panel__input:focus { border-color: var(--blue); outline: none; }
+.note-entry { display: flex; align-items: flex-start; gap: 4px; padding: 3px 0; border-bottom: 1px solid var(--bg-tertiary); font-size: 11px; }
+.note-entry__content { flex: 1; word-break: break-word; }
+.note-entry__id { color: var(--text-secondary); font-size: 10px; }
+.note-entry__delete { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 10px; padding: 0 2px; }
+.note-entry__delete:hover { color: var(--red); }
+
+/* === Wallet Panel === */
+.wallet-panel { font-size: 12px; }
+.wallet-connected { display: flex; flex-direction: column; gap: 6px; }
+.wallet-address { display: flex; align-items: center; justify-content: space-between; }
+.wallet-address__label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+.wallet-address__value { font-family: 'IBM Plex Mono', monospace; color: var(--green); font-size: 12px; }
+.wallet-balance { display: flex; align-items: center; justify-content: space-between; }
+.wallet-balance__label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+.wallet-balance__value { color: var(--purple); font-weight: 500; }
+.wallet-web3-hint { font-style: italic; color: var(--text-secondary); font-size: 11px; padding-top: 6px; margin-top: 4px; border-top: 1px solid var(--border); }
+.wallet-disconnect { border-color: var(--red); color: var(--red); margin-top: 4px; }
+.wallet-disconnect:hover { background: rgba(248, 81, 73, 0.15); }
+.wallet-connect { display: flex; flex-direction: column; }
+.wallet-connectors { display: flex; gap: 6px; flex-wrap: wrap; }
+.wallet-connector-btn { border-color: var(--blue); color: var(--blue); }
+.wallet-connector-btn:hover { background: rgba(88, 166, 255, 0.15); }
+.wallet-verify { display: flex; flex-direction: column; gap: 8px; }
+.wallet-error { color: var(--red); font-size: 12px; padding: 6px 8px; background: rgba(248, 81, 73, 0.1); border-radius: 4px; border: 1px solid rgba(248, 81, 73, 0.3); margin-bottom: 8px; }
+.wallet-skip { display: flex; justify-content: flex-end; margin-top: 12px; }
+.wallet-step { display: flex; flex-direction: column; gap: 8px; }
+.wallet-step__title { color: var(--magenta); font-size: 14px; font-weight: 700; letter-spacing: 2px; margin: 0; }
+.wallet-step__subtitle { color: var(--text-secondary); font-size: 11px; margin: 0 0 4px 0; }
+
+/* === Pixel Scene Animations === */
+.pixel-scene--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+}
+
+.pixel-scene--sidebar {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-primary);
+  margin-bottom: 8px;
+}
+
+.pixel-scene--inline {
+  display: block;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.pixel-scene__stage {
+  display: block;
+  width: 100%;
+  image-rendering: pixelated;
+}
+
+.pixel-scene__actor {
+  transition: all 300ms ease;
+}
+
+.pixel-scene__text {
+  position: absolute;
+  bottom: 16%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--magenta);
+  font-family: 'IBM Plex Mono', 'Consolas', monospace;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  white-space: nowrap;
+  animation: scene-text-fade-in 1s ease forwards;
+  pointer-events: none;
+}
+
+.pixel-scene__skip {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  padding: 6px 16px;
+  background: transparent;
+  border: 1px solid var(--text-muted);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  z-index: 10;
+}
+
+.pixel-scene__skip:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+}
+
+/* Scene text fade-in */
+@keyframes scene-text-fade-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Flash effect */
+.pixel-scene__flash {
+  animation: scene-flash 400ms ease-out forwards;
+}
+
+@keyframes scene-flash {
+  from { opacity: 0.8; }
+  to { opacity: 0; }
+}
+
+/* Star twinkle */
+.pixel-scene__star {
+  animation: star-twinkle 1.5s ease-in-out infinite;
+}
+
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* Warp line streak */
+.pixel-scene__warp-line {
+  animation: warp-line-streak 0.6s linear infinite;
+}
+
+@keyframes warp-line-streak {
+  from { transform: scaleX(1); opacity: 0.6; }
+  to { transform: scaleX(8); opacity: 0; }
+}
+
+/* Laser fire */
+.pixel-scene__laser {
+  animation: laser-fire 800ms ease-out forwards;
+}
+
+@keyframes laser-fire {
+  from { transform: scaleX(0); opacity: 1; transform-origin: left center; }
+  to { transform: scaleX(1); opacity: 0.3; transform-origin: left center; }
+}
+
+/* Actor hit flash */
+.pixel-scene__actor-hit {
+  animation: actor-hit-flash 600ms ease;
+}
+
+@keyframes actor-hit-flash {
+  0%, 100% { filter: brightness(1); }
+  16% { filter: brightness(3); }
+  33% { filter: brightness(1); }
+  50% { filter: brightness(3); }
+  66% { filter: brightness(1); }
+  83% { filter: brightness(3); }
+}
+
+/* CRT vignette for fullscreen */
+.pixel-scene--fullscreen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
+  pointer-events: none;
+}
+
+/* Scanlines overlay */
+.pixel-scene__scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.15) 2px,
+    rgba(0, 0, 0, 0.15) 4px
+  );
+  pointer-events: none;
+}
+
+/* === Pixel Sprites === */
+.pixel-sprite { display: inline-block; vertical-align: middle; image-rendering: pixelated; flex-shrink: 0; }
+.ship-status-sprite-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.ship-status-sprite { filter: drop-shadow(0 0 4px rgba(232, 71, 160, 0.3)); }
+.ship-status-sprite-header__info { flex: 1; }
+.map-planet-row { display: flex; align-items: center; gap: 6px; }
+.commodity-cell { display: inline-flex; align-items: center; gap: 5px; }
+.combat-subheader { display: flex; align-items: center; gap: 5px; }
+
+/* === Responsive: small screens === */
+@media (max-height: 768px) {
+  .sector-map-svg {
+    height: min(220px, 25vh);
+  }
+
+  .game-sidebar .panel-body {
+    max-height: 20vh;
+  }
+
+  .status-bar {
+    gap: 10px;
+    padding: 4px 12px;
+  }
+
+  .status-label {
+    font-size: 9px;
+  }
+
+  .status-value {
+    font-size: 12px;
+  }
+}
+
+@media (max-height: 600px) {
+  .sector-map-svg {
+    height: min(160px, 22vh);
+  }
+
+  .game-sidebar .panel-body {
+    max-height: 18vh;
+  }
+
+  .panel-header {
+    padding: 4px 10px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .game-sidebar {
+    width: 280px;
+  }
+}
+
+@media (max-width: 768px) {
+  .game-main {
+    flex-direction: column;
+  }
+
+  .game-sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow-y: visible;
+    overflow-x: auto;
+    padding: 4px 8px;
+  }
+
+  .game-sidebar .panel {
+    flex: 1 1 45%;
+    min-width: 200px;
+  }
+
+  .game-terminal {
+    flex: 1;
+    min-height: 40vh;
+  }
+
+  .game-sidebar .panel-body {
+    max-height: 30vh;
+  }
 }

@@ -1,21 +1,48 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import Terminal from '../components/Terminal';
 import StatusBar from '../components/StatusBar';
 import MapPanel from '../components/MapPanel';
 import SectorMap from '../components/SectorMap';
 import TradeTable from '../components/TradeTable';
 import CombatView from '../components/CombatView';
+import ShipStatusPanel from '../components/ShipStatusPanel';
+import ActiveMissionsPanel from '../components/ActiveMissionsPanel';
+import SectorChatPanel, { type ChatMessage } from '../components/SectorChatPanel';
+import PlayerListPanel from '../components/PlayerListPanel';
+import InventoryPanel from '../components/InventoryPanel';
+import NotesPanel from '../components/NotesPanel';
+import WalletPanel from '../components/WalletPanel';
 import TutorialOverlay from '../components/TutorialOverlay';
 import IntroSequence, { INTRO_BEATS, POST_TUTORIAL_BEATS } from '../components/IntroSequence';
+import PixelScene from '../components/PixelScene';
+import { POST_TUTORIAL_SCENE } from '../config/scenes/post-tutorial-scene';
 import { useGameState } from '../hooks/useGameState';
 import { useSocket } from '../hooks/useSocket';
 import { useAudio } from '../hooks/useAudio';
 import { handleCommand } from '../services/commands';
 
-export default function Game() {
+let chatIdCounter = 0;
+
+interface GameProps {
+  onLogout?: () => void;
+}
+
+export default function Game({ onLogout }: GameProps) {
   const game = useGameState();
   const { on, emit } = useSocket(game.player?.id ?? null);
   const audio = useAudio();
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [showPostTutorialScene, setShowPostTutorialScene] = useState(false);
+  const lastSectorRef = useRef<number | null>(null);
+
+  // Clear chat when changing sectors
+  useEffect(() => {
+    if (game.player?.currentSectorId && game.player.currentSectorId !== lastSectorRef.current) {
+      lastSectorRef.current = game.player.currentSectorId;
+      setChatMessages([]);
+    }
+  }, [game.player?.currentSectorId]);
 
   useEffect(() => {
     game.refreshStatus();
@@ -69,8 +96,17 @@ export default function Game() {
         game.addLine('You ejected in a Dodge Pod.', 'warning');
         game.refreshStatus();
       }),
-      on('chat:sector', (data: { senderName: string; message: string }) => {
+      on('chat:sector', (data: { senderId: string; senderName: string; message: string }) => {
+        // Skip own messages — already echoed locally by handleChatSend / chat command
+        const isOwn = data.senderId === game.player?.id;
+        if (isOwn) return;
         game.addLine(`[${data.senderName}] ${data.message}`, 'info');
+        setChatMessages(prev => [...prev.slice(-49), {
+          id: chatIdCounter++,
+          senderName: data.senderName,
+          message: data.message,
+          isOwn: false,
+        }]);
       }),
       on('notification', (data: { message: string }) => {
         game.addLine(data.message, 'system');
@@ -83,6 +119,7 @@ export default function Game() {
   const onCommand = useCallback((input: string) => {
     handleCommand(input, {
       addLine: game.addLine,
+      clearLines: game.clearLines,
       player: game.player,
       sector: game.sector,
       doMove: game.doMove,
@@ -113,6 +150,24 @@ export default function Game() {
 
   const activeOutpost = game.sector?.outposts[0]?.id ?? null;
 
+  const handleChatSend = useCallback((message: string) => {
+    const name = game.player?.username || 'You';
+    game.addLine(`[${name}] ${message}`, 'info');
+    // Add to chat panel immediately
+    setChatMessages(prev => [...prev.slice(-49), {
+      id: chatIdCounter++,
+      senderName: name,
+      message,
+      isOwn: true,
+    }]);
+    emit('chat:sector', { message });
+  }, [game.player?.username, game.addLine, emit]);
+
+  const handleItemUsed = useCallback(() => {
+    game.refreshStatus();
+    setRefreshKey(k => k + 1);
+  }, [game.refreshStatus]);
+
   const handleTrackRequest = useCallback((trackId: string) => {
     audio.play(trackId);
   }, [audio.play]);
@@ -133,10 +188,20 @@ export default function Game() {
 
   // Show post-tutorial lore sequence after tutorial completion
   if (game.player && game.player.tutorialCompleted && !game.player.hasSeenPostTutorial) {
+    if (showPostTutorialScene) {
+      return (
+        <PixelScene
+          scene={POST_TUTORIAL_SCENE}
+          renderMode="fullscreen"
+          onComplete={game.markPostTutorialSeen}
+          onSkip={game.markPostTutorialSeen}
+        />
+      );
+    }
     return (
       <IntroSequence
         beats={POST_TUTORIAL_BEATS}
-        onComplete={game.markPostTutorialSeen}
+        onComplete={() => setShowPostTutorialScene(true)}
         title="THE FRONTIER AWAITS"
         buttonLabel="BEGIN YOUR JOURNEY"
         trackId="post-tutorial"
@@ -153,9 +218,18 @@ export default function Game() {
         tutorialCompleted={game.player?.tutorialCompleted ?? true}
         onSkip={game.skipTutorial}
       />
-      <StatusBar player={game.player} muted={audio.muted} onToggleMute={audio.toggleMute} />
+      <StatusBar player={game.player} muted={audio.muted} onToggleMute={audio.toggleMute} onLogout={onLogout} />
       <div className="game-main">
         <div className="game-terminal">
+          {game.inlineScene && (
+            <PixelScene
+              scene={game.inlineScene}
+              renderMode="inline"
+              onComplete={game.dequeueScene}
+              width={400}
+              height={120}
+            />
+          )}
           <Terminal
             lines={game.lines}
             onCommand={onCommand}
@@ -163,6 +237,7 @@ export default function Game() {
           />
         </div>
         <div className="game-sidebar">
+          <WalletPanel />
           <MapPanel sector={game.sector} onMoveToSector={game.doMove} />
           <SectorMap
             mapData={game.mapData}
@@ -170,17 +245,34 @@ export default function Game() {
             adjacentSectorIds={game.sector?.adjacentSectors.map(a => a.sectorId) ?? []}
             onMoveToSector={game.doMove}
           />
+          <ShipStatusPanel player={game.player} />
           <TradeTable
             outpostId={activeOutpost}
             onBuy={game.doBuy}
             onSell={game.doSell}
+          />
+          <PlayerListPanel
+            sector={game.sector}
+            onFire={game.doFire}
           />
           <CombatView
             sector={game.sector}
             onFire={game.doFire}
             onFlee={game.doFlee}
             weaponEnergy={game.player?.currentShip?.weaponEnergy ?? 0}
+            combatAnimation={game.combatAnimation}
+            onCombatAnimationDone={game.clearCombatAnimation}
           />
+          <ActiveMissionsPanel refreshKey={refreshKey} />
+          <SectorChatPanel
+            messages={chatMessages}
+            onSend={handleChatSend}
+          />
+          <InventoryPanel
+            refreshKey={refreshKey}
+            onItemUsed={handleItemUsed}
+          />
+          <NotesPanel refreshKey={refreshKey} />
         </div>
       </div>
     </div>

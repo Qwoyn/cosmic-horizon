@@ -4,6 +4,7 @@ import { verifyJwt } from './jwt';
 declare module 'express-session' {
   interface SessionData {
     playerId: string;
+    siweNonce?: string;
   }
 }
 

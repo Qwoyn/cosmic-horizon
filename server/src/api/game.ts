@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy, getActionCost } from '../engine/energy';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
+import { applyUpgradesToShip } from '../engine/upgrades';
 import {
   handleTutorialStatus,
   handleTutorialSector,
@@ -24,6 +25,8 @@ router.get('/status', requireAuth, async (req, res) => {
       ? await db('ships').where({ id: player.current_ship_id }).first()
       : null;
 
+    const upgrades = ship ? await applyUpgradesToShip(ship.id) : null;
+
     res.json({
       id: player.id,
       username: player.username,
@@ -36,13 +39,14 @@ router.get('/status', requireAuth, async (req, res) => {
       tutorialCompleted: !!player.tutorial_completed,
       hasSeenIntro: !!player.has_seen_intro,
       hasSeenPostTutorial: !!player.has_seen_post_tutorial,
+      walletAddress: player.wallet_address || null,
       currentShip: ship ? {
         id: ship.id,
         shipTypeId: ship.ship_type_id,
-        weaponEnergy: ship.weapon_energy,
-        engineEnergy: ship.engine_energy,
+        weaponEnergy: ship.weapon_energy + (upgrades?.weaponBonus ?? 0),
+        engineEnergy: ship.engine_energy + (upgrades?.engineBonus ?? 0),
         cargoHolds: ship.cargo_holds,
-        maxCargoHolds: ship.max_cargo_holds,
+        maxCargoHolds: ship.max_cargo_holds + (upgrades?.cargoBonus ?? 0),
         cyrilliumCargo: ship.cyrillium_cargo,
         foodCargo: ship.food_cargo,
         techCargo: ship.tech_cargo,

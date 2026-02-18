@@ -1,12 +1,14 @@
 import type { PlayerState } from '../hooks/useGameState';
+import PixelSprite from './PixelSprite';
 
 interface StatusBarProps {
   player: PlayerState | null;
   muted?: boolean;
   onToggleMute?: () => void;
+  onLogout?: () => void;
 }
 
-export default function StatusBar({ player, muted, onToggleMute }: StatusBarProps) {
+export default function StatusBar({ player, muted, onToggleMute, onLogout }: StatusBarProps) {
   if (!player) return null;
 
   const ship = player.currentShip;
@@ -41,7 +43,7 @@ export default function StatusBar({ player, muted, onToggleMute }: StatusBarProp
         <>
           <div className="status-section">
             <div className="status-label">SHIP</div>
-            <div className="status-value">{ship.shipTypeId}</div>
+            <div className="status-value"><PixelSprite spriteKey={`ship_${ship.shipTypeId}`} size={12} /> {ship.shipTypeId}</div>
           </div>
           <div className="status-section">
             <div className="status-label">WEAPONS</div>
@@ -57,15 +59,34 @@ export default function StatusBar({ player, muted, onToggleMute }: StatusBarProp
           </div>
         </>
       )}
-      {onToggleMute && (
-        <button
-          className={`audio-toggle${muted ? ' audio-toggle--muted' : ''}`}
-          onClick={onToggleMute}
-          title={muted ? 'Unmute audio' : 'Mute audio'}
-        >
-          {muted ? 'SOUND OFF' : 'SOUND ON'}
-        </button>
+      {player.walletAddress && (
+        <div className="status-section">
+          <div className="status-label">WALLET</div>
+          <div className="status-value text-success">
+            {player.walletAddress.slice(0, 6)}...{player.walletAddress.slice(-4)}
+          </div>
+        </div>
       )}
+      <div className="status-bar__actions">
+        {onToggleMute && (
+          <button
+            className={`audio-toggle${muted ? ' audio-toggle--muted' : ''}`}
+            onClick={onToggleMute}
+            title={muted ? 'Unmute audio' : 'Mute audio'}
+          >
+            {muted ? 'SOUND OFF' : 'SOUND ON'}
+          </button>
+        )}
+        {onLogout && (
+          <button
+            className="audio-toggle audio-toggle--logout"
+            onClick={onLogout}
+            title="Logout"
+          >
+            LOGOUT
+          </button>
+        )}
+      </div>
     </div>
   );
 }

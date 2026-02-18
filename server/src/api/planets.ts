@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { calculateProduction, canUpgrade } from '../engine/planets';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
+import { applyUpgradesToShip } from '../engine/upgrades';
 import db from '../db/connection';
 
 const router = Router();
@@ -137,9 +138,10 @@ router.post('/:id/collect-colonists', requireAuth, async (req, res) => {
     const ship = await db('ships').where({ id: player.current_ship_id }).first();
     if (!ship) return res.status(400).json({ error: 'No active ship' });
 
+    const upgrades = await applyUpgradesToShip(ship.id);
     const currentCargo = (ship.cyrillium_cargo || 0) + (ship.food_cargo || 0) +
       (ship.tech_cargo || 0) + (ship.colonist_cargo || 0);
-    const freeSpace = ship.max_cargo_holds - currentCargo;
+    const freeSpace = (ship.max_cargo_holds + upgrades.cargoBonus) - currentCargo;
     const available = planet.colonists || 0;
     const toCollect = Math.min(quantity, available, freeSpace);
     if (toCollect <= 0) return res.status(400).json({ error: 'No colonists available or no cargo space' });

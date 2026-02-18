@@ -1,4 +1,8 @@
 import { useState } from 'react';
+import CollapsiblePanel from './CollapsiblePanel';
+import PixelSprite from './PixelSprite';
+import PixelScene from './PixelScene';
+import { buildCombatScene } from '../config/scenes/combat-scene';
 import type { SectorState } from '../hooks/useGameState';
 
 interface CombatViewProps {
@@ -6,9 +10,11 @@ interface CombatViewProps {
   onFire: (targetPlayerId: string, energy: number) => void;
   onFlee: () => void;
   weaponEnergy: number;
+  combatAnimation?: { attackerShipType: string; damage: number } | null;
+  onCombatAnimationDone?: () => void;
 }
 
-export default function CombatView({ sector, onFire, onFlee, weaponEnergy }: CombatViewProps) {
+export default function CombatView({ sector, onFire, onFlee, weaponEnergy, combatAnimation, onCombatAnimationDone }: CombatViewProps) {
   const [energy, setEnergy] = useState(10);
   const [target, setTarget] = useState<string>('');
 
@@ -19,45 +25,51 @@ export default function CombatView({ sector, onFire, onFlee, weaponEnergy }: Com
   }
 
   return (
-    <div className="panel panel-combat">
-      <div className="panel-header text-combat">COMBAT</div>
-      <div className="panel-body">
-        <div className="panel-subheader text-warning">Targets in sector</div>
-        {players.map(p => (
-          <div
-            key={p.id}
-            className={`panel-row target-row ${target === p.id ? 'selected' : ''}`}
-            onClick={() => setTarget(p.id)}
-          >
-            {p.username}
-          </div>
-        ))}
+    <CollapsiblePanel title="COMBAT" className="panel-combat">
+      {combatAnimation && onCombatAnimationDone && (
+        <PixelScene
+          scene={buildCombatScene(combatAnimation.attackerShipType, combatAnimation.damage)}
+          renderMode="sidebar"
+          onComplete={onCombatAnimationDone}
+          width={280}
+          height={180}
+        />
+      )}
+      <div className="panel-subheader text-warning combat-subheader"><PixelSprite spriteKey="combat_crosshair" size={14} />Targets in sector</div>
+      {players.map(p => (
+        <div
+          key={p.id}
+          className={`panel-row target-row ${target === p.id ? 'selected' : ''}`}
+          onClick={() => setTarget(p.id)}
+        >
+          {p.username}
+        </div>
+      ))}
 
-        {target && (
-          <div className="combat-controls">
-            <div className="panel-row">
-              <label>Energy:</label>
-              <input
-                type="number"
-                min={1}
-                max={weaponEnergy}
-                value={energy}
-                onChange={e => setEnergy(Math.max(1, parseInt(e.target.value) || 1))}
-                className="qty-input"
-              />
-              <span className="text-muted">/ {weaponEnergy}</span>
-            </div>
-            <div className="combat-buttons">
-              <button className="btn btn-fire" onClick={() => onFire(target, energy)}>
-                FIRE ({energy} energy)
-              </button>
-              <button className="btn btn-flee" onClick={onFlee}>
-                FLEE
-              </button>
-            </div>
+      {target && (
+        <div className="combat-controls">
+          <div className="panel-row">
+            <label>Energy:</label>
+            <input
+              type="number"
+              min={1}
+              max={weaponEnergy}
+              value={energy}
+              onChange={e => setEnergy(Math.max(1, parseInt(e.target.value) || 1))}
+              className="qty-input"
+            />
+            <span className="text-muted">/ {weaponEnergy}</span>
           </div>
-        )}
-      </div>
-    </div>
+          <div className="combat-buttons">
+            <button className="btn btn-fire" onClick={() => onFire(target, energy)}>
+              FIRE ({energy} energy)
+            </button>
+            <button className="btn btn-flee" onClick={onFlee}>
+              FLEE
+            </button>
+          </div>
+        </div>
+      )}
+    </CollapsiblePanel>
   );
 }

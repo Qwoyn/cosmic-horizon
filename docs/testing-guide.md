@@ -91,31 +91,39 @@ Key variables:
 
 ## How to Play
 
-Cosmic Horizon uses a terminal-style interface. Type commands in the input bar at the bottom of the screen. Type `help` at any time to see all available commands.
+Cosmic Horizon uses a terminal-style interface. Type commands in the input bar at the bottom of the screen.
 
-### Core Commands
+**Getting help:**
+- `help` — View command categories at a glance
+- `help <category>` — View commands in a category (e.g., `help trading`)
+- `help <command>` — Detailed help for a specific command (e.g., `help buy`)
+- `tips` — Contextual tips based on your current situation
+- `clear` — Clear the terminal screen
 
-| Command | What it does |
-|---|---|
-| `help` | List all commands |
-| `status` | Show your stats (energy, credits, cargo, ship) |
-| `look` | See current sector contents (players, outposts, planets, events) |
-| `move <sector_id>` | Travel to an adjacent sector (costs 1 energy) |
-| `map` | View your explored sector map |
-| `scan` | Scan adjacent sectors (requires planetary scanner) |
+### Command Categories
 
-### Trading
+#### Navigation
 
-| Command | What it does |
-|---|---|
-| `dock` | View outpost prices and stock |
-| `buy <commodity> <qty>` | Buy cargo from outpost |
-| `sell <commodity> <qty>` | Sell cargo to outpost |
-| `eject <commodity> <qty>` | Jettison cargo into space |
+| Command | Alias | What it does |
+|---|---|---|
+| `move <sector_id>` | `m` | Travel to an adjacent sector (costs 1 energy) |
+| `look` | `l` | See current sector contents (players, outposts, planets, events) |
+| `scan` | `s` | Scan adjacent sectors (requires planetary scanner) |
+| `map` | | View your explored sector map |
+| `status` | `st` | Show your stats (energy, credits, cargo, ship) |
+
+#### Trading
+
+| Command | Alias | What it does |
+|---|---|---|
+| `dock` | `d` | View outpost prices and stock |
+| `buy <commodity> <qty>` | | Buy cargo from outpost |
+| `sell <commodity> <qty>` | | Sell cargo to outpost |
+| `eject <commodity> <qty>` | | Jettison cargo into space |
 
 Commodities: **cyrillium**, **food**, **tech**
 
-### Star Mall (must be at a Star Mall sector)
+#### Star Mall (must be at a Star Mall sector)
 
 | Command | What it does |
 |---|---|
@@ -123,18 +131,26 @@ Commodities: **cyrillium**, **food**, **tech**
 | `dealer` | Browse ships for sale |
 | `buyship <type>` | Purchase a ship |
 | `store` | Browse the general store |
-| `refuel <qty>` | Buy energy (10 credits per unit) |
+| `refuel <qty>` or `fuel <qty>` | Buy energy (10 credits per unit) |
 | `garage` | View stored ships |
 | `storeship` | Store current ship in garage |
 | `retrieve <ship_id>` | Retrieve a stored ship |
+| `salvage [ship_id]` | Salvage yard / sell a ship for credits |
 | `cantina` | Hear a rumor |
 | `intel` | Buy sector intelligence (500 credits) |
-| `upgrades` | Browse ship upgrades |
-| `install <upgrade_id>` | Install an upgrade |
-| `shipupgrades` | View installed upgrades |
+
+#### Ship Upgrades (at Star Mall)
+
+| Command | What it does |
+|---|---|
+| `upgrades` | Browse available ship upgrades |
+| `install <name>` | Install an upgrade (accepts partial names, e.g., `install cargo`) |
+| `shipupgrades` | View upgrades installed on current ship |
 | `uninstall <install_id>` | Remove an upgrade |
 
-### Planets
+**Note:** Installed upgrades now appear in your `status` — weapon energy, engine energy, and cargo capacity all reflect upgrade bonuses.
+
+#### Planets
 
 | Command | What it does |
 |---|---|
@@ -142,45 +158,87 @@ Commodities: **cyrillium**, **food**, **tech**
 | `claim <planet_name>` | Claim an unclaimed planet |
 | `colonize <planet_name> <qty>` | Deposit colonists |
 | `collect <planet_name> <qty>` | Pick up colonists from seed planets |
+| `upgrade <planet_name>` | Upgrade your planet (costs resources) |
 
-### Combat (standard sectors only)
+#### Combat (standard sectors only)
 
-| Command | What it does |
-|---|---|
-| `fire <player> <energy>` | Attack another player |
-| `flee` | Attempt to escape combat |
-| `cloak` | Toggle cloaking (Shadow Runner only) |
-| `combatlog` | View recent combat history |
-| `bounties` | View active bounties |
+| Command | Alias | What it does |
+|---|---|---|
+| `fire <player> <energy>` | `f` | Attack another player |
+| `flee` | | Attempt to escape combat |
+| `cloak` | | Toggle cloaking (Shadow Runner only) |
+| `combatlog` | | View recent combat history |
+| `bounties` | | View active bounties |
 
-### Social
+#### Social & Chat
 
-| Command | What it does |
-|---|---|
-| `ally <player>` | Toggle alliance with a player |
-| `syndicate create <name>` | Create a syndicate |
-| `syndicate` | View your syndicate |
-| `mail` | View inbox |
-| `mail send <player> <subject> \| <body>` | Send a message |
-| `leaderboard` | View rankings |
+| Command | Alias | What it does |
+|---|---|---|
+| `chat <message>` | `say` | Send a message to players in your sector |
+| `bounties` | | View active bounties |
+| `leaderboard [category]` | `lb` | View rankings |
 
-### Missions
+#### Missions
 
 | Command | What it does |
 |---|---|
 | `missionboard` | Browse available missions (at Star Mall) |
 | `accept <template_id>` | Accept a mission |
 | `missions` | View active missions |
+| `missions completed` | View completed missions |
 | `abandon <mission_id>` | Abandon a mission |
 
-### Other
+**Note:** After completing the tutorial, 3 starter missions are automatically assigned: Pathfinder, First Trades, and Scanner Training.
+
+#### Mail
 
 | Command | What it does |
 |---|---|
-| `investigate` | Interact with a sector event/anomaly |
-| `deploy <item>` | Deploy a mine, drone, buoy, or probe |
-| `warp` | View warp gates in current sector |
+| `mail` | View inbox |
+| `mail read <id>` | Read a message |
+| `mail send <player> <subject> <body>` | Send a message |
+| `mail delete <id>` | Delete a message |
+| `mail sent` | View sent messages |
+
+#### Notes
+
+| Command | Alias | What it does |
+|---|---|---|
+| `note <text>` | `n` | Save a personal note |
+| `notes` | | List all notes |
+| `notes search <term>` | | Search your notes |
+| `note del <id>` | | Delete a note |
+
+#### Warp Gates
+
+| Command | What it does |
+|---|---|
+| `warp [gate_id]` | Use a warp gate in current sector |
 | `warp build <sector_id>` | Build a warp gate (syndicate officers) |
+| `warp toll <gate_id> <amount>` | Set gate toll |
+| `warp list` | View syndicate warp gates |
+
+#### Deployables
+
+| Command | What it does |
+|---|---|
+| `deploy <item> [args]` | Deploy a mine, drone, buoy, or probe |
+
+#### Events
+
+| Command | What it does |
+|---|---|
+| `investigate [event_id]` | Interact with a sector event/anomaly |
+
+#### Utility
+
+| Command | What it does |
+|---|---|
+| `help [category\|command]` | View help categories, category commands, or command details |
+| `tips` | Contextual guidance based on your situation |
+| `clear` | Clear the terminal screen |
+| `inventory` | View items in your inventory |
+| `use <item_id> [args]` | Use an item from inventory |
 
 ---
 
@@ -332,6 +390,21 @@ Open two browser windows and register two separate accounts.
 
 ---
 
+### Test 11b: Starter Missions (Post-Tutorial)
+
+1. Register a new account and complete (or skip) the tutorial
+2. After the post-tutorial lore sequence, verify a welcome message appears with getting-started guidance
+3. `missions` — verify 3 starter missions are automatically assigned:
+   - **Pathfinder** (visit 5 sectors, 1,000 cr reward)
+   - **First Trades** (trade 10 units, 1,000 cr reward)
+   - **Scanner Training** (2 scans, 500 cr reward)
+4. Complete a starter mission and verify credits are awarded
+5. Register another account and skip the tutorial — verify starter missions are still assigned
+
+**Watch for:** Starter missions not appearing, duplicate missions on re-login, rewards not paying.
+
+---
+
 ### Test 12: Sector Events
 
 1. Navigate through sectors, checking `look` in each
@@ -372,12 +445,16 @@ Open two browser windows and register two separate accounts.
 
 1. Navigate to a Star Mall
 2. `upgrades` — browse available upgrades
-3. `install <upgrade_id>` — install one
+3. `install cargo` — install using a partial/friendly name (should match cargo_mk2)
 4. `shipupgrades` — verify it's listed
-5. `status` — verify stats reflect the bonus
-6. `uninstall <install_id>` — remove it
+5. `status` — verify stats reflect the bonus (cargo capacity should be increased)
+6. Try buying cargo at an outpost — free space should reflect the upgraded capacity
+7. `uninstall <install_id>` — remove it
+8. `status` — verify stats return to base values
+9. `install xyz` — try a non-existent upgrade, should show error
+10. If multiple upgrades match a search term, verify disambiguation list is shown
 
-**Watch for:** Stats not changing after install, exceeding max upgrades.
+**Watch for:** Stats not changing after install, `status` not reflecting upgrade bonuses, cargo capacity not including upgrade bonus when buying/selling, fuzzy match not working.
 
 ---
 
@@ -431,29 +508,112 @@ Try each of these and verify you get a helpful error (not a crash):
 
 ---
 
+### Test 20: Help System (Categorized)
+
+1. `help` — should show a compact list of ~14 categories (not a wall of commands)
+2. `help trading` — should show trading commands with usage
+3. `help navigation` — should show nav commands
+4. `help combat` — should show combat commands
+5. `help buy` — should show detailed help for the buy command
+6. `help fakecmd` — should show "no detailed help" message
+7. `?` — alias for help, should work the same
+8. Try all categories: navigation, trading, combat, planets, ships, upgrades, store, deploy, missions, social, mail, notes, warp, events
+
+**Watch for:** Categories showing wrong commands, `help <command>` not working, crash on unknown input.
+
+---
+
+### Test 21: Tips Command
+
+1. `tips` — should show contextual guidance
+2. Navigate to a Star Mall sector and type `tips` — should mention Star Mall services
+3. Buy some cargo and type `tips` — should mention you're carrying cargo
+4. Verify it always shows the "help <category>" hint
+
+**Watch for:** Tips crashing when player has no ship, tips not detecting Star Mall.
+
+---
+
+### Test 22: Sector Chat
+
+1. Open two browser windows with two separate accounts
+2. Navigate both to the same sector
+3. **Player 1**: `chat hello!` — should see `[Player1] hello!` in their own terminal
+4. **Player 2**: Should see `[Player1] hello!` appear
+5. **Player 2**: `chat hi back!` — should echo locally, Player 1 should see it
+6. Try `say hello` (alias) — should work the same as chat
+
+**Watch for:** Own messages not appearing, duplicate messages, messages appearing in wrong sectors.
+
+---
+
+### Test 23: Terminal Clear & Auto-trim
+
+1. Run several commands to fill the terminal
+2. `clear` — terminal should be completely empty
+3. Run a command after clear — should work normally
+4. (Stress test) Run 250+ commands rapidly — terminal should not exceed ~200 lines (older lines auto-trimmed)
+
+**Watch for:** Clear not working, auto-trim removing lines too aggressively, clear breaking command input.
+
+---
+
+### Test 24: Fuel Alias
+
+1. Navigate to a Star Mall
+2. `fuel 10` — should work exactly like `refuel 10`
+3. Verify energy increased and credits deducted
+
+**Watch for:** "Unknown command" error for fuel.
+
+---
+
+### Test 25: Sector Map Layout
+
+1. Explore 10+ sectors by moving around
+2. Open the sector map in the sidebar
+3. Verify sectors are visually spread out with clear spacing between nodes
+4. Verify connected sectors have visible edge lines between them
+5. Zoom in/out — nodes should remain well-spaced
+6. Drag to pan when zoomed in
+
+**Watch for:** Nodes piled on top of each other, edges overlapping, map too cramped.
+
+---
+
 ## Quick Smoke Test Checklist
 
 Run through this abbreviated flow to verify the basics:
 
 - [ ] Register a new player
+- [ ] Complete or skip the tutorial — verify starter missions are assigned
+- [ ] After post-tutorial lore, verify welcome message with getting-started tips appears
 - [ ] Log out and log back in (try both username and email)
 - [ ] `look` — see sector contents
 - [ ] `move` to adjacent sector and back
 - [ ] `status` — verify energy decreased
-- [ ] `map` — verify map shows explored sectors, zoom and pan work
+- [ ] `map` — verify map shows explored sectors with good spacing, zoom and pan work
 - [ ] `dock` at outpost, `buy` a commodity, `sell` at another
 - [ ] `dealer` at Star Mall, buy a ship
 - [ ] `land` on a planet, `claim` it
 - [ ] Second player can see first player in same sector
+- [ ] `chat hello` — message appears in both players' terminals
 - [ ] `fire` works in standard sector, blocked in protected
 - [ ] `flee` returns success/failure
+- [ ] `missions` — verify starter missions are listed
 - [ ] `missionboard` and `accept` a mission
 - [ ] `investigate` a sector event
 - [ ] `leaderboard` shows rankings
 - [ ] `mail send` and `mail` for messaging
-- [ ] `upgrades` and `install` at Star Mall
+- [ ] `upgrades` and `install cargo` — fuzzy match works, `status` reflects bonus
 - [ ] `warp` gates work with tolls
-- [ ] `help` shows all commands
+- [ ] `help` — shows categories (not a wall of text)
+- [ ] `help trading` — shows trading commands
+- [ ] `help buy` — shows detailed help for buy
+- [ ] `tips` — shows contextual guidance
+- [ ] `fuel 10` — alias for refuel works
+- [ ] `clear` — clears the terminal
+- [ ] `note test` and `notes` — notes system works
 
 ---
 
@@ -480,3 +640,12 @@ Include:
 - You can zoom into the map with the +/- buttons and drag to pan when zoomed
 - Outposts buy and sell different commodities — check the mode column when you `dock`
 - Seed planets (class S) are where you pick up colonists to populate your own planets
+- Type `tips` anytime for contextual guidance based on your current situation
+- Type `help <category>` to see commands in a specific area (e.g., `help trading`)
+- Ship upgrades now show in `status` — install a cargo upgrade and watch your capacity increase
+- You can install upgrades by name: `install cargo` instead of `install cargo_mk2`
+- Use `clear` to clean up the terminal when it gets cluttered
+- The terminal auto-trims to 200 lines during long sessions
+- After completing the tutorial, check `missions` for 3 starter missions to earn early credits
+- Use `fuel` as a shortcut for `refuel`
+- Use `chat <message>` or `say <message>` to talk to other players in your sector

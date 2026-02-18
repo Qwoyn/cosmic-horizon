@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy } from '../engine/energy';
 import { resolveEvent, EventType } from '../engine/events';
+import { applyUpgradesToShip } from '../engine/upgrades';
 import db from '../db/connection';
 
 const router = Router();
@@ -75,9 +76,10 @@ router.post('/investigate/:eventId', requireAuth, async (req, res) => {
     if (outcome.cargoGained && player.current_ship_id) {
       const ship = await db('ships').where({ id: player.current_ship_id }).first();
       if (ship) {
+        const upgrades = await applyUpgradesToShip(ship.id);
         const currentCargo = (ship.cyrillium_cargo || 0) + (ship.food_cargo || 0) +
           (ship.tech_cargo || 0) + (ship.colonist_cargo || 0);
-        const freeSpace = ship.max_cargo_holds - currentCargo;
+        const freeSpace = (ship.max_cargo_holds + upgrades.cargoBonus) - currentCargo;
         const toAdd = Math.min(outcome.cargoGained.quantity, freeSpace);
         if (toAdd > 0) {
           const cargoField = `${outcome.cargoGained.commodity}_cargo`;
