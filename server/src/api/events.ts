@@ -7,6 +7,12 @@ import { grantRandomTablet } from '../engine/tablets';
 import { awardXP } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
+import {
+  getResourceEventsInSector,
+  harvestResourceEvent,
+  salvageDerelict,
+  attackGuardian,
+} from '../engine/rare-spawns';
 import db from '../db/connection';
 
 const router = Router();
@@ -127,6 +133,128 @@ router.post('/investigate/:eventId', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Investigate event error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// === Resource Events ===
+
+// Get active resource events in player's current sector
+router.get('/resource-events', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const events = await getResourceEventsInSector(player.current_sector_id);
+    const now = Date.now();
+
+    res.json({
+      resourceEvents: events.map(e => ({
+        id: e.id,
+        eventType: e.eventType,
+        resources: e.resources,
+        remainingNodes: e.remainingNodes,
+        totalValue: e.totalValue,
+        timeRemaining: Math.max(0, new Date(e.expiresAt).getTime() - now),
+        expiresAt: e.expiresAt,
+        guardianHp: e.guardianHp,
+        claimedBy: e.claimedBy,
+      })),
+    });
+  } catch (err) {
+    console.error('Resource events error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Harvest a node from an asteroid field or anomaly
+router.post('/harvest/:eventId', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    if (!canAffordAction(player.energy, 'harvest')) {
+      return res.status(400).json({ error: 'Not enough energy' });
+    }
+
+    const nodeIndex = typeof req.body.nodeIndex === 'number' ? req.body.nodeIndex : 0;
+    const newEnergy = deductEnergy(player.energy, 'harvest');
+    await db('players').where({ id: player.id }).update({ energy: newEnergy });
+
+    const result = await harvestResourceEvent(player.id, req.params.eventId as string, nodeIndex);
+
+    res.json({
+      resource: result.resource,
+      remainingNodes: result.remainingNodes,
+      energy: newEnergy,
+    });
+  } catch (err: any) {
+    if (err.message && !err.message.includes('Internal')) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('Harvest error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Salvage a derelict ship
+router.post('/salvage/:eventId', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    if (!canAffordAction(player.energy, 'salvage')) {
+      return res.status(400).json({ error: 'Not enough energy' });
+    }
+
+    const newEnergy = deductEnergy(player.energy, 'salvage');
+    await db('players').where({ id: player.id }).update({ energy: newEnergy });
+
+    const result = await salvageDerelict(player.id, req.params.eventId as string);
+
+    res.json({
+      credits: result.credits,
+      resources: result.resources,
+      tabletDrop: result.tabletDrop,
+      energy: newEnergy,
+    });
+  } catch (err: any) {
+    if (err.message && !err.message.includes('Internal')) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('Salvage error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Attack alien cache guardian
+router.post('/attack-guardian/:eventId', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    if (!canAffordAction(player.energy, 'combat_volley')) {
+      return res.status(400).json({ error: 'Not enough energy' });
+    }
+
+    const newEnergy = deductEnergy(player.energy, 'combat_volley');
+    await db('players').where({ id: player.id }).update({ energy: newEnergy });
+
+    const result = await attackGuardian(player.id, req.params.eventId as string);
+
+    res.json({
+      defeated: result.defeated,
+      damageDealt: result.damageDealt,
+      remainingHp: result.remainingHp,
+      damageTaken: result.damageTaken,
+      loot: result.loot,
+      energy: newEnergy,
+    });
+  } catch (err: any) {
+    if (err.message && !err.message.includes('Internal')) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('Attack guardian error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

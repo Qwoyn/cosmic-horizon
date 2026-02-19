@@ -1,0 +1,151 @@
+import { useState, useEffect } from 'react';
+import CollapsiblePanel from './CollapsiblePanel';
+import PixelSprite from './PixelSprite';
+import { getContacts } from '../services/api';
+import type { SectorState } from '../hooks/useGameState';
+
+interface NPC {
+  id: string;
+  name: string;
+  title: string;
+  race: string;
+  encountered: boolean;
+  disposition?: number;
+  faction?: string;
+}
+
+interface Contact {
+  id: string;
+  name: string;
+  race: string;
+  lastSectorId: number;
+  lastSeenAt: string;
+}
+
+interface Props {
+  sector: SectorState | null;
+  refreshKey?: number;
+  bare?: boolean;
+  onCommand?: (cmd: string) => void;
+}
+
+type TabView = 'npcs' | 'contacts';
+
+const RACE_SPRITE_MAP: Record<string, string> = {
+  muscarian: 'npc_muscarian',
+  vedic: 'npc_vedic',
+  kalin: 'npc_kalin',
+  tarri: 'npc_tarri',
+};
+
+function getDispositionDots(level: number) {
+  const dots = [];
+  for (let i = 1; i <= 5; i++) {
+    let cls = 'npc-disposition__dot';
+    if (i <= level) {
+      if (level <= 2) cls += ' npc-disposition__dot--filled-hostile';
+      else if (level === 3) cls += ' npc-disposition__dot--filled-neutral';
+      else cls += ' npc-disposition__dot--filled-friendly';
+    }
+    dots.push(<span key={i} className={cls} />);
+  }
+  return dots;
+}
+
+// Named exports for use in CrewGroupPanel
+export function NPCList({ sector, onCommand }: { sector: SectorState | null; onCommand?: (cmd: string) => void }) {
+  const npcs: NPC[] = (sector?.npcs || []) as NPC[];
+
+  if (npcs.length === 0) {
+    return <div className="text-muted">No NPCs in this sector.</div>;
+  }
+
+  return (
+    <>
+      {npcs.map(npc => {
+        const spriteKey = RACE_SPRITE_MAP[npc.race] || 'npc_generic_a';
+        return (
+          <div key={npc.id} className="npc-list-item">
+            <div className="npc-list-item__info">
+              <PixelSprite spriteKey={spriteKey} size={20} />
+              <div className="npc-list-item__text">
+                <span className="npc-list-item__name">{npc.name}</span>
+                <span className="npc-list-item__title">{npc.title}{npc.faction ? ` - ${npc.faction}` : ''}</span>
+                <div className="npc-disposition">
+                  {getDispositionDots(npc.disposition ?? 3)}
+                </div>
+              </div>
+            </div>
+            <button className="btn-sm btn-buy" onClick={() => onCommand?.(`talk ${npc.name}`)}>TALK</button>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+export function ContactsList({ refreshKey }: { refreshKey?: number }) {
+  const [contacts, setContacts] = useState<Contact[]>([]);
+
+  useEffect(() => {
+    getContacts()
+      .then(({ data }) => {
+        const list = (data.contacts || []).sort((a: Contact, b: Contact) =>
+          new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+        );
+        setContacts(list);
+      })
+      .catch(() => setContacts([]));
+  }, [refreshKey]);
+
+  if (contacts.length === 0) {
+    return <div className="text-muted">No contacts recorded.</div>;
+  }
+
+  return (
+    <>
+      {contacts.map(c => {
+        const ago = Date.now() - new Date(c.lastSeenAt).getTime();
+        const mins = Math.floor(ago / 60000);
+        const hrs = Math.floor(mins / 60);
+        const timeStr = hrs > 0 ? `${hrs}h ago` : `${mins}m ago`;
+        return (
+          <div key={c.id} className="contact-item">
+            <span className="contact-item__name">{c.name}</span>
+            <span className="contact-item__detail"> ({c.race}) - Sector {c.lastSectorId} - {timeStr}</span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+export default function NPCsPanel({ sector, refreshKey, bare, onCommand }: Props) {
+  const [tab, setTab] = useState<TabView>('npcs');
+
+  const tabBar = (
+    <div className="group-panel-tabs">
+      <span onClick={() => setTab('npcs')} style={{ cursor: 'pointer', color: tab === 'npcs' ? '#0f0' : '#666' }}>
+        {tab === 'npcs' ? '[NPCs]' : 'NPCs'}
+      </span>
+      <span style={{ color: '#444', margin: '0 0.5rem' }}>|</span>
+      <span onClick={() => setTab('contacts')} style={{ cursor: 'pointer', color: tab === 'contacts' ? '#0f0' : '#666' }}>
+        {tab === 'contacts' ? '[Contacts]' : 'Contacts'}
+      </span>
+    </div>
+  );
+
+  const content = (
+    <>
+      {tabBar}
+      {tab === 'npcs' ? (
+        <NPCList sector={sector} onCommand={onCommand} />
+      ) : (
+        <ContactsList refreshKey={refreshKey} />
+      )}
+    </>
+  );
+
+  if (bare) return <div className="panel-content">{content}</div>;
+  return <CollapsiblePanel title="NPCs">{content}</CollapsiblePanel>;
+}

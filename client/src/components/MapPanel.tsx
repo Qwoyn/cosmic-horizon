@@ -1,14 +1,41 @@
+import { useState, useEffect } from 'react';
 import CollapsiblePanel from './CollapsiblePanel';
 import PixelSprite from './PixelSprite';
+import { getSectorWarpGates, useWarpGate } from '../services/api';
 import type { SectorState } from '../hooks/useGameState';
+
+interface WarpGate {
+  id: string;
+  destinationSectorId: number;
+  toll: number;
+  ownerName?: string;
+}
 
 interface MapPanelProps {
   sector: SectorState | null;
   onMoveToSector: (sectorId: number) => void;
+  onCommand?: (cmd: string) => void;
   bare?: boolean;
 }
 
-export default function MapPanel({ sector, onMoveToSector, bare }: MapPanelProps) {
+export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: MapPanelProps) {
+  const [warpGates, setWarpGates] = useState<WarpGate[]>([]);
+
+  useEffect(() => {
+    if (sector) {
+      getSectorWarpGates()
+        .then(({ data }) => setWarpGates(data.gates || data.warpGates || []))
+        .catch(() => setWarpGates([]));
+    }
+  }, [sector?.sectorId]);
+
+  const handleUseGate = async (gateId: string) => {
+    try {
+      await useWarpGate(gateId);
+      if (onCommand) onCommand('look');
+    } catch { /* silent */ }
+  };
+
   if (!sector) {
     const empty = <div>No data</div>;
     if (bare) return <div className="panel-content">{empty}</div>;
@@ -43,6 +70,26 @@ export default function MapPanel({ sector, onMoveToSector, bare }: MapPanelProps
           </button>
         ))}
       </div>
+
+      {warpGates.length > 0 && (
+        <>
+          <div className="panel-subheader" style={{ color: 'var(--purple)' }}>Warp Gates</div>
+          <div className="adjacent-sectors">
+            {warpGates.map(g => (
+              <button
+                key={g.id}
+                className="sector-btn"
+                onClick={() => handleUseGate(g.id)}
+                title={g.toll > 0 ? `Toll: ${g.toll} cr` : 'Free passage'}
+                style={{ borderColor: 'var(--purple)' }}
+              >
+                →{g.destinationSectorId}
+                {g.toll > 0 && <span style={{ fontSize: 9, color: 'var(--yellow)', marginLeft: 2 }}>{g.toll}cr</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {sector.players.length > 0 && (
         <>

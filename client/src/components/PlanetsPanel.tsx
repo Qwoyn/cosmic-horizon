@@ -143,7 +143,8 @@ export default function PlanetsPanel({ refreshKey, bare }: Props) {
   const content = (
     <>
       {tabBar}
-      {tab === 'owned' ? ownedContent : discoveredContent}
+      {tab === 'owned' && ownedContent}
+      {tab === 'discovered' && discoveredContent}
     </>
   );
 

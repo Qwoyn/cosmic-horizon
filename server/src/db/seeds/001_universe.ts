@@ -54,6 +54,7 @@ export async function seed(knex: Knex): Promise<void> {
   await knex('outposts').del();
   await knex('ships').del();
   await knex('dodge_pods').del();
+  try { await knex('sector_resource_events').del(); } catch { /* table may not exist yet */ }
   await knex('planet_refinery_queue').del();
   await knex('player_resources').del();
   await knex('planet_resources').del();

@@ -64,6 +64,12 @@ const ALIASES: Record<string, string> = {
   uneq: 'unequip',
   res: 'resources',
   rec: 'recipes',
+  mine: 'harvest',
+  ag: 'attackguardian',
+  ev: 'events',
+  sp: 'syndicatepool',
+  sd: 'syndicatedeposit',
+  sw: 'syndicatewithdraw',
 };
 
 let activeNpcId: string | null = null;
@@ -111,6 +117,17 @@ function rarityTag(rarity: string): string {
     epic: 'Epic', legendary: 'Legendary', mythic: 'Mythic',
   };
   return colors[rarity] || rarity;
+}
+
+function getTimeAgo(dateStr: string): string {
+  const ms = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 function parse(input: string): ParsedCommand {
@@ -172,12 +189,28 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         ctx.addLine('Planets:', 'info');
         s.planets.forEach((p: any, i: number) => {
           const tag = p.planetClass === 'S' ? ' [seed world]' : (p.ownerId ? '' : ' *unclaimed*');
-          ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}]${tag}`, 'info');
+          const variantTag = p.variant ? ` ★ ${(p.variantName || p.variant).toUpperCase()}` : '';
+          ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}]${tag}${variantTag}`, p.variant ? 'success' : 'info');
         });
         ctx.setLastListing(s.planets.map((p: any) => ({ id: p.id, label: p.name })));
       }
       if (s.events?.length > 0) {
         ctx.addLine(`Anomalies: ${s.events.map((e: any) => e.eventType.replace(/_/g, ' ')).join(', ')}`, 'warning');
+      }
+      if (s.resourceEvents?.length > 0) {
+        ctx.addLine('Resource Events:', 'warning');
+        for (const re of s.resourceEvents) {
+          if (re.eventType === 'asteroid_field') {
+            ctx.addLine(`  Asteroid Field (${re.remainingNodes} nodes) — use 'harvest' to mine`, 'info');
+          } else if (re.eventType === 'derelict' && !re.claimedBy) {
+            ctx.addLine(`  Derelict Ship — use 'salvage' to claim`, 'info');
+          } else if (re.eventType === 'anomaly') {
+            ctx.addLine(`  Resource Anomaly — use 'harvest' to collect`, 'info');
+          } else if (re.eventType === 'alien_cache') {
+            const gStr = re.guardianHp > 0 ? `Guardian HP: ${re.guardianHp}` : 'Guardian defeated';
+            ctx.addLine(`  !! ALIEN CACHE !! (${gStr}) — use 'attackguardian'`, 'warning');
+          }
+        }
       }
       if (s.npcs?.length > 0) {
         ctx.addLine(`NPCs: ${s.npcs.map((n: any) => `${n.name}${n.encountered ? '' : ' [NEW]'}`).join(', ')}`, 'info');
@@ -206,6 +239,31 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           if (sector.planets.length > 0) parts.push(`${sector.planets.length} planet(s)`);
           if (sector.players.length > 0) parts.push(`${sector.players.length} pilot(s)`);
           ctx.addLine(`  ${parts.join(' - ')}`, 'info');
+          // Show variant planets
+          for (const p of sector.planets) {
+            if (p.variant) {
+              ctx.addLine(`    ${p.name} [${p.planetClass}] ★ ${(p.variantName || p.variant).toUpperCase()} VARIANT`, 'success');
+            }
+          }
+          // Show resource events
+          if (sector.resourceEvents?.length > 0) {
+            for (const re of sector.resourceEvents) {
+              const timeMs = Math.max(0, new Date(re.expiresAt).getTime() - Date.now());
+              const hours = Math.floor(timeMs / 3600000);
+              const mins = Math.floor((timeMs % 3600000) / 60000);
+              const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+              if (re.eventType === 'asteroid_field') {
+                ctx.addLine(`    Asteroid Field (${re.remainingNodes} nodes, expires ${timeStr})`, 'trade');
+              } else if (re.eventType === 'anomaly') {
+                ctx.addLine(`    Resource Anomaly (expires ${timeStr})`, 'trade');
+              } else if (re.eventType === 'derelict') {
+                ctx.addLine(`    Derelict Ship (expires ${timeStr})`, 'trade');
+              } else if (re.eventType === 'alien_cache') {
+                const gStr = re.guardianHp > 0 ? 'guardian active' : 'guardian defeated';
+                ctx.addLine(`    !! ALIEN CACHE !! (${gStr}, expires ${timeStr})`, 'warning');
+              }
+            }
+          }
         }
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Scan failed', 'error'));
       break;
@@ -275,8 +333,12 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
       if (result === 'ambiguous') break;
       api.getPlanet(result.id).then(({ data }) => {
-        ctx.addLine(`=== ${data.name} [Class ${data.planetClass}] ===`, 'system');
+        const variantLabel = data.variant ? ` ★ ${(data.variantName || data.variant).toUpperCase()} VARIANT` : '';
+        ctx.addLine(`=== ${data.name} [Class ${data.planetClass}]${variantLabel} ===`, 'system');
         ctx.addLine(`Owner: ${data.ownerId || 'Unclaimed'} | Level: ${data.upgradeLevel} | Colonists: ${data.colonists.toLocaleString()}`, 'info');
+        if (data.variant && data.rareResource) {
+          ctx.addLine(`Ultra-Rare: produces ${data.rareResource}`, 'success');
+        }
         ctx.addLine(`Stocks: Cyr=${data.cyrilliumStock} Food=${data.foodStock} Tech=${data.techStock} Drones=${data.droneCount}`, 'info');
         ctx.addLine(`Production/tick: Cyr=${data.production.cyrillium} Food=${data.production.food} Tech=${data.production.tech}`, 'trade');
         if (data.uniqueResources?.length > 0) {
@@ -457,8 +519,10 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           ctx.addLine('=== YOUR PLANETS ===', 'system');
           data.planets.forEach((p: any, i: number) => {
             const queueTag = p.refineryQueueCount > 0 ? ` | Refinery: ${p.refineryQueueCount} active` : '';
-            ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}] Sector ${p.sectorId}    Level ${p.upgradeLevel}${queueTag}`, 'info');
+            const variantTag = p.variant ? ` ★ ${(p.variantName || p.variant).toUpperCase()}` : '';
+            ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}] Sector ${p.sectorId}    Level ${p.upgradeLevel}${queueTag}${variantTag}`, p.variant ? 'success' : 'info');
             ctx.addLine(`      Colonists: ${p.colonists.toLocaleString()} | Cyr: ${p.cyrilliumStock} Food: ${p.foodStock} Tech: ${p.techStock}`, 'info');
+            if (p.rareResource) ctx.addLine(`      Ultra-Rare: produces ${p.rareResource}`, 'success');
             if (p.uniqueResources?.length > 0) {
               ctx.addLine(`      Resources: ${p.uniqueResources.map((r: any) => `${r.name} x${r.stock}`).join(', ')}`, 'trade');
             }
@@ -731,6 +795,45 @@ export function handleCommand(input: string, ctx: CommandContext): void {
     }
 
     case 'salvage':
+      // Check if we're at a star mall for ship salvage, or should do derelict salvage
+      if (!ctx.sector?.hasStarMall) {
+        // Not at star mall — try derelict salvage
+        api.getResourceEvents().then(async ({ data }) => {
+          const derelicts = (data.resourceEvents || []).filter((e: any) =>
+            e.eventType === 'derelict' && !e.claimedBy
+          );
+          if (derelicts.length === 0) {
+            ctx.addLine('No unclaimed derelicts in sector. For ship salvage, visit a Star Mall.', 'info');
+            return;
+          }
+          const eventNum = args[0] ? parseInt(args[0]) : 0;
+          let target: any;
+          if (eventNum > 0) {
+            const allEvents = data.resourceEvents || [];
+            if (eventNum > allEvents.length) { ctx.addLine('Invalid event number', 'error'); return; }
+            target = allEvents[eventNum - 1];
+            if (target.eventType !== 'derelict') { ctx.addLine('That is not a derelict', 'error'); return; }
+          } else {
+            target = derelicts[0];
+          }
+          try {
+            const { data: sData } = await api.salvageEvent(target.id);
+            ctx.addLine('=== DERELICT SALVAGED ===', 'system');
+            if (sData.credits > 0) ctx.addLine(`  Credits: +${sData.credits.toLocaleString()}`, 'trade');
+            if (sData.resources?.length > 0) {
+              for (const r of sData.resources) ctx.addLine(`  ${r.name} x${r.quantity}`, 'trade');
+            }
+            if (sData.tabletDrop) {
+              ctx.addLine(`  Tablet found: ${sData.tabletDrop.name} (${sData.tabletDrop.rarity})!`, 'success');
+            }
+            ctx.refreshStatus();
+            ctx.refreshSector();
+          } catch (err: any) {
+            ctx.addLine(err.response?.data?.error || 'Salvage failed', 'error');
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'No derelicts here', 'error'));
+        break;
+      }
       if (args.length > 0 && args[0] !== 'list') {
         const query = args.join(' ');
         api.getSalvageOptions().then(({ data }) => {
@@ -991,6 +1094,204 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           ctx.addLine('Mission abandoned', 'warning');
         }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Abandon failed', 'error'));
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+      break;
+    }
+
+    // === RESOURCE EVENTS (Rare Spawns) ===
+    case 'events': {
+      api.getResourceEvents().then(({ data }) => {
+        const events = data.resourceEvents || [];
+        if (events.length === 0) { ctx.addLine('No resource events in this sector', 'info'); return; }
+        ctx.addLine('=== SECTOR RESOURCE EVENTS ===', 'system');
+        events.forEach((e: any, i: number) => {
+          const timeMs = Math.max(0, new Date(e.expiresAt).getTime() - Date.now());
+          const hours = Math.floor(timeMs / 3600000);
+          const mins = Math.floor((timeMs % 3600000) / 60000);
+          const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+          if (e.eventType === 'asteroid_field') {
+            const resources = (e.resources || []).filter((r: any) => !r.harvested);
+            const summary = resources.map((r: any) => `${r.name} x${r.quantity}`).join(', ');
+            ctx.addLine(`  [${i + 1}] Asteroid Field — ${e.remainingNodes} nodes remaining (expires in ${timeStr})`, 'info');
+            if (summary) ctx.addLine(`      ${summary}`, 'trade');
+          } else if (e.eventType === 'derelict') {
+            const claimed = e.claimedBy ? ' (claimed)' : ' — unclaimed';
+            ctx.addLine(`  [${i + 1}] Derelict Ship${claimed} (expires in ${timeStr})`, 'info');
+          } else if (e.eventType === 'anomaly') {
+            const res = (e.resources || [])[0];
+            const desc = res ? `${res.name} x${res.quantity}` : 'unknown';
+            ctx.addLine(`  [${i + 1}] Resource Anomaly — ${desc} (expires in ${timeStr})`, 'info');
+          } else if (e.eventType === 'alien_cache') {
+            const guardianStatus = e.guardianHp > 0 ? `Guardian HP: ${e.guardianHp}` : 'Guardian DEFEATED';
+            ctx.addLine(`  [${i + 1}] !! ALIEN CACHE !! — ${guardianStatus} (expires in ${timeStr})`, 'warning');
+          }
+        });
+        ctx.setLastListing(events.map((e: any, i: number) => ({ id: e.id, label: `Event ${i + 1}` })));
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to load events', 'error'));
+      break;
+    }
+
+    case 'harvest': {
+      // harvest [event# or 'all'] [node#]
+      const isAll = args[0]?.toLowerCase() === 'all';
+
+      if (isAll) {
+        // Harvest all available nodes from all events
+        api.getResourceEvents().then(async ({ data }) => {
+          const events = (data.resourceEvents || []).filter((e: any) =>
+            (e.eventType === 'asteroid_field' || e.eventType === 'anomaly') && e.remainingNodes > 0
+          );
+          if (events.length === 0) { ctx.addLine('No harvestable events in sector', 'info'); return; }
+          let totalHarvested = 0;
+          for (const event of events) {
+            for (let ni = 0; ni < event.resources.length; ni++) {
+              if (event.resources[ni].harvested) continue;
+              try {
+                const { data: hData } = await api.harvestEvent(event.id, ni);
+                ctx.addLine(`  Harvested ${hData.resource.name} x${hData.resource.quantity}`, 'trade');
+                totalHarvested++;
+              } catch (err: any) {
+                const msg = err.response?.data?.error;
+                if (msg === 'Not enough energy') { ctx.addLine('Out of energy!', 'warning'); return; }
+                break;
+              }
+            }
+          }
+          if (totalHarvested > 0) {
+            ctx.addLine(`Harvested ${totalHarvested} nodes total`, 'success');
+            ctx.refreshStatus();
+          }
+        }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Harvest failed', 'error'));
+        break;
+      }
+
+      // Resolve event by listing number or default to first
+      const eventNum = args[0] ? parseInt(args[0]) : 0;
+      const nodeNum = args[1] ? parseInt(args[1]) - 1 : -1; // -1 means first available
+
+      api.getResourceEvents().then(async ({ data }) => {
+        const events = (data.resourceEvents || []).filter((e: any) =>
+          (e.eventType === 'asteroid_field' || e.eventType === 'anomaly') && e.remainingNodes > 0
+        );
+        if (events.length === 0) { ctx.addLine('No harvestable events in sector', 'info'); return; }
+
+        let targetEvent: any;
+        if (eventNum > 0) {
+          // Look up from full events list
+          const allEvents = data.resourceEvents || [];
+          if (eventNum > allEvents.length) { ctx.addLine('Invalid event number', 'error'); return; }
+          targetEvent = allEvents[eventNum - 1];
+          if (targetEvent.eventType !== 'asteroid_field' && targetEvent.eventType !== 'anomaly') {
+            ctx.addLine('That event cannot be harvested', 'error');
+            return;
+          }
+        } else {
+          targetEvent = events[0];
+        }
+
+        // Find target node
+        let targetNodeIndex: number;
+        if (nodeNum >= 0) {
+          targetNodeIndex = nodeNum;
+        } else {
+          targetNodeIndex = targetEvent.resources.findIndex((r: any) => !r.harvested);
+          if (targetNodeIndex === -1) { ctx.addLine('All nodes depleted', 'info'); return; }
+        }
+
+        try {
+          const { data: hData } = await api.harvestEvent(targetEvent.id, targetNodeIndex);
+          ctx.addLine(`Harvested ${hData.resource.name} x${hData.resource.quantity}`, 'success');
+          if (hData.remainingNodes > 0) {
+            ctx.addLine(`${hData.remainingNodes} nodes remaining`, 'info');
+          } else {
+            ctx.addLine('Event depleted', 'info');
+          }
+          ctx.refreshStatus();
+        } catch (err: any) {
+          ctx.addLine(err.response?.data?.error || 'Harvest failed', 'error');
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Harvest failed', 'error'));
+      break;
+    }
+
+    case 'salvagedeRelict': {
+      // Salvage a derelict resource event
+      api.getResourceEvents().then(async ({ data }) => {
+        const derelicts = (data.resourceEvents || []).filter((e: any) =>
+          e.eventType === 'derelict' && !e.claimedBy
+        );
+        if (derelicts.length === 0) { ctx.addLine('No unclaimed derelicts in sector', 'info'); return; }
+
+        const eventNum = args[0] ? parseInt(args[0]) : 0;
+        let target: any;
+        if (eventNum > 0) {
+          const allEvents = data.resourceEvents || [];
+          if (eventNum > allEvents.length) { ctx.addLine('Invalid event number', 'error'); return; }
+          target = allEvents[eventNum - 1];
+          if (target.eventType !== 'derelict') { ctx.addLine('That is not a derelict', 'error'); return; }
+        } else {
+          target = derelicts[0];
+        }
+
+        try {
+          const { data: sData } = await api.salvageEvent(target.id);
+          ctx.addLine('=== DERELICT SALVAGED ===', 'system');
+          if (sData.credits > 0) ctx.addLine(`  Credits: +${sData.credits.toLocaleString()}`, 'trade');
+          if (sData.resources?.length > 0) {
+            for (const r of sData.resources) {
+              ctx.addLine(`  ${r.name} x${r.quantity}`, 'trade');
+            }
+          }
+          if (sData.tabletDrop) {
+            ctx.addLine(`  Tablet found: ${sData.tabletDrop.name} (${sData.tabletDrop.rarity})!`, 'success');
+          }
+          ctx.refreshStatus();
+        } catch (err: any) {
+          ctx.addLine(err.response?.data?.error || 'Salvage failed', 'error');
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Salvage failed', 'error'));
+      break;
+    }
+
+    case 'attackguardian': {
+      // Attack alien cache guardian
+      api.getResourceEvents().then(async ({ data }) => {
+        const caches = (data.resourceEvents || []).filter((e: any) =>
+          e.eventType === 'alien_cache' && e.guardianHp > 0
+        );
+        if (caches.length === 0) { ctx.addLine('No alien caches with active guardians in sector', 'info'); return; }
+
+        const eventNum = args[0] ? parseInt(args[0]) : 0;
+        let target: any;
+        if (eventNum > 0) {
+          const allEvents = data.resourceEvents || [];
+          if (eventNum > allEvents.length) { ctx.addLine('Invalid event number', 'error'); return; }
+          target = allEvents[eventNum - 1];
+          if (target.eventType !== 'alien_cache') { ctx.addLine('That is not an alien cache', 'error'); return; }
+        } else {
+          target = caches[0];
+        }
+
+        try {
+          const { data: aData } = await api.attackGuardian(target.id);
+          ctx.addLine(`You attack the guardian!`, 'combat');
+          ctx.addLine(`  Damage dealt: ${aData.damageDealt}`, 'combat');
+          if (aData.damageTaken > 0) ctx.addLine(`  Damage taken: ${aData.damageTaken}`, 'warning');
+          if (aData.defeated) {
+            ctx.addLine('=== GUARDIAN DEFEATED ===', 'success');
+            if (aData.loot?.resources?.length > 0) {
+              ctx.addLine('Loot claimed:', 'success');
+              for (const r of aData.loot.resources) {
+                ctx.addLine(`  ${r.name} x${r.quantity}`, 'trade');
+              }
+            }
+          } else {
+            ctx.addLine(`  Guardian HP: ${aData.remainingHp} remaining`, 'info');
+          }
+          ctx.refreshStatus();
+        } catch (err: any) {
+          ctx.addLine(err.response?.data?.error || 'Attack failed', 'error');
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Attack failed', 'error'));
       break;
     }
 
@@ -1415,7 +1716,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
             if (!tiers[r.tier]) tiers[r.tier] = [];
             tiers[r.tier].push(r);
           }
-          const tierNames: Record<number, string> = { 1: 'Raw Materials', 2: 'Processed', 3: 'Refined' };
+          const tierNames: Record<number, string> = { 1: 'Raw Materials', 2: 'Processed', 3: 'Refined', 5: 'Ultra-Rare' };
           for (const [tier, items] of Object.entries(tiers).sort()) {
             ctx.addLine(`  ${tierNames[Number(tier)] || `Tier ${tier}`}:`, 'info');
             const line = items.map((r: any) => `${r.name} x${r.quantity}`).join('    ');
@@ -1648,6 +1949,394 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       break;
     }
 
+    // === SYNDICATE ECONOMY ===
+
+    case 'syndicatepool': {
+      api.getSyndicatePool().then(({ data }) => {
+        ctx.addLine('=== SYNDICATE RESOURCE POOL ===', 'system');
+        if (data.resources.length === 0) {
+          ctx.addLine('  Pool is empty', 'info');
+        } else {
+          for (const r of data.resources) {
+            ctx.addLine(`  ${r.name.padEnd(25)} x${r.quantity}`, 'trade');
+          }
+        }
+        if (data.permissions.length > 0) {
+          ctx.addLine('', 'info');
+          ctx.addLine('Pool Access:', 'system');
+          for (const p of data.permissions) {
+            ctx.addLine(`  ${p.username.padEnd(20)} ${p.level}`, 'info');
+          }
+        }
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch pool', 'error'));
+      break;
+    }
+
+    case 'syndicatedeposit': {
+      if (args.length < 2) { ctx.addLine('Usage: sd <resource> <quantity>', 'error'); break; }
+      const qty = parseInt(args[args.length - 1]);
+      if (isNaN(qty)) { ctx.addLine('Quantity must be a number', 'error'); break; }
+      const resName = args.slice(0, -1).join('_').toLowerCase();
+      api.depositToPool(resName, qty).then(({ data }) => {
+        ctx.addLine(`Deposited ${data.deposited} ${data.resourceName} to pool`, 'success');
+        ctx.refreshStatus();
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Deposit failed', 'error'));
+      break;
+    }
+
+    case 'syndicatewithdraw': {
+      if (args.length < 2) { ctx.addLine('Usage: sw <resource> <quantity>', 'error'); break; }
+      const qty = parseInt(args[args.length - 1]);
+      if (isNaN(qty)) { ctx.addLine('Quantity must be a number', 'error'); break; }
+      const resName = args.slice(0, -1).join('_').toLowerCase();
+      api.withdrawFromPool(resName, qty).then(({ data }) => {
+        ctx.addLine(`Withdrew ${data.withdrawn} ${data.resourceName} from pool`, 'success');
+        ctx.refreshStatus();
+      }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Withdraw failed', 'error'));
+      break;
+    }
+
+    case 'syndicate': {
+      const sub = (args[0] || '').toLowerCase();
+
+      if (!sub) {
+        ctx.addLine('Syndicate economy subcommands:', 'system');
+        ctx.addLine('  syndicate pool                View pool resources', 'info');
+        ctx.addLine('  syndicate deposit <res> <qty> Deposit to pool (alias: sd)', 'info');
+        ctx.addLine('  syndicate withdraw <res> <qty> Withdraw from pool (alias: sw)', 'info');
+        ctx.addLine('  syndicate pool-access <player> <level>  Set pool permission', 'info');
+        ctx.addLine('  syndicate pool-log            View pool transaction log', 'info');
+        ctx.addLine('  syndicate factory             View factory status', 'info');
+        ctx.addLine('  syndicate factory <planet>    Designate factory planet', 'info');
+        ctx.addLine('  syndicate projects            View active projects', 'info');
+        ctx.addLine('  syndicate start <type> [sector]  Start mega-project', 'info');
+        ctx.addLine('  syndicate contribute <res> <qty> [pool]  Contribute to project', 'info');
+        ctx.addLine('  syndicate project <#>         View project detail', 'info');
+        ctx.addLine('  syndicate structures          View syndicate structures', 'info');
+        break;
+      }
+
+      switch (sub) {
+        case 'pool': {
+          api.getSyndicatePool().then(({ data }) => {
+            ctx.addLine('=== SYNDICATE RESOURCE POOL ===', 'system');
+            if (data.resources.length === 0) {
+              ctx.addLine('  Pool is empty', 'info');
+            } else {
+              for (const r of data.resources) {
+                ctx.addLine(`  ${r.name.padEnd(25)} x${r.quantity}`, 'trade');
+              }
+            }
+            if (data.permissions.length > 0) {
+              ctx.addLine('', 'info');
+              ctx.addLine('Pool Access:', 'system');
+              for (const p of data.permissions) {
+                ctx.addLine(`  ${p.username.padEnd(20)} ${p.level}`, 'info');
+              }
+            }
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch pool', 'error'));
+          break;
+        }
+
+        case 'deposit': {
+          const subArgs = args.slice(1);
+          if (subArgs.length < 2) { ctx.addLine('Usage: syndicate deposit <resource> <quantity>', 'error'); break; }
+          const qty = parseInt(subArgs[subArgs.length - 1]);
+          if (isNaN(qty)) { ctx.addLine('Quantity must be a number', 'error'); break; }
+          const resName = subArgs.slice(0, -1).join('_').toLowerCase();
+          api.depositToPool(resName, qty).then(({ data }) => {
+            ctx.addLine(`Deposited ${data.deposited} ${data.resourceName} to pool`, 'success');
+            ctx.refreshStatus();
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Deposit failed', 'error'));
+          break;
+        }
+
+        case 'withdraw': {
+          const subArgs = args.slice(1);
+          if (subArgs.length < 2) { ctx.addLine('Usage: syndicate withdraw <resource> <quantity>', 'error'); break; }
+          const qty = parseInt(subArgs[subArgs.length - 1]);
+          if (isNaN(qty)) { ctx.addLine('Quantity must be a number', 'error'); break; }
+          const resName = subArgs.slice(0, -1).join('_').toLowerCase();
+          api.withdrawFromPool(resName, qty).then(({ data }) => {
+            ctx.addLine(`Withdrew ${data.withdrawn} ${data.resourceName} from pool`, 'success');
+            ctx.refreshStatus();
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Withdraw failed', 'error'));
+          break;
+        }
+
+        case 'pool-access': {
+          const subArgs = args.slice(1);
+          if (subArgs.length < 2) {
+            ctx.addLine('Usage: syndicate pool-access <player_name> <level>', 'error');
+            ctx.addLine('  Levels: none, deposit, full, manager', 'info');
+            break;
+          }
+          const playerName = subArgs[0];
+          const level = subArgs[1].toLowerCase();
+          // Try sector players first, then syndicate members
+          const sectorPlayer = ctx.sector?.players?.find((p: any) => p.username.toLowerCase() === playerName.toLowerCase());
+          if (sectorPlayer) {
+            api.setPoolPermission(sectorPlayer.id, level).then(({ data }) => {
+              ctx.addLine(`Set ${data.playerName}'s pool access to: ${data.level}`, 'success');
+            }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to set permission', 'error'));
+          } else {
+            // Look up via syndicate member list
+            api.getSyndicate().then(({ data }) => {
+              const member = data.members?.find((m: any) => m.username.toLowerCase() === playerName.toLowerCase());
+              if (!member) {
+                ctx.addLine(`Player "${playerName}" not found in your syndicate`, 'error');
+                return;
+              }
+              return api.setPoolPermission(member.playerId || member.id, level);
+            }).then((result: any) => {
+              if (result?.data) {
+                ctx.addLine(`Set ${result.data.playerName}'s pool access to: ${result.data.level}`, 'success');
+              }
+            }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to set permission', 'error'));
+          }
+          break;
+        }
+
+        case 'pool-log': {
+          api.getPoolLog(20).then(({ data }) => {
+            if (data.log.length === 0) { ctx.addLine('No pool transactions yet', 'info'); return; }
+            ctx.addLine('=== POOL TRANSACTION LOG ===', 'system');
+            for (const entry of data.log) {
+              const timeAgo = getTimeAgo(entry.createdAt);
+              if (entry.action === 'factory_production') {
+                ctx.addLine(`  ${entry.username.padEnd(16)} factory production   +${entry.quantity} total  (${timeAgo})`, 'trade');
+              } else {
+                const resLabel = entry.resourceName || 'credits';
+                ctx.addLine(`  ${entry.username.padEnd(16)} ${entry.action.padEnd(20)} ${resLabel} x${entry.quantity}  (${timeAgo})`, 'info');
+              }
+            }
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch log', 'error'));
+          break;
+        }
+
+        case 'factory': {
+          const subArgs = args.slice(1);
+          if (subArgs.length > 0) {
+            // Designate factory planet
+            const planetQuery = subArgs.join(' ');
+            const planets = (ctx.sector?.planets ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+            const result = resolveItem(planetQuery, planets, ctx);
+            if (result === null) { ctx.addLine('Planet not found in sector', 'error'); break; }
+            if (result === 'ambiguous') break;
+            api.designateFactory(result.id).then(({ data }) => {
+              ctx.addLine(`Designated ${data.planetName} as syndicate factory!`, 'success');
+              ctx.addLine(`Cost: ${data.cost.toLocaleString()} credits from treasury`, 'trade');
+              ctx.refreshSector();
+            }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Designation failed', 'error'));
+          } else {
+            // View factory status
+            api.getSyndicateFactory().then(({ data }) => {
+              if (!data.hasFactory) {
+                ctx.addLine('No syndicate factory designated', 'info');
+                ctx.addLine('Use "syndicate factory <planet>" to designate one', 'info');
+                return;
+              }
+              ctx.addLine('=== SYNDICATE FACTORY ===', 'system');
+              const p = data.planet;
+              ctx.addLine(`  ${p.name} [${p.planetClass}] Lv.${p.upgradeLevel}`, 'info');
+              ctx.addLine(`  Owner: ${p.ownerName} | Colonists: ${p.colonists.toLocaleString()}`, 'info');
+              ctx.addLine(`  Boosted Production/tick: Cyr=${p.production.cyrillium} Food=${p.production.food} Tech=${p.production.tech}`, 'trade');
+            }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch factory', 'error'));
+          }
+          break;
+        }
+
+        case 'revoke-factory': {
+          api.revokeFactory().then(({ data }) => {
+            ctx.addLine(`Factory designation revoked from ${data.planetName}`, 'warning');
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Revoke failed', 'error'));
+          break;
+        }
+
+        case 'projects': {
+          api.getSyndicateProjects().then(({ data }) => {
+            if (data.projects.length === 0) {
+              ctx.addLine('No syndicate projects', 'info');
+              ctx.addLine('Use "syndicate start <type>" to begin a mega-project', 'info');
+              return;
+            }
+            ctx.addLine('=== SYNDICATE PROJECTS ===', 'system');
+            data.projects.forEach((p: any, i: number) => {
+              const statusLabel = p.status === 'building'
+                ? 'BUILDING'
+                : p.status === 'completed'
+                  ? 'COMPLETE'
+                  : `${p.creditsPercent}% cr / ${p.resourcesPercent}% res`;
+              ctx.addLine(`  [${i + 1}] ${p.projectName.padEnd(25)} ${statusLabel}`, p.status === 'completed' ? 'success' : 'info');
+            });
+            ctx.setLastListing(data.projects.map((p: any) => ({ id: p.id, label: p.projectName })));
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch projects', 'error'));
+          break;
+        }
+
+        case 'start': {
+          const subArgs = args.slice(1);
+          if (subArgs.length < 1) {
+            // Show available project types
+            api.getMegaProjectDefinitions().then(({ data }) => {
+              ctx.addLine('=== MEGA-PROJECT TYPES ===', 'system');
+              for (const d of data.definitions) {
+                ctx.addLine(`  ${d.id.padEnd(25)} ${d.name}`, 'info');
+                ctx.addLine(`    Cost: ${d.creditsCost.toLocaleString()} cr | Build: ${d.buildTimeHours}h | Min members: ${d.minSyndicateMembers}`, 'trade');
+                for (const req of d.resourceRequirements) {
+                  ctx.addLine(`    - ${req.resourceId} x${req.quantity}`, 'info');
+                }
+              }
+              ctx.addLine('', 'info');
+              ctx.addLine('Usage: syndicate start <type_id> [target_sector_id]', 'info');
+            }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch definitions', 'error'));
+            break;
+          }
+          const typeId = subArgs[0].toLowerCase();
+          const sectorId = subArgs[1] ? parseInt(subArgs[1]) : undefined;
+          api.startMegaProject(typeId, sectorId).then(({ data }) => {
+            ctx.addLine(`Started mega-project: ${data.projectName}!`, 'success');
+            ctx.addLine(`Credits needed: ${data.creditsCost.toLocaleString()}`, 'trade');
+            ctx.addLine('Resource requirements:', 'info');
+            for (const req of data.resourceRequirements) {
+              ctx.addLine(`  ${req.resourceId} x${req.quantity}`, 'info');
+            }
+            ctx.addLine(`Build time: ${data.buildTimeHours} hours (after fully funded)`, 'info');
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to start project', 'error'));
+          break;
+        }
+
+        case 'contribute': {
+          const subArgs = args.slice(1);
+          if (subArgs.length < 2) {
+            ctx.addLine('Usage: syndicate contribute <resource|credits> <quantity> [pool]', 'error');
+            ctx.addLine('  Use "credits" as resource to contribute credits', 'info');
+            ctx.addLine('  Add "pool" at end to contribute from syndicate pool', 'info');
+            break;
+          }
+
+          // Auto-select project if only one active
+          const listing = ctx.getLastListing();
+          let projectId: string | null = null;
+
+          if (listing && listing.length > 0) {
+            // Use first project from last listing
+            projectId = listing[0].id;
+          }
+
+          if (!projectId) {
+            // Fetch projects to find active one
+            api.getSyndicateProjects().then(({ data }) => {
+              const active = data.projects.filter((p: any) => p.status === 'in_progress');
+              if (active.length === 0) { ctx.addLine('No active projects to contribute to', 'error'); return; }
+              if (active.length > 1) {
+                ctx.addLine('Multiple active projects. Use "syndicate projects" first to select one.', 'warning');
+                return;
+              }
+              doContribute(active[0].id, subArgs);
+            }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed', 'error'));
+          } else {
+            doContribute(projectId, subArgs);
+          }
+
+          function doContribute(pId: string, cArgs: string[]) {
+            const fromPool = cArgs[cArgs.length - 1]?.toLowerCase() === 'pool';
+            const effectiveArgs = fromPool ? cArgs.slice(0, -1) : cArgs;
+            const qty = parseInt(effectiveArgs[effectiveArgs.length - 1]);
+            if (isNaN(qty)) { ctx.addLine('Quantity must be a number', 'error'); return; }
+            const resInput = effectiveArgs.slice(0, -1).join('_').toLowerCase();
+            const resourceId = resInput === 'credits' ? null : resInput;
+
+            api.contributeToProject(pId, resourceId, qty, fromPool).then(({ data }) => {
+              const label = data.type === 'credits' ? 'credits' : data.resourceName;
+              ctx.addLine(`Contributed ${data.contributed} ${label} to project`, 'success');
+            }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Contribution failed', 'error'));
+          }
+          break;
+        }
+
+        case 'project': {
+          const subArgs = args.slice(1);
+          if (subArgs.length < 1) { ctx.addLine('Usage: syndicate project <# from projects list>', 'error'); break; }
+          const num = parseInt(subArgs[0]);
+          const listing = ctx.getLastListing();
+          if (isNaN(num) || !listing || num < 1 || num > listing.length) {
+            ctx.addLine('Use "syndicate projects" first, then "syndicate project <#>"', 'error');
+            break;
+          }
+          const projectId = listing[num - 1].id;
+          api.getProjectDetail(projectId).then(({ data }) => {
+            ctx.addLine(`=== ${data.projectName} ===`, 'system');
+            ctx.addLine(`Status: ${data.status}`, data.status === 'completed' ? 'success' : 'info');
+            if (data.description) ctx.addLine(data.description, 'info');
+            ctx.addLine('', 'info');
+            ctx.addLine(`Credits: ${data.creditsContributed.toLocaleString()} / ${data.creditsRequired.toLocaleString()}`, 'trade');
+            ctx.addLine('Resources:', 'info');
+            for (const r of data.resourceProgress) {
+              const pct = r.required > 0 ? Math.floor((r.contributed / r.required) * 100) : 100;
+              const bar = `[${'#'.repeat(Math.floor(pct / 10))}${'.'.repeat(10 - Math.floor(pct / 10))}]`;
+              ctx.addLine(`  ${r.resourceName.padEnd(22)} ${r.contributed}/${r.required} ${bar} ${pct}%`, r.contributed >= r.required ? 'success' : 'info');
+            }
+            if (data.buildProgress) {
+              ctx.addLine('', 'info');
+              ctx.addLine(`Build Progress: ${data.buildProgress.hoursElapsed}h / ${data.buildProgress.hoursTotal}h`, 'warning');
+              ctx.addLine(`Completes at: ${new Date(data.buildProgress.completesAt).toLocaleString()}`, 'info');
+            }
+            if (data.contributions.length > 0) {
+              ctx.addLine('', 'info');
+              ctx.addLine('Recent Contributions:', 'system');
+              for (const c of data.contributions.slice(0, 10)) {
+                const label = c.resourceName || 'credits';
+                const src = c.source === 'pool' ? ' (pool)' : '';
+                ctx.addLine(`  ${c.username.padEnd(16)} ${label} x${c.quantity}${src}`, 'info');
+              }
+            }
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch project', 'error'));
+          break;
+        }
+
+        case 'cancel': {
+          const subArgs = args.slice(1);
+          if (subArgs.length < 1) { ctx.addLine('Usage: syndicate cancel <# from projects list>', 'error'); break; }
+          const num = parseInt(subArgs[0]);
+          const listing = ctx.getLastListing();
+          if (isNaN(num) || !listing || num < 1 || num > listing.length) {
+            ctx.addLine('Use "syndicate projects" first, then "syndicate cancel <#>"', 'error');
+            break;
+          }
+          const projectId = listing[num - 1].id;
+          api.cancelProject(projectId).then(({ data }) => {
+            ctx.addLine('Project cancelled. Resources refunded to pool.', 'warning');
+            if (data.refundedCredits > 0) {
+              ctx.addLine(`  Credits returned to treasury: ${data.refundedCredits.toLocaleString()}`, 'trade');
+            }
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Cancel failed', 'error'));
+          break;
+        }
+
+        case 'structures': {
+          api.getSyndicateStructures().then(({ data }) => {
+            if (data.structures.length === 0) {
+              ctx.addLine('No syndicate structures', 'info');
+              return;
+            }
+            ctx.addLine('=== SYNDICATE STRUCTURES ===', 'system');
+            for (const s of data.structures) {
+              const loc = s.sectorId ? ` Sector ${s.sectorId}` : '';
+              const hp = `HP: ${s.health}/100`;
+              const status = s.active ? 'ACTIVE' : 'INACTIVE';
+              ctx.addLine(`  ${(s.name || s.structureType).padEnd(25)} ${hp}  ${status}${loc}`, s.active ? 'success' : 'warning');
+            }
+          }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Failed to fetch structures', 'error'));
+          break;
+        }
+
+        default:
+          ctx.addLine(`Unknown syndicate subcommand: ${sub}. Type "syndicate" for help.`, 'error');
+      }
+      break;
+    }
+
     case 'tips': {
       ctx.addLine('=== TIPS ===', 'system');
       ctx.addLine('Type "help <category>" for commands in a specific area.', 'info');
@@ -1700,6 +2389,8 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         ctx.addLine('  npcs          NPC interactions (talk, contacts, contact)', 'info');
         ctx.addLine('  crafting      Resources & crafting (resources, recipes, craft, collect resources)', 'info');
         ctx.addLine('  tablets       Tablets & equip slots (tablets, equip, unequip, combine)', 'info');
+        ctx.addLine('  exploration   Rare spawns & exploration (events, harvest, salvage, attackguardian)', 'info');
+        ctx.addLine('  syndicateeco  Syndicate economy (pool, factory, projects, structures)', 'info');
         ctx.addLine('  events        Events (investigate)', 'info');
         ctx.addLine('', 'info');
         ctx.addLine('Type "help <category>" for commands or "help <command>" for details.', 'info');
@@ -1882,6 +2573,35 @@ function getHelpForCategory(category: string): { text: string; type: 'info' | 's
         'recipes              Also shows tablet combination recipes',
       ],
     },
+    exploration: {
+      title: 'EXPLORATION',
+      commands: [
+        'events                  View resource events in current sector',
+        'harvest [event#] [node#] (mine) Harvest a node from asteroid/anomaly',
+        'harvest all             Harvest all available nodes',
+        'salvage [event#]        Salvage a derelict ship (or ship salvage at Star Mall)',
+        'attackguardian [event#] Attack an alien cache guardian',
+      ],
+    },
+    syndicateeco: {
+      title: 'SYNDICATE ECONOMY',
+      commands: [
+        'syndicate pool                View pool resources & access',
+        'syndicate deposit <res> <qty> (sd) Deposit resource to pool',
+        'syndicate withdraw <res> <qty> (sw) Withdraw from pool',
+        'syndicate pool-access <player> <level>  Set pool permission',
+        'syndicate pool-log            Recent pool transactions',
+        'syndicate factory             View factory status',
+        'syndicate factory <planet>    Designate factory planet',
+        'syndicate revoke-factory      Revoke factory designation',
+        'syndicate projects            View active mega-projects',
+        'syndicate start [type]        Start a mega-project',
+        'syndicate contribute <res> <qty> [pool]  Contribute to project',
+        'syndicate project <#>         Detailed project breakdown',
+        'syndicate cancel <#>          Cancel a project (leader)',
+        'syndicate structures          View syndicate structures',
+      ],
+    },
     events: {
       title: 'EVENTS',
       commands: [
@@ -1968,6 +2688,10 @@ function getHelpForCommand(cmd: string): string[] {
     craft: ['craft <recipe # or name> [batch size]', '  Craft a recipe at an owned planet in your sector.', '  Use "recipes" to see available recipes and their numbers.', '  Batch size 1-5, default 1. Timed recipes queue in the refinery.'],
     recipes: ['recipes', '  Show all crafting recipes (Tier 2-4) and tablet combination recipes.', '  Aliases: rec'],
     tips: ['tips', '  Show contextual tips and guidance based on your current situation.'],
+    events: ['events', '  View all active resource events in your current sector.', '  Shows asteroid fields, derelict ships, resource anomalies, and alien caches.'],
+    harvest: ['harvest [event# or all] [node#]', '  Harvest a resource node from an asteroid field or anomaly.', '  No args: harvest first available node from first event.', '  harvest 1 3: harvest node 3 from event 1.', '  harvest all: harvest all available nodes.', '  Costs 1 energy per harvest.', '  Aliases: mine'],
+    attackguardian: ['attackguardian [event#]', '  Attack an alien cache guardian. Costs 2 energy.', '  Deals damage based on your ship weapons. Guardian fights back.', '  When guardian is defeated, loot is auto-claimed (ultra-rare resources).'],
+    syndicate: ['syndicate <subcommand>', '  Manage syndicate economy: pool, factory, projects, structures.', '  Type "syndicate" with no args for full subcommand list.', '  Aliases: sp (pool), sd (deposit), sw (withdraw)'],
   };
   return help[cmd] || [`No detailed help for "${cmd}". Try "help" to see categories.`];
 }
