@@ -25,6 +25,9 @@ import warpGatesRouter from './api/warp-gates';
 import notesRouter from './api/notes';
 import walletRouter from './api/wallet';
 import progressionRouter from './api/progression';
+import npcsRouter from './api/npcs';
+import tabletsRouter from './api/tablets';
+import craftingRouter from './api/crafting';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
 import { loadTutorialState, blockDuringTutorial } from './middleware/tutorial-sandbox';
@@ -95,6 +98,9 @@ app.use('/api/messages', loadTutorialState, blockDuringTutorial, messagesRouter)
 app.use('/api/warp-gates', loadTutorialState, blockDuringTutorial, warpGatesRouter);
 app.use('/api/notes', loadTutorialState, notesRouter);
 app.use('/api/progression', loadTutorialState, blockDuringTutorial, progressionRouter);
+app.use('/api/npcs', loadTutorialState, blockDuringTutorial, npcsRouter);
+app.use('/api/tablets', loadTutorialState, blockDuringTutorial, tabletsRouter);
+app.use('/api/crafting', loadTutorialState, blockDuringTutorial, craftingRouter);
 
 // WebSocket
 setupWebSocket(io);

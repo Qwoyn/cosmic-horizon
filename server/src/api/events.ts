@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import { canAffordAction, deductEnergy } from '../engine/energy';
 import { resolveEvent, EventType } from '../engine/events';
 import { applyUpgradesToShip } from '../engine/upgrades';
+import { grantRandomTablet } from '../engine/tablets';
 import { awardXP } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
@@ -102,6 +103,17 @@ router.post('/investigate/:eventId', requireAuth, async (req, res) => {
     // Award XP for investigating
     const xpResult = await awardXP(player.id, GAME_CONFIG.XP_INVESTIGATE_EVENT, 'explore');
 
+    // Tablet drop chance
+    let tabletDrop: { name: string; rarity: string } | null = null;
+    if (Math.random() < GAME_CONFIG.TABLET_EVENT_DROP_CHANCE) {
+      try {
+        const dropResult = await grantRandomTablet(player.id);
+        if (!dropResult.overflow) {
+          tabletDrop = { name: dropResult.name!, rarity: dropResult.rarity! };
+        }
+      } catch { /* tablet system may not be ready */ }
+    }
+
     res.json({
       message: outcome.message,
       creditsGained: outcome.creditsGained || 0,
@@ -111,6 +123,7 @@ router.post('/investigate/:eventId', requireAuth, async (req, res) => {
       cargoGained: outcome.cargoGained || null,
       energy: finalEnergy,
       xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
+      tabletDrop,
     });
   } catch (err) {
     console.error('Investigate event error:', err);

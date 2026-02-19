@@ -6,6 +6,7 @@ import { SHIP_TYPES } from '../config/ship-types';
 import { getRace, RaceId } from '../config/races';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
 import { applyUpgradesToShip } from '../engine/upgrades';
+import { applyTabletBonuses, TabletBonuses } from '../engine/tablets';
 import { awardXP, getPlayerLevelBonuses } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
@@ -66,17 +67,25 @@ router.post('/fire', requireAuth, async (req, res) => {
     const attackerLevelBonuses = await getPlayerLevelBonuses(player.id);
     const defenderLevelBonuses = await getPlayerLevelBonuses(target.id);
 
+    const emptyTablets: TabletBonuses = { weaponBonus: 0, engineBonus: 0, cargoBonus: 0, shieldBonus: 0, fleeBonus: 0, xpMultiplier: 0 };
+    let attackerTablets = emptyTablets;
+    let defenderTablets = emptyTablets;
+    try {
+      attackerTablets = await applyTabletBonuses(player.id);
+      defenderTablets = await applyTabletBonuses(target.id);
+    } catch { /* tablets table may not exist yet */ }
+
     const attackerState: CombatState = {
-      weaponEnergy: attackerShip.weapon_energy + attackerUpgrades.weaponBonus + attackerLevelBonuses.weaponBonus,
-      engineEnergy: attackerShip.engine_energy + attackerUpgrades.engineBonus + attackerLevelBonuses.engineBonus,
-      hullHp: attackerShip.hull_hp,
+      weaponEnergy: attackerShip.weapon_energy + attackerUpgrades.weaponBonus + attackerLevelBonuses.weaponBonus + attackerTablets.weaponBonus,
+      engineEnergy: attackerShip.engine_energy + attackerUpgrades.engineBonus + attackerLevelBonuses.engineBonus + attackerTablets.engineBonus,
+      hullHp: attackerShip.hull_hp + attackerTablets.shieldBonus,
       attackRatio: attackerType.attackRatio * (1 + (attackerRace?.attackRatioBonus ?? 0)),
       defenseRatio: attackerType.defenseRatio * (1 + (attackerRace?.defenseRatioBonus ?? 0)),
     };
     const defenderState: CombatState = {
-      weaponEnergy: defenderShip.weapon_energy + defenderUpgrades.weaponBonus + defenderLevelBonuses.weaponBonus,
-      engineEnergy: defenderShip.engine_energy + defenderUpgrades.engineBonus + defenderLevelBonuses.engineBonus,
-      hullHp: defenderShip.hull_hp,
+      weaponEnergy: defenderShip.weapon_energy + defenderUpgrades.weaponBonus + defenderLevelBonuses.weaponBonus + defenderTablets.weaponBonus,
+      engineEnergy: defenderShip.engine_energy + defenderUpgrades.engineBonus + defenderLevelBonuses.engineBonus + defenderTablets.engineBonus,
+      hullHp: defenderShip.hull_hp + defenderTablets.shieldBonus,
       attackRatio: defenderType.attackRatio * (1 + (defenderRace?.attackRatioBonus ?? 0)),
       defenseRatio: defenderType.defenseRatio * (1 + (defenderRace?.defenseRatioBonus ?? 0)),
     };
@@ -206,6 +215,15 @@ router.post('/flee', requireAuth, async (req, res) => {
     const numAttackers = Math.max(1, Number(attackersInSector?.count || 1));
     const rng = Math.random();
     const fleeResult = attemptFlee(numAttackers, rng);
+
+    // Apply tablet flee bonus
+    try {
+      const playerTablets = await applyTabletBonuses(player.id);
+      if (playerTablets.fleeBonus > 0) {
+        fleeResult.fleeChance = Math.min(0.9, fleeResult.fleeChance + playerTablets.fleeBonus);
+        fleeResult.success = rng < fleeResult.fleeChance;
+      }
+    } catch { /* tablets table may not exist yet */ }
 
     if (fleeResult.success) {
       // Move to random adjacent sector

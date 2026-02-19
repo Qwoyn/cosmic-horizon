@@ -203,4 +203,34 @@ export const disconnectWallet = () => api.post('/wallet/disconnect');
 export const getWalletBalance = () => api.get('/wallet/balance');
 export const getWalletStatus = () => api.get('/wallet/status');
 
+// NPCs
+export const getNPCsInSector = () => api.get('/npcs/sector');
+export const talkToNPC = (npcId: string, choiceIndex?: number) =>
+  api.post(`/npcs/${npcId}/talk`, choiceIndex !== undefined ? { choiceIndex } : {});
+export const getContacts = () => api.get('/npcs/contacts');
+export const getNPCDetail = (npcId: string) => api.get(`/npcs/${npcId}`);
+export const markNPCEncountered = (npcId: string) => api.post(`/npcs/${npcId}/encountered`);
+
+// Tablets
+export const getTablets = () => api.get('/tablets');
+export const equipTablet = (tabletId: string, slot: number) =>
+  api.post('/tablets/equip', { tabletId, slot });
+export const unequipTablet = (slot: number) =>
+  api.post('/tablets/unequip', { slot });
+export const combineTablets = (tabletIds: string[]) =>
+  api.post('/tablets/combine', { tabletIds });
+export const getTabletRecipes = () => api.get('/tablets/recipes');
+export const tradeTablet = (targetPlayerName: string, tabletId: string) =>
+  api.post('/tablets/trade', { targetPlayerName, tabletId });
+
+// Crafting
+export const getPlayerResources = () => api.get('/crafting/resources');
+export const getPlanetCraftingResources = (planetId: string) => api.get(`/crafting/resources/planet/${planetId}`);
+export const getRecipes = () => api.get('/crafting/recipes');
+export const startCraft = (planetId: string, recipeId: string, batchSize?: number) =>
+  api.post('/crafting/craft', { planetId, recipeId, batchSize });
+export const collectRefinery = (queueId: string) => api.post('/crafting/collect', { queueId });
+export const collectPlanetResources = (planetId: string) => api.post('/crafting/collect-planet', { planetId });
+export const collectAllRefinery = (planetId: string) => api.post('/crafting/collect-all', { planetId });
+
 export default api;
