@@ -2,13 +2,13 @@
 
 ## Overview
 
-Text-based multiplayer space trading game inspired by TradeWars 2002. Web-based with a retro terminal UI, perpetual open world, and an Android companion app. Full whitepaper mechanics minus blockchain integration.
+Persistent multiplayer space strategy game inspired by TradeWars 2002. Web-based with a panel-based UI, perpetual open world, and an Android companion app. Full whitepaper mechanics minus blockchain integration.
 
 ## Decisions
 
 - **Platform**: Web-based (browser client + Node.js server)
 - **Scale target**: Medium (50-500 concurrent), designed for horizontal scaling later
-- **UI style**: Retro terminal aesthetic with modern touches (clickable elements, side panels)
+- **UI style**: Panel-based UI with pixel art scenes and ambient animations
 - **Scope**: Full whitepaper mechanics minus blockchain ($COHO as DB-tracked currency)
 - **World model**: Perpetual with regenerating energy, decay mechanics, frontier expansion
 - **Map size**: ~5,000 sectors, expandable
@@ -20,7 +20,7 @@ Text-based multiplayer space trading game inspired by TradeWars 2002. Web-based 
 |-------|-----------|
 | Backend | Node.js + TypeScript, Express, Socket.io |
 | Database | PostgreSQL with migrations (node-pg-migrate or Knex) |
-| Frontend | React + TypeScript, terminal-style UI |
+| Frontend | React + TypeScript, panel-based UI |
 | Android | React Native (Phase 2) |
 | Auth | Session-based (email/password), OAuth later |
 | Deployment | Docker containers, single server |

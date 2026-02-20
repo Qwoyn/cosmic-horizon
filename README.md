@@ -1,6 +1,6 @@
 # Cosmic Horizon
 
-A persistent multiplayer space trading game inspired by TradeWars 2002. Explore a galaxy of 5,000 sectors, trade commodities between outposts, claim and colonize planets, build syndicates, and fight for dominance — all through a retro terminal interface with animated pixel art scenes.
+A persistent multiplayer space strategy game inspired by TradeWars 2002. Explore a galaxy of 5,000 sectors, trade commodities between outposts, claim and colonize planets, build syndicates, and wage war for dominance — featuring an interactive panel-based UI with animated pixel art scenes.
 
 Based on the [Cosmic Horizon Whitepaper](whitepaper.md) by W. Moglia, D. Pittman, and S. Lott.
 
