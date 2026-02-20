@@ -1,8 +1,8 @@
 import { useEffect, useCallback, useState, useRef, useMemo } from 'react';
-import Terminal from '../components/Terminal';
 import StatusBar from '../components/StatusBar';
 import MapPanel from '../components/MapPanel';
 import TradeTable from '../components/TradeTable';
+import MallPanel from '../components/MallPanel';
 import CombatGroupPanel from '../components/CombatGroupPanel';
 import ActiveMissionsPanel from '../components/ActiveMissionsPanel';
 import ExplorePanel from '../components/ExplorePanel';
@@ -12,14 +12,16 @@ import GearGroupPanel from '../components/GearGroupPanel';
 import CommsGroupPanel from '../components/CommsGroupPanel';
 import SyndicateGroupPanel from '../components/SyndicateGroupPanel';
 import WalletPanel from '../components/WalletPanel';
+import ActionsPanel from '../components/ActionsPanel';
 import TutorialOverlay from '../components/TutorialOverlay';
 import IntroSequence, { INTRO_BEATS, POST_TUTORIAL_BEATS } from '../components/IntroSequence';
 import PixelScene from '../components/PixelScene';
 import SceneViewport from '../components/SceneViewport';
 import ActivityBar from '../components/ActivityBar';
 import ContextPanel from '../components/ContextPanel';
-import DataStreamRain from '../components/DataStreamRain';
-import { type ChatMessage } from '../components/SectorChatPanel';
+import SectorMap from '../components/SectorMap';
+import NotificationLog from '../components/NotificationLog';
+import { type ChatMessage, type ChatChannel } from '../components/SectorChatPanel';
 import { POST_TUTORIAL_SCENE } from '../config/scenes/post-tutorial-scene';
 import { buildIdleSpaceScene, buildIdleOutpostScene, buildIdleDockedScene } from '../config/scenes/ambient-scenes';
 import { buildCombatScene } from '../config/scenes/combat-scene';
@@ -31,6 +33,7 @@ import { useAudio } from '../hooks/useAudio';
 import { useActivePanel } from '../hooks/useActivePanel';
 import { handleCommand } from '../services/commands';
 import { PANELS } from '../types/panels';
+import { getAlliances, getSyndicate } from '../services/api';
 
 let chatIdCounter = 0;
 
@@ -47,6 +50,10 @@ export default function Game({ onLogout }: GameProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [showPostTutorialScene, setShowPostTutorialScene] = useState(false);
   const [combatFlash, setCombatFlash] = useState(false);
+  const [showSPComplete, setShowSPComplete] = useState(false);
+  const [alliedPlayerIds, setAlliedPlayerIds] = useState<string[]>([]);
+  const [hasSyndicate, setHasSyndicate] = useState(false);
+  const [hasAlliance, setHasAlliance] = useState(false);
   const lastSectorRef = useRef<number | null>(null);
   const lastListingRef = useRef<{ id: string; label: string }[] | null>(null);
   const activePanelRef = useRef(activePanel);
@@ -80,11 +87,28 @@ export default function Game({ onLogout }: GameProps) {
     }
   }, [game.player?.currentSectorId]);
 
+  const refreshAlliances = useCallback(() => {
+    getAlliances()
+      .then(({ data }) => {
+        setAlliedPlayerIds((data.personalAllies || []).map((a: any) => a.allyId));
+        setHasAlliance((data.syndicateAllies || []).length > 0);
+      })
+      .catch(() => {});
+  }, []);
+
+  const refreshSyndicateStatus = useCallback(() => {
+    getSyndicate()
+      .then(() => setHasSyndicate(true))
+      .catch(() => setHasSyndicate(false));
+  }, []);
+
   useEffect(() => {
     game.refreshStatus();
     game.refreshSector();
     game.refreshTutorial();
     game.refreshMap();
+    refreshAlliances();
+    refreshSyndicateStatus();
   }, []);
 
   // Switch audio track based on game context
@@ -155,6 +179,44 @@ export default function Game({ onLogout }: GameProps) {
         game.addLine(data.message, 'system');
         if (activePanelRef.current !== 'missions') incrementBadge('missions');
       }),
+      on('chat:syndicate', (data: { senderId: string; senderName: string; message: string }) => {
+        const isOwn = data.senderId === game.player?.id;
+        if (isOwn) return;
+        setChatMessages(prev => [...prev.slice(-99), {
+          id: chatIdCounter++,
+          senderName: data.senderName,
+          message: data.message,
+          isOwn: false,
+          channel: 'syndicate',
+        }]);
+        if (activePanelRef.current !== 'comms') incrementBadge('comms');
+      }),
+      on('chat:alliance', (data: { senderId: string; senderName: string; syndicateName: string; message: string }) => {
+        const isOwn = data.senderId === game.player?.id;
+        if (isOwn) return;
+        setChatMessages(prev => [...prev.slice(-99), {
+          id: chatIdCounter++,
+          senderName: data.senderName,
+          message: data.message,
+          isOwn: false,
+          channel: 'alliance',
+          syndicateName: data.syndicateName,
+        }]);
+        if (activePanelRef.current !== 'comms') incrementBadge('comms');
+      }),
+      on('syndicate:member_joined', (data: { username: string }) => {
+        game.addLine(`${data.username} joined the syndicate`, 'system');
+      }),
+      on('syndicate:member_left', (data: { username: string }) => {
+        game.addLine(`${data.username} left the syndicate`, 'system');
+      }),
+      on('syndicate:vote_created', (data: { type: string; description: string; proposedBy: string }) => {
+        game.addLine(`New vote proposed: [${data.type}] ${data.description}`, 'system');
+        if (activePanelRef.current !== 'syndicate') incrementBadge('syndicate');
+      }),
+      on('syndicate:vote_resolved', (data: { result: string }) => {
+        game.addLine(`Vote resolved: ${data.result}`, 'system');
+      }),
     ];
 
     return () => { unsubs.forEach(unsub => unsub?.()); };
@@ -183,6 +245,16 @@ export default function Game({ onLogout }: GameProps) {
     });
   }, [game, emit]);
 
+  // Detect SP mission completion
+  useEffect(() => {
+    if (game.player?.gameMode === 'singleplayer' && game.player.spMissions) {
+      const { completed, total } = game.player.spMissions;
+      if (completed >= total && total > 0) {
+        setShowSPComplete(true);
+      }
+    }
+  }, [game.player?.spMissions?.completed]);
+
   // Show initial sector info on first load
   useEffect(() => {
     if (game.sector && game.lines.length === 0) {
@@ -207,29 +279,44 @@ export default function Game({ onLogout }: GameProps) {
     switch (activePanel) {
       case 'nav': return <MapPanel sector={game.sector} onMoveToSector={game.doMove} onCommand={handleActionButton} bare />;
       case 'explore': return <ExplorePanel refreshKey={refreshKey} bare />;
-      case 'trade': return <TradeTable outpostId={activeOutpost} onBuy={game.doBuy} onSell={game.doSell} bare />;
+      case 'trade': {
+        const atStarMall = !!activeOutpost && !!game.sector?.hasStarMall;
+        if (atStarMall) {
+          return <MallPanel outpostId={activeOutpost} onBuy={game.doBuy} onSell={game.doSell} credits={game.player?.credits ?? 0} energy={game.player?.energy ?? 0} maxEnergy={game.player?.maxEnergy ?? 100} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} bare />;
+        }
+        return <TradeTable outpostId={activeOutpost} onBuy={game.doBuy} onSell={game.doSell} bare />;
+      }
       case 'combat': return <CombatGroupPanel sector={game.sector} onFire={game.doFire} onFlee={game.doFlee} weaponEnergy={game.player?.currentShip?.weaponEnergy ?? 0} combatAnimation={game.combatAnimation} onCombatAnimationDone={game.clearCombatAnimation} playerName={game.player?.username} refreshKey={refreshKey} bare />;
-      case 'crew': return <CrewGroupPanel sector={game.sector} onFire={game.doFire} refreshKey={refreshKey} onCommand={handleActionButton} bare />;
-      case 'missions': return <ActiveMissionsPanel refreshKey={refreshKey} bare />;
-      case 'planets': return <PlanetsPanel refreshKey={refreshKey} bare />;
-      case 'gear': return <GearGroupPanel refreshKey={refreshKey} onItemUsed={handleItemUsed} bare />;
-      case 'comms': return <CommsGroupPanel messages={chatMessages} onSend={handleChatSend} refreshKey={refreshKey} bare />;
+      case 'crew': return <CrewGroupPanel sector={game.sector} onFire={game.doFire} refreshKey={refreshKey} onCommand={handleActionButton} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} bare />;
+      case 'missions': return <ActiveMissionsPanel refreshKey={refreshKey} atStarMall={!!activeOutpost && !!game.sector?.hasStarMall} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} bare />;
+      case 'planets': return <PlanetsPanel refreshKey={refreshKey} currentSectorId={game.player?.currentSectorId ?? null} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} onCommand={handleActionButton} bare />;
+      case 'gear': return <GearGroupPanel refreshKey={refreshKey} onItemUsed={handleItemUsed} atStarMall={!!activeOutpost && !!game.sector?.hasStarMall} onCommand={handleActionButton} bare />;
+      case 'comms': return <CommsGroupPanel messages={chatMessages} onSend={handleChatSend} refreshKey={refreshKey} onAction={() => setRefreshKey(k => k + 1)} hasSyndicate={hasSyndicate} hasAlliance={hasAlliance} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} bare />;
       case 'syndicate': return <SyndicateGroupPanel refreshKey={refreshKey} onCommand={handleActionButton} bare />;
       case 'wallet': return <WalletPanel bare />;
+      case 'actions': return <ActionsPanel onCommand={handleActionButton} onClearLog={game.clearLines} bare />;
     }
   }
 
-  const handleChatSend = useCallback((message: string) => {
+  const handleChatSend = useCallback((message: string, channel: ChatChannel = 'sector') => {
     const name = game.player?.username || 'You';
-    game.addLine(`[${name}] ${message}`, 'info');
-    // Add to chat panel immediately
-    setChatMessages(prev => [...prev.slice(-49), {
+    if (channel === 'sector') {
+      game.addLine(`[${name}] ${message}`, 'info');
+    }
+    setChatMessages(prev => [...prev.slice(-99), {
       id: chatIdCounter++,
       senderName: name,
       message,
       isOwn: true,
+      channel,
     }]);
-    emit('chat:sector', { message });
+    if (channel === 'sector') {
+      emit('chat:sector', { message });
+    } else if (channel === 'syndicate') {
+      emit('chat:syndicate', { message });
+    } else if (channel === 'alliance') {
+      emit('chat:alliance', { message });
+    }
   }, [game.player?.username, game.addLine, emit]);
 
   const handleItemUsed = useCallback(() => {
@@ -282,6 +369,45 @@ export default function Game({ onLogout }: GameProps) {
 
   return (
     <div className="game-layout">
+      {showSPComplete && (
+        <div className="sp-complete-modal" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#1a1a2e', border: '1px solid #00ff88', borderRadius: '8px',
+            padding: '32px', maxWidth: '480px', textAlign: 'center',
+          }}>
+            <h2 style={{ color: '#00ff88', marginBottom: '16px' }}>FRONTIER CONQUERED</h2>
+            <p style={{ color: '#ccc', marginBottom: '16px' }}>
+              You have completed all 20 single player missions!
+              The multiplayer frontier awaits — join other pilots in the shared universe.
+            </p>
+            <p style={{ color: '#888', fontSize: '0.85rem', marginBottom: '24px' }}>
+              Your level, XP, credits, ships, and upgrades will carry over.
+              Your single player planets and sectors will be removed.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowSPComplete(false)}
+              >
+                STAY IN SP
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setShowSPComplete(false);
+                  onCommand('profile transition');
+                }}
+              >
+                GO MULTIPLAYER
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <TutorialOverlay
         tutorialStep={game.player?.tutorialStep ?? 0}
         tutorialCompleted={game.player?.tutorialCompleted ?? true}
@@ -291,13 +417,18 @@ export default function Game({ onLogout }: GameProps) {
       <div className="game-main">
         <ActivityBar activePanel={activePanel} onSelect={selectPanel} badges={badges} />
         <div className="game-center">
-          <div className={`game-terminal${combatFlash ? ' terminal--combat-flash' : ''}`}>
-            <DataStreamRain />
-            <Terminal
-              lines={game.lines}
-              onCommand={onCommand}
-              sectorId={game.player?.currentSectorId}
-            />
+          <div className={`game-map-log${combatFlash ? ' terminal--combat-flash' : ''}`}>
+            <div className="game-map-area">
+              <SectorMap
+                mapData={game.mapData}
+                currentSectorId={game.player?.currentSectorId ?? null}
+                adjacentSectorIds={game.sector?.adjacentSectors?.map(a => a.sectorId) || []}
+                onMoveToSector={game.doMove}
+              />
+            </div>
+            <div className="game-log-area">
+              <NotificationLog lines={game.lines} onClear={game.clearLines} />
+            </div>
           </div>
           <div className="game-panel-area">
             <div className="game-panel-content">
@@ -317,11 +448,11 @@ export default function Game({ onLogout }: GameProps) {
         </div>
         <ContextPanel
           player={game.player}
-          sector={game.sector}
-          mapData={game.mapData}
-          onMoveToSector={game.doMove}
-          onCommand={handleActionButton}
-          onSelectPanel={selectPanel}
+          chatMessages={chatMessages}
+          onChatSend={handleChatSend}
+          onCommand={onCommand}
+          hasSyndicate={hasSyndicate}
+          hasAlliance={hasAlliance}
         />
       </div>
     </div>

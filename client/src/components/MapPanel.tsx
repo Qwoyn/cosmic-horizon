@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import CollapsiblePanel from './CollapsiblePanel';
 import PixelSprite from './PixelSprite';
-import { getSectorWarpGates, useWarpGate } from '../services/api';
+import { getSectorWarpGates, useWarpGate, getResourceEvents } from '../services/api';
 import type { SectorState } from '../hooks/useGameState';
 
 interface WarpGate {
@@ -9,6 +9,13 @@ interface WarpGate {
   destinationSectorId: number;
   toll: number;
   ownerName?: string;
+}
+
+interface ResourceEvent {
+  id: string;
+  type: string;
+  claimed?: boolean;
+  guardian_hp?: number;
 }
 
 interface MapPanelProps {
@@ -20,12 +27,17 @@ interface MapPanelProps {
 
 export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: MapPanelProps) {
   const [warpGates, setWarpGates] = useState<WarpGate[]>([]);
+  const [warpTarget, setWarpTarget] = useState('');
+  const [resourceEvents, setResourceEvents] = useState<ResourceEvent[]>([]);
 
   useEffect(() => {
     if (sector) {
       getSectorWarpGates()
         .then(({ data }) => setWarpGates(data.gates || data.warpGates || []))
         .catch(() => setWarpGates([]));
+      getResourceEvents()
+        .then(({ data }) => setResourceEvents(data.resourceEvents || []))
+        .catch(() => setResourceEvents([]));
     }
   }, [sector?.sectorId]);
 
@@ -36,14 +48,46 @@ export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: Ma
     } catch { /* silent */ }
   };
 
+  const handleWarpTo = () => {
+    const num = parseInt(warpTarget, 10);
+    if (!isNaN(num) && num > 0) {
+      onMoveToSector(num);
+      setWarpTarget('');
+    }
+  };
+
   if (!sector) {
     const empty = <div>No data</div>;
     if (bare) return <div className="panel-content">{empty}</div>;
     return <CollapsiblePanel title="NAV MAP">{empty}</CollapsiblePanel>;
   }
 
+  const npcs = sector.npcs || [];
+  const variantPlanets = sector.planets.filter(p => p.planetClass === 'S' || p.planetClass === 'G');
+  const hasResourceEvents = resourceEvents.length > 0;
+  const hasAlienCache = resourceEvents.some(e => e.type === 'alien_cache' && e.guardian_hp != null && e.guardian_hp > 0);
+
   const content = (
     <>
+      {/* Quick Actions */}
+      <div className="action-buttons" style={{ marginBottom: 6 }}>
+        <button className="btn-action" onClick={() => onCommand?.('look')}>LOOK</button>
+        <button className="btn-action" onClick={() => onCommand?.('scan')}>SCAN</button>
+      </div>
+
+      {/* Warp input */}
+      <div className="nav-warp-row">
+        <input
+          className="nav-warp-input"
+          type="text"
+          value={warpTarget}
+          onChange={e => setWarpTarget(e.target.value)}
+          placeholder="Sector #"
+          onKeyDown={e => { if (e.key === 'Enter') handleWarpTo(); }}
+        />
+        <button className="btn-action" onClick={handleWarpTo}>WARP</button>
+      </div>
+
       <div className="panel-row">
         <span className="panel-label">Type:</span>
         <span className={`sector-type-${sector.type}`}>{sector.type}</span>
@@ -54,6 +98,35 @@ export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: Ma
       </div>
       {sector.hasStarMall && (
         <div className="panel-row text-success">★ Star Mall Present</div>
+      )}
+
+      {/* Sector Alerts */}
+      {(hasResourceEvents || variantPlanets.length > 0 || npcs.length > 0 || hasAlienCache) && (
+        <>
+          <div className="panel-subheader" style={{ color: 'var(--yellow)' }}>Sector Alerts</div>
+          <div className="alert-items" style={{ padding: '0 0 4px' }}>
+            {hasResourceEvents && (
+              <div className="alert-item alert-item--resource">
+                {resourceEvents.length} resource event{resourceEvents.length !== 1 ? 's' : ''} detected
+              </div>
+            )}
+            {hasAlienCache && (
+              <div className="alert-item alert-item--danger">
+                Alien cache guardian active
+              </div>
+            )}
+            {variantPlanets.length > 0 && (
+              <div className="alert-item alert-item--special">
+                {variantPlanets.length} variant planet{variantPlanets.length !== 1 ? 's' : ''}
+              </div>
+            )}
+            {npcs.length > 0 && (
+              <div className="alert-item alert-item--npc">
+                {npcs.length} NPC{npcs.length !== 1 ? 's' : ''} present
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       <div className="panel-subheader">Adjacent Sectors</div>

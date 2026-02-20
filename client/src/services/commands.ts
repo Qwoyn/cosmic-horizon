@@ -139,8 +139,19 @@ function parse(input: string): ParsedCommand {
   };
 }
 
+function isSPBlocked(command: string, ctx: CommandContext): boolean {
+  const socialCommands = ['chat', 'syndicate', 'leaderboard', 'mail', 'bounties', 'bounty', 'alliance', 'syndicatepool', 'syndicatedeposit', 'syndicatewithdraw', 'factory', 'projects'];
+  if (ctx.player?.gameMode === 'singleplayer' && socialCommands.includes(command)) {
+    ctx.addLine('Not available in single player mode', 'error');
+    return true;
+  }
+  return false;
+}
+
 export function handleCommand(input: string, ctx: CommandContext): void {
   const { command, args } = parse(input);
+
+  if (isSPBlocked(command, ctx)) return;
 
   switch (command) {
     case 'move': {
@@ -159,7 +170,8 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       const raceLabel = p.race ? ` [${p.race.charAt(0).toUpperCase() + p.race.slice(1)}]` : '';
       const levelLabel = p.level ? ` Lv.${p.level}` : '';
       const rankLabel = p.rank ? ` | ${p.rank}` : '';
-      ctx.addLine(`=== ${p.username}${raceLabel}${levelLabel}${rankLabel} ===`, 'system');
+      const modeLabel = p.gameMode === 'singleplayer' ? ' [SINGLE PLAYER]' : '';
+      ctx.addLine(`=== ${p.username}${raceLabel}${levelLabel}${rankLabel}${modeLabel} ===`, 'system');
       ctx.addLine(`Sector: ${p.currentSectorId} | Energy: ${p.energy}/${p.maxEnergy} | Credits: ${p.credits.toLocaleString()}`, 'info');
       if (p.xp != null) ctx.addLine(`XP: ${p.xp.toLocaleString()}`, 'info');
       if (p.currentShip) {
@@ -182,6 +194,13 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         (s.players?.length ?? 0) > 0,
       ));
       ctx.addLine(`=== Sector ${s.sectorId} [${s.type}] ===`, 'system');
+      if (s.hasStarMall) {
+        if (s.spMallLocked) {
+          ctx.addLine('Star Mall [LOCKED — complete missions to unlock]', 'warning');
+        } else {
+          ctx.addLine('Star Mall', 'success');
+        }
+      }
       ctx.addLine(`Adjacent: ${s.adjacentSectors.map((a: any) => a.sectorId + (a.oneWay ? '→' : '')).join(', ')}`, 'info');
       if (s.players.length > 0) ctx.addLine(`Players: ${s.players.map((p: any) => p.username).join(', ')}`, 'warning');
       if (s.outposts.length > 0) ctx.addLine(`Outposts: ${s.outposts.map((o: any) => o.name).join(', ')}`, 'info');
@@ -533,8 +552,38 @@ export function handleCommand(input: string, ctx: CommandContext): void {
       break;
 
     case 'profile':
+      if (args[0] === 'transition' || args[0] === 'go-multiplayer') {
+        // SP → MP transition command
+        if (ctx.player?.gameMode !== 'singleplayer') {
+          ctx.addLine('You are already in multiplayer mode.', 'error');
+          break;
+        }
+        const force = args[1] === '--force';
+        ctx.addLine('Transitioning to multiplayer...', 'system');
+        api.transitionToMP(force).then(({ data }) => {
+          ctx.addLine(data.message, 'success');
+          ctx.addLine(`New sector: ${data.newSectorId}`, 'info');
+          ctx.addLine('Refreshing game state...', 'system');
+          ctx.refreshStatus();
+          ctx.refreshSector();
+        }).catch((err: any) => {
+          const errData = err.response?.data;
+          if (errData?.completed != null) {
+            ctx.addLine(`${errData.error}`, 'error');
+            ctx.addLine(`Progress: ${errData.completed}/${errData.total} SP missions completed`, 'info');
+            ctx.addLine('Use "profile transition --force" to transition early.', 'info');
+          } else {
+            ctx.addLine(errData?.error || 'Transition failed', 'error');
+          }
+        });
+        break;
+      }
       api.getProfile().then(({ data }) => {
         ctx.addLine(`=== ${data.username} [${data.rank}] ===`, 'system');
+        if (ctx.player?.gameMode === 'singleplayer') {
+          const sp = ctx.player.spMissions;
+          ctx.addLine(`Mode: Single Player (${sp?.completed || 0}/${sp?.total || 20} missions complete)`, 'warning');
+        }
         ctx.addLine(`Level: ${data.level}/100 | XP: ${data.xp.toLocaleString()}${data.xpForNextLevel ? ` / ${data.xpForNextLevel.toLocaleString()}` : ' (MAX)'}`, 'info');
         if (data.xpNeeded > 0) {
           const pct = Math.floor((data.xpProgress / data.xpNeeded) * 100);
@@ -545,6 +594,10 @@ export function handleCommand(input: string, ctx: CommandContext): void {
         const lb = data.levelBonuses;
         if (lb) {
           ctx.addLine(`Level Bonuses: +${lb.maxEnergyBonus} Energy, +${lb.weaponBonus} Weapon, +${lb.engineBonus} Engine, +${lb.cargoBonus} Cargo`, 'success');
+        }
+        if (ctx.player?.gameMode === 'singleplayer') {
+          ctx.addLine('', 'info');
+          ctx.addLine('Type "profile transition" to switch to multiplayer.', 'info');
         }
       }).catch((err: any) => ctx.addLine(err.response?.data?.error || 'Profile failed', 'error'));
       break;

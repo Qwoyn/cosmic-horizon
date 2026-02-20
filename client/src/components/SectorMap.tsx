@@ -1,5 +1,4 @@
-import { useMemo, useRef, useCallback, useState } from 'react';
-import CollapsiblePanel from './CollapsiblePanel';
+import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 
 export interface MapData {
   currentSectorId: number;
@@ -22,6 +21,25 @@ const IDEAL_EDGE_LENGTH = 60;
 const ITERATIONS = 120;
 
 const ZOOM_LEVELS = [1, 1.5, 2];
+
+// Generate deterministic star positions for background layers
+function generateStars(count: number, seed: number): string {
+  const stars: string[] = [];
+  // Simple seeded random
+  let s = seed;
+  const rand = () => { s = (s * 16807 + 0) % 2147483647; return s / 2147483647; };
+  for (let i = 0; i < count; i++) {
+    const x = Math.round(rand() * 2000);
+    const y = Math.round(rand() * 2000);
+    stars.push(`${x}px ${y}px`);
+  }
+  return stars.join(', ');
+}
+
+// Pre-generate 3 star layers (far=tiny+many, mid, near=big+few)
+const STAR_LAYER_FAR = generateStars(200, 42);
+const STAR_LAYER_MID = generateStars(80, 137);
+const STAR_LAYER_NEAR = generateStars(30, 293);
 
 // Map sector type to fill color (CSS variable values)
 const TYPE_FILLS: Record<string, string> = {
@@ -178,6 +196,18 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   const dragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
+  const [hoveredSector, setHoveredSector] = useState<{ id: number; type: string; x: number; y: number } | null>(null);
+  const [showLegend, setShowLegend] = useState(false);
+  const [parallax, setParallax] = useState({ x: 0, y: 0 });
+  const mapBodyRef = useRef<HTMLDivElement>(null);
+
+  const handleParallaxMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    // Normalize to -1..1 from center
+    const nx = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
+    const ny = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
+    setParallax({ x: nx, y: ny });
+  }, []);
 
   const zoom = ZOOM_LEVELS[zoomIndex];
 
@@ -335,7 +365,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
         const isAdjacent = adjacentSet.has(s.id);
         const fill = TYPE_FILLS[s.type] || TYPE_FILLS.standard;
 
-        let nodeClass = 'sector-map-node';
+        let nodeClass = 'sector-map-node sector-map-node--twinkle';
         if (isCurrent) nodeClass += ' sector-map-node--current';
         else if (isAdjacent) nodeClass += ' sector-map-node--adjacent';
 
@@ -347,7 +377,25 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
             transform={`translate(${pos.x}, ${pos.y})`}
             className={`${nodeClass} ${typeClass}`}
             onClick={isAdjacent ? () => handleNodeClick(s.id) : undefined}
-            style={isAdjacent ? { cursor: 'pointer' } : undefined}
+            style={{
+              ...(isAdjacent ? { cursor: 'pointer' } : {}),
+              '--twinkle-dur': `${6 + (s.id % 7) * 2}s`,
+              '--twinkle-delay': `${(s.id * 1.7) % 10}s`,
+            } as React.CSSProperties}
+            onMouseEnter={(e) => {
+              const svgEl = e.currentTarget.closest('svg');
+              if (!svgEl) return;
+              const rect = svgEl.getBoundingClientRect();
+              const svgPt = svgEl.createSVGPoint();
+              svgPt.x = pos.x;
+              svgPt.y = pos.y;
+              const ctm = svgEl.getScreenCTM();
+              if (ctm) {
+                const screenPt = svgPt.matrixTransform(ctm);
+                setHoveredSector({ id: s.id, type: s.type, x: screenPt.x - rect.left, y: screenPt.y - rect.top });
+              }
+            }}
+            onMouseLeave={() => setHoveredSector(null)}
           >
             {/* Pulse ring for current sector */}
             {isCurrent && (
@@ -421,18 +469,51 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   }
 
   return (
-    <CollapsiblePanel title="SECTOR MAP" className="sector-map-container" headerExtra={zoomControls}>
-      <div className="sector-map-body" style={{ padding: 4 }}>
-        {svgContent}
-        <div className="sector-map-legend">
-          <span className="sector-map-legend-item"><span style={{ color: 'var(--magenta)' }}>●</span> You</span>
-          <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)' }}>●</span> Adjacent</span>
-          <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)' }}>★</span> Star Mall</span>
-          <span className="sector-map-legend-item"><span style={{ color: 'var(--green)' }}>◆</span> Outpost</span>
-          <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)' }}>●</span> Planet</span>
-          <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)' }}>⤏</span> One-way</span>
-        </div>
+    <div className="sector-map-full">
+      <div className="sector-map-full__header">
+        <span className="sector-map-full__title">SECTOR MAP {currentSectorId != null ? `| ${currentSectorId}` : ''}</span>
+        <span className="sector-map-controls">
+          <button className="sector-map-zoom-btn" onClick={() => setShowLegend(v => !v)} title="Toggle legend">{showLegend ? '×' : '?'}</button>
+          <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoomIndex === 0} title="Zoom out">−</button>
+          <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoomIndex === ZOOM_LEVELS.length - 1} title="Zoom in">+</button>
+        </span>
       </div>
-    </CollapsiblePanel>
+      <div className="sector-map-body" style={{ padding: 4, position: 'relative' }} onMouseMove={handleParallaxMove} ref={mapBodyRef}>
+        {/* Space background with parallax starfield + nebula */}
+        <div className="space-bg">
+          <div className="space-bg__nebula" style={{ transform: `translate(${parallax.x * 8}px, ${parallax.y * 8}px)` }} />
+          <div className="space-bg__stars space-bg__stars--far" style={{ boxShadow: STAR_LAYER_FAR, transform: `translate(${parallax.x * 6}px, ${parallax.y * 6}px)` }} />
+          <div className="space-bg__stars space-bg__stars--mid" style={{ boxShadow: STAR_LAYER_MID, transform: `translate(${parallax.x * 15}px, ${parallax.y * 15}px)` }} />
+          <div className="space-bg__stars space-bg__stars--near" style={{ boxShadow: STAR_LAYER_NEAR, transform: `translate(${parallax.x * 28}px, ${parallax.y * 28}px)` }} />
+        </div>
+        {svgContent}
+        {hoveredSector && (
+          <div
+            className="sector-map-tooltip"
+            style={{ left: hoveredSector.x, top: hoveredSector.y - 28 }}
+          >
+            Sector {hoveredSector.id} [{hoveredSector.type}]
+          </div>
+        )}
+        {showLegend && (
+          <div className="sector-map-legend-overlay">
+            <div className="sector-map-legend-overlay__title">LEGEND</div>
+            <div className="sector-map-legend-overlay__items">
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--magenta)' }}>●</span> Current</span>
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)' }}>●</span> Adjacent (click to warp)</span>
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)' }}>★</span> Star Mall</span>
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--green)' }}>◆</span> Outpost</span>
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)' }}>●</span> Planet</span>
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)' }}>⤏</span> One-way route</span>
+              <div style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 4 }}>
+                <span className="sector-map-legend-item"><span className="sector-type-protected">■</span> Protected</span>
+                <span className="sector-map-legend-item"><span className="sector-type-harmony_enforced">■</span> Harmony</span>
+                <span className="sector-map-legend-item"><span className="sector-type-one_way">■</span> One-way</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

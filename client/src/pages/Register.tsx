@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import WalletPanel from '../components/WalletPanel';
 
 interface RegisterProps {
-  onRegister: (username: string, email: string, password: string, race: string) => Promise<any>;
+  onRegister: (username: string, email: string, password: string, race: string, gameMode?: string) => Promise<any>;
 }
 
 const RACES = [
@@ -52,6 +52,7 @@ export default function Register({ onRegister }: RegisterProps) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [selectedRace, setSelectedRace] = useState('');
+  const [gameMode, setGameMode] = useState<'multiplayer' | 'singleplayer'>('multiplayer');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -77,7 +78,7 @@ export default function Register({ onRegister }: RegisterProps) {
     setError('');
     setLoading(true);
     try {
-      await onRegister(username, email, password, selectedRace);
+      await onRegister(username, email, password, selectedRace, gameMode);
       setStep(3);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Registration failed');
@@ -136,6 +137,32 @@ export default function Register({ onRegister }: RegisterProps) {
                 onChange={e => setConfirm(e.target.value)}
                 required
               />
+            </div>
+            <div className="auth-field">
+              <label>Game Mode</label>
+              <div className="game-mode-toggle" style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className={`btn ${gameMode === 'multiplayer' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setGameMode('multiplayer')}
+                  style={{ flex: 1 }}
+                >
+                  MULTIPLAYER
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${gameMode === 'singleplayer' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setGameMode('singleplayer')}
+                  style={{ flex: 1 }}
+                >
+                  SINGLE PLAYER
+                </button>
+              </div>
+              <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '4px' }}>
+                {gameMode === 'singleplayer'
+                  ? 'Your own 1000-sector universe with 20 missions. No social features. Can transition to multiplayer later.'
+                  : 'Shared universe with all players. Full social features, PvP, syndicates, and leaderboards.'}
+              </p>
             </div>
             <button type="submit" className="btn btn-primary">
               NEXT

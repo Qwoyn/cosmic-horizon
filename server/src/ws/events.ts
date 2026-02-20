@@ -10,12 +10,20 @@ export interface ServerEvents {
   'energy:update': { energy: number; maxEnergy: number };
   'trade:complete': { outpostId: string; commodity: string; quantity: number; total: number };
   'chat:sector': { senderId: string; senderName: string; message: string; timestamp: number };
+  'chat:syndicate': { senderId: string; senderName: string; message: string; timestamp: number };
+  'chat:alliance': { senderId: string; senderName: string; syndicateName: string; message: string; timestamp: number };
+  'syndicate:vote_created': { voteId: string; type: string; description: string; proposedBy: string };
+  'syndicate:vote_resolved': { voteId: string; result: string };
+  'syndicate:member_joined': { playerId: string; username: string };
+  'syndicate:member_left': { playerId: string; username: string };
 }
 
 // Client -> Server events
 export interface ClientEvents {
   'join': { playerId: string };
   'chat:sector': { message: string };
+  'chat:syndicate': { message: string };
+  'chat:alliance': { message: string; allianceId?: string };
 }
 
 // Room naming helpers
@@ -25,4 +33,12 @@ export function sectorRoom(sectorId: number): string {
 
 export function playerRoom(playerId: string): string {
   return `player:${playerId}`;
+}
+
+export function syndicateRoom(syndicateId: string): string {
+  return `syndicate:${syndicateId}`;
+}
+
+export function allianceRoom(allianceId: string): string {
+  return `alliance:${allianceId}`;
 }

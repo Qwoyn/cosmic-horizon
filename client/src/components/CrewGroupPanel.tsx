@@ -9,11 +9,13 @@ interface Props {
   refreshKey?: number;
   bare?: boolean;
   onCommand?: (cmd: string) => void;
+  alliedPlayerIds?: string[];
+  onAllianceChange?: () => void;
 }
 
 type TabView = 'players' | 'npcs' | 'contacts';
 
-export default function CrewGroupPanel({ sector, onFire, refreshKey, bare, onCommand }: Props) {
+export default function CrewGroupPanel({ sector, onFire, refreshKey, bare, onCommand, alliedPlayerIds, onAllianceChange }: Props) {
   const [tab, setTab] = useState<TabView>('players');
 
   const tabBar = (
@@ -35,7 +37,7 @@ export default function CrewGroupPanel({ sector, onFire, refreshKey, bare, onCom
   const content = (
     <>
       {tabBar}
-      {tab === 'players' && <PlayerListPanel sector={sector} onFire={onFire} bare />}
+      {tab === 'players' && <PlayerListPanel sector={sector} onFire={onFire} alliedPlayerIds={alliedPlayerIds} onAllianceChange={onAllianceChange} bare />}
       {tab === 'npcs' && <NPCList sector={sector} onCommand={onCommand} />}
       {tab === 'contacts' && <ContactsList refreshKey={refreshKey} />}
     </>

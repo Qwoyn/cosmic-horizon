@@ -14,6 +14,7 @@ export interface PlayerState {
   id: string;
   username: string;
   race: string | null;
+  gameMode: string;
   energy: number;
   maxEnergy: number;
   credits: number;
@@ -24,6 +25,7 @@ export interface PlayerState {
   hasSeenPostTutorial: boolean;
   walletAddress: string | null;
   dockedAtOutpostId: string | null;
+  spMissions?: { completed: number; total: number };
   currentShip: {
     id: string;
     shipTypeId: string;
@@ -45,6 +47,7 @@ export interface SectorState {
   type: string;
   regionId: number;
   hasStarMall: boolean;
+  spMallLocked: boolean;
   adjacentSectors: { sectorId: number; oneWay: boolean }[];
   players: { id: string; username: string }[];
   outposts: { id: string; name: string }[];

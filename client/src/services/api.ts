@@ -27,8 +27,8 @@ if (savedToken) {
 }
 
 // Auth
-export const register = async (username: string, email: string, password: string, race: string) => {
-  const res = await api.post('/auth/register', { username, email, password, race });
+export const register = async (username: string, email: string, password: string, race: string, gameMode?: string) => {
+  const res = await api.post('/auth/register', { username, email, password, race, gameMode });
   if (res.data.token) setToken(res.data.token);
   return res;
 };
@@ -87,7 +87,11 @@ export const flee = () => api.post('/combat/flee');
 
 // Social
 export const toggleAlliance = (playerId: string) => api.post(`/social/alliance/${playerId}`);
-export const createSyndicate = (name: string) => api.post('/social/syndicate/create', { name });
+export const createSyndicate = (data: {
+  name: string; motto?: string; description?: string; recruitment_mode?: string;
+  min_level?: number; quorum_percent?: number; vote_duration_hours?: number;
+  succession_rule?: string; treasury_withdrawal_limit?: number;
+}) => api.post('/social/syndicate/create', data);
 export const inviteToSyndicate = (playerId: string) => api.post(`/social/syndicate/invite/${playerId}`);
 export const getSyndicate = () => api.get('/social/syndicate');
 export const placeBounty = (targetPlayerId: string, amount: number) =>
@@ -137,6 +141,9 @@ export const salvageShip = (shipId: string) => api.post(`/starmall/salvage/sell/
 export const getCantina = () => api.get('/starmall/cantina');
 export const buyCantineIntel = () => api.post('/starmall/cantina/intel');
 export const talkBartender = () => api.post('/starmall/cantina/talk');
+
+// Single Player
+export const transitionToMP = (force?: boolean) => api.post('/game/transition-to-mp', { force });
 
 // Lore sequences
 export const markIntroSeen = () => api.post('/game/seen-intro');
@@ -275,5 +282,73 @@ export const cancelProject = (projectId: string) =>
 
 // Syndicate Economy — Structures
 export const getSyndicateStructures = () => api.get('/syndicate-economy/structures');
+
+// ── Syndicate Browse & Join ─────────────────────────────────
+export const browseSyndicates = (params?: {
+  search?: string; recruitment_mode?: string; min_members?: number;
+  max_members?: number; sort_by?: string;
+}) => api.get('/social/syndicates/browse', { params });
+
+export const joinSyndicate = (syndicateId: string, message?: string) =>
+  api.post(`/social/syndicate/${syndicateId}/join`, { message });
+
+export const joinSyndicateByCode = (code: string) =>
+  api.post('/social/syndicate/join-code', { code });
+
+export const getJoinRequests = (syndicateId: string) =>
+  api.get(`/social/syndicate/${syndicateId}/requests`);
+
+export const reviewJoinRequest = (syndicateId: string, requestId: string, accept: boolean) =>
+  api.post(`/social/syndicate/${syndicateId}/requests/${requestId}/review`, { accept });
+
+// ── Invite Codes ────────────────────────────────────────────
+export const createInviteCode = (syndicateId: string, uses?: number, expires_hours?: number) =>
+  api.post(`/social/syndicate/${syndicateId}/invite-code`, { uses, expires_hours });
+
+export const getInviteCodes = (syndicateId: string) =>
+  api.get(`/social/syndicate/${syndicateId}/invite-codes`);
+
+export const revokeInviteCode = (syndicateId: string, codeId: string) =>
+  api.delete(`/social/syndicate/${syndicateId}/invite-code/${codeId}`);
+
+// ── Roles & Permissions ────────────────────────────────────
+export const getSyndicateRoles = (syndicateId: string) =>
+  api.get(`/syndicate-governance/${syndicateId}/roles`);
+
+export const createSyndicateRole = (syndicateId: string, name: string, permissions: string[], priority?: number) =>
+  api.post(`/syndicate-governance/${syndicateId}/roles`, { name, permissions, priority });
+
+export const updateSyndicateRole = (syndicateId: string, roleId: string, data: { name?: string; permissions?: string[]; priority?: number }) =>
+  api.put(`/syndicate-governance/${syndicateId}/roles/${roleId}`, data);
+
+export const deleteSyndicateRole = (syndicateId: string, roleId: string) =>
+  api.delete(`/syndicate-governance/${syndicateId}/roles/${roleId}`);
+
+export const assignMemberRole = (syndicateId: string, playerId: string, roleId: string | null) =>
+  api.post(`/syndicate-governance/${syndicateId}/members/${playerId}/role`, { role_id: roleId });
+
+// ── Governance Settings ─────────────────────────────────────
+export const getSyndicateSettings = (syndicateId: string) =>
+  api.get(`/syndicate-governance/${syndicateId}/settings`);
+
+export const updateSyndicateSettings = (syndicateId: string, settings: Record<string, any>) =>
+  api.put(`/syndicate-governance/${syndicateId}/settings`, settings);
+
+// ── Votes ───────────────────────────────────────────────────
+export const getSyndicateVotes = (syndicateId: string) =>
+  api.get(`/syndicate-governance/${syndicateId}/votes`);
+
+export const getVoteDetail = (syndicateId: string, voteId: string) =>
+  api.get(`/syndicate-governance/${syndicateId}/votes/${voteId}`);
+
+export const proposeVote = (syndicateId: string, type: string, description: string, target_data?: any) =>
+  api.post(`/syndicate-governance/${syndicateId}/votes`, { type, description, target_data });
+
+export const castVote = (syndicateId: string, voteId: string, choice: string) =>
+  api.post(`/syndicate-governance/${syndicateId}/votes/${voteId}/cast`, { choice });
+
+// ── Governance Kick ─────────────────────────────────────────
+export const governanceKick = (syndicateId: string, playerId: string) =>
+  api.post(`/syndicate-governance/${syndicateId}/kick`, { player_id: playerId });
 
 export default api;
