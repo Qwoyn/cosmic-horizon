@@ -1,77 +1,6 @@
-# Cosmic Horizon - Public Beta Testing Guide
+# Cosmic Horizon - Gameplay Testing Guide
 
-Welcome to Cosmic Horizon, a persistent multiplayer space trading game inspired by TradeWars 2002. This guide will help you get set up, learn the basics, and know what to test.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- **Node.js 20+** and **npm**
-- A modern web browser (Chrome, Firefox, Edge, Safari)
-- (Optional) **Docker** and **Docker Compose** for containerized setup
-
-### Option A: Local Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Qwoyn/cosmic-horizon.git
-   cd cosmic-horizon
-   ```
-
-2. **Install dependencies**
-   ```bash
-   cd server && npm install
-   cd ../client && npm install
-   ```
-
-3. **Initialize the database**
-   ```bash
-   cd ../server
-   npx knex migrate:latest --knexfile knexfile.ts
-   npx knex seed:run --knexfile knexfile.ts
-   ```
-   This generates 5,000 sectors, 200 outposts, 306 planets, 8 ship types, 25 mission templates, and more.
-
-4. **Start the server** (Terminal 1)
-   ```bash
-   cd server
-   npm run dev
-   ```
-
-5. **Start the client** (Terminal 2)
-   ```bash
-   cd client
-   npm run dev
-   ```
-
-6. **Open the game** at `http://localhost:5173`
-
-### Option B: Docker Compose
-
-```bash
-git clone https://github.com/Qwoyn/cosmic-horizon.git
-cd cosmic-horizon
-docker-compose up --build
-```
-
-This starts PostgreSQL, the server (port 3000), and the client (port 80). Open `http://localhost` in your browser.
-
-### Environment Variables (Optional)
-
-Copy the example config if you want to customize ports or secrets:
-```bash
-cp .env.example server/.env
-```
-
-Key variables:
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3000` | Server port |
-| `CLIENT_URL` | `http://localhost:5173` | Client origin for CORS |
-| `SESSION_SECRET` | dev default | Session signing key |
-| `JWT_SECRET` | dev default | JWT signing key |
+This guide walks through every game system for playtesting. Work through each test and use the checklist at the bottom to track progress.
 
 ---
 
@@ -91,14 +20,13 @@ Key variables:
 
 ## How to Play
 
-Cosmic Horizon uses a terminal-style interface. Type commands in the input bar at the bottom of the screen.
+The game uses a panel-based UI with a command input at the bottom of the context panel (right sidebar). You can interact via typed commands or by using buttons in the activity panels.
 
 **Getting help:**
 - `help` — View command categories at a glance
 - `help <category>` — View commands in a category (e.g., `help trading`)
 - `help <command>` — Detailed help for a specific command (e.g., `help buy`)
 - `tips` — Contextual tips based on your current situation
-- `clear` — Clear the terminal screen
 
 ### Command Categories
 
@@ -148,8 +76,6 @@ Commodities: **cyrillium**, **food**, **tech**
 | `shipupgrades` | View upgrades installed on current ship |
 | `uninstall <install_id>` | Remove an upgrade |
 
-**Note:** Installed upgrades now appear in your `status` — weapon energy, engine energy, and cargo capacity all reflect upgrade bonuses.
-
 #### Planets
 
 | Command | What it does |
@@ -175,7 +101,6 @@ Commodities: **cyrillium**, **food**, **tech**
 | Command | Alias | What it does |
 |---|---|---|
 | `chat <message>` | `say` | Send a message to players in your sector |
-| `bounties` | | View active bounties |
 | `leaderboard [category]` | `lb` | View rankings |
 
 #### Missions
@@ -187,8 +112,7 @@ Commodities: **cyrillium**, **food**, **tech**
 | `missions` | View active missions |
 | `missions completed` | View completed missions |
 | `abandon <mission_id>` | Abandon a mission |
-
-**Note:** After completing the tutorial, 3 starter missions are automatically assigned: Pathfinder, First Trades, and Scanner Training.
+| `claimreward` | Claim completed mission rewards (at Star Mall) |
 
 #### Mail
 
@@ -244,13 +168,12 @@ Commodities: **cyrillium**, **food**, **tech**
 |---|---|
 | `help [category\|command]` | View help categories, category commands, or command details |
 | `tips` | Contextual guidance based on your situation |
-| `clear` | Clear the terminal screen |
 | `inventory` | View items in your inventory |
 | `use <item_id> [args]` | Use an item from inventory |
 
 ---
 
-## What to Test
+## Gameplay Tests
 
 ### Test 1: Registration & Login
 
@@ -270,9 +193,9 @@ Commodities: **cyrillium**, **food**, **tech**
 1. Type `look` — note your current sector and adjacent sectors
 2. Type `move <adjacent_sector_id>` to travel
 3. Type `status` to verify sector changed and energy decreased by 1
-4. Type `map` to see explored sectors on the visual map
-5. Try `move 99999` (non-adjacent) — should fail with an error
-6. Try the +/- zoom buttons on the map panel and drag to pan when zoomed
+4. Click adjacent sectors on the sector map to warp
+5. Try the +/- zoom buttons on the map and drag to pan when zoomed
+6. Try `move 99999` (non-adjacent) — should fail with an error
 
 **Watch for:** Energy not decreasing, sector not updating, map not showing visited sectors, zoom/pan not working.
 
@@ -398,7 +321,7 @@ Open two browser windows and register two separate accounts.
 
 ---
 
-### Test 11b: Starter Missions (Post-Tutorial)
+### Test 12: Starter Missions (Post-Tutorial)
 
 1. Register a new account and complete (or skip) the tutorial
 2. After the post-tutorial lore sequence, verify a welcome message appears with getting-started guidance
@@ -413,7 +336,7 @@ Open two browser windows and register two separate accounts.
 
 ---
 
-### Test 12: Sector Events
+### Test 13: Sector Events
 
 1. Navigate through sectors, checking `look` in each
 2. Find a sector with an event/anomaly listed
@@ -426,17 +349,17 @@ Open two browser windows and register two separate accounts.
 
 ---
 
-### Test 13: Leaderboards
+### Test 14: Leaderboards
 
 1. `leaderboard` — view overview (top 5 per category)
 2. `leaderboard credits` — view top 20 by credits
-3. Try other categories: `planets`, `combat`, `explored`, `trade`, `syndicate`
+3. Try other categories: `planets`, `combat`, `explored`, `trade`, `syndicate`, `level`
 
 **Watch for:** Empty leaderboards after activity, incorrect rankings, duplicate entries.
 
 ---
 
-### Test 14: Player Messaging
+### Test 15: Player Messaging
 
 1. `mail` — view inbox (should be empty)
 2. `mail send <player> Hello | Testing the mail system!`
@@ -449,7 +372,7 @@ Open two browser windows and register two separate accounts.
 
 ---
 
-### Test 15: Ship Upgrades
+### Test 16: Ship Upgrades
 
 1. Navigate to a Star Mall
 2. `upgrades` — browse available upgrades
@@ -462,11 +385,11 @@ Open two browser windows and register two separate accounts.
 9. `install xyz` — try a non-existent upgrade, should show error
 10. If multiple upgrades match a search term, verify disambiguation list is shown
 
-**Watch for:** Stats not changing after install, `status` not reflecting upgrade bonuses, cargo capacity not including upgrade bonus when buying/selling, fuzzy match not working.
+**Watch for:** Stats not changing after install, cargo capacity not including upgrade bonus when buying/selling, fuzzy match not working.
 
 ---
 
-### Test 16: Warp Gates
+### Test 17: Warp Gates
 
 1. Create or join a syndicate
 2. Navigate to a standard sector
@@ -479,7 +402,7 @@ Open two browser windows and register two separate accounts.
 
 ---
 
-### Test 17: Cloaking (Shadow Runner Only)
+### Test 18: Cloaking (Shadow Runner Only)
 
 1. Purchase a Shadow Runner: `buyship stealth`
 2. `cloak` — toggle on
@@ -490,7 +413,7 @@ Open two browser windows and register two separate accounts.
 
 ---
 
-### Test 18: Energy Regeneration
+### Test 19: Energy Regeneration
 
 1. Note energy via `status`
 2. Spend some energy moving around
@@ -501,7 +424,7 @@ Open two browser windows and register two separate accounts.
 
 ---
 
-### Test 19: Edge Cases
+### Test 20: Edge Cases
 
 Try each of these and verify you get a helpful error (not a crash):
 
@@ -516,7 +439,7 @@ Try each of these and verify you get a helpful error (not a crash):
 
 ---
 
-### Test 20: Help System (Categorized)
+### Test 21: Help System
 
 1. `help` — should show a compact list of ~14 categories (not a wall of commands)
 2. `help trading` — should show trading commands with usage
@@ -531,449 +454,213 @@ Try each of these and verify you get a helpful error (not a crash):
 
 ---
 
-### Test 21: Tips Command
-
-1. `tips` — should show contextual guidance
-2. Navigate to a Star Mall sector and type `tips` — should mention Star Mall services
-3. Buy some cargo and type `tips` — should mention you're carrying cargo
-4. Verify it always shows the "help <category>" hint
-
-**Watch for:** Tips crashing when player has no ship, tips not detecting Star Mall.
-
----
-
 ### Test 22: Sector Chat
 
 1. Open two browser windows with two separate accounts
 2. Navigate both to the same sector
-3. **Player 1**: `chat hello!` — should see `[Player1] hello!` in their own terminal
-4. **Player 2**: Should see `[Player1] hello!` appear
-5. **Player 2**: `chat hi back!` — should echo locally, Player 1 should see it
+3. **Player 1**: `chat hello!` — should see the message in mini chat
+4. **Player 2**: Should see Player 1's message appear
+5. **Player 2**: `chat hi back!` — Player 1 should see it
 6. Try `say hello` (alias) — should work the same as chat
+7. Test channel switching in mini chat (Sector/Syndicate/Alliance tabs)
 
-**Watch for:** Own messages not appearing, duplicate messages, messages appearing in wrong sectors.
-
----
-
-### Test 23: Terminal Clear & Auto-trim
-
-1. Run several commands to fill the terminal
-2. `clear` — terminal should be completely empty
-3. Run a command after clear — should work normally
-4. (Stress test) Run 250+ commands rapidly — terminal should not exceed ~200 lines (older lines auto-trimmed)
-
-**Watch for:** Clear not working, auto-trim removing lines too aggressively, clear breaking command input.
+**Watch for:** Own messages not appearing, duplicate messages, messages appearing in wrong sectors/channels.
 
 ---
 
-### Test 24: Fuel Alias
+### Test 23: Notification Log
 
-1. Navigate to a Star Mall
-2. `fuel 10` — should work exactly like `refuel 10`
-3. Verify energy increased and credits deducted
+1. Run several commands to generate log entries
+2. Verify log entries have color-coded prefixes ([i], [!], [$], etc.)
+3. Click CLEAR — log should be empty
+4. Run a command after clear — should work normally
+5. Verify auto-scroll keeps newest entries visible
 
-**Watch for:** "Unknown command" error for fuel.
-
----
-
-### Test 25: Sector Map Layout
-
-1. Explore 10+ sectors by moving around
-2. Open the sector map in the sidebar
-3. Verify sectors are visually spread out with clear spacing between nodes
-4. Verify connected sectors have visible edge lines between them
-5. Zoom in/out — nodes should remain well-spaced
-6. Drag to pan when zoomed in
-
-**Watch for:** Nodes piled on top of each other, edges overlapping, map too cramped.
+**Watch for:** Clear not working, prefixes missing, log not scrolling to bottom.
 
 ---
 
-## Roadmap A-E Verification Tests
-
-These tests verify the features implemented in roadmap items A through E.
-
-### Test 26: Inventory System (Item A)
+### Test 24: Inventory System
 
 1. Navigate to a Star Mall and `dock`
-2. `store` — verify numbered items with prices, categories, and IDs (e.g. `[1] Probe ... 500 cr [consumable] (probe)`)
+2. `store` — verify numbered items with prices, categories, and IDs
 3. `purchase 1` (or `purchase fuel`) — verify item purchased and credits deducted
-4. `inventory` — verify purchased items show with quantities (e.g. `x2`) and `[category]` tags
-5. If ship has jump drive, verify `=== EQUIPPED ===` section shows it
-6. Buy a deployable (e.g. mine): `purchase mine` — verify it appears in `inventory`
-7. Navigate to a standard sector and `deploy` the mine — verify it's consumed from inventory (disappears or quantity decreases)
-8. `use 1` — verify using a consumable by number works
-9. `use probe` — verify using a consumable by name works
+4. `inventory` — verify purchased items show with quantities and category tags
+5. Buy a deployable (e.g. mine): `purchase mine` — verify it appears in inventory
+6. Navigate to a standard sector and `deploy` the mine — verify it's consumed from inventory
+7. `use 1` — verify using a consumable by number works
+8. `use probe` — verify using a consumable by name works
 
-**Watch for:** Items not appearing after purchase, quantities not stacking, equipped section missing, deploy not consuming inventory item, `use` not accepting both name and number.
+**Watch for:** Items not appearing after purchase, quantities not stacking, deploy not consuming inventory item.
 
 ---
 
-### Test 27: Planets Command & Panel (Item B)
+### Test 25: Planets Panel & Commands
 
-1. Own at least one planet (navigate to a sector with unclaimed planets, `look`, then `claim <name or #>`)
-2. `planets` — verify output shows name, class, sector, level, colonists, stocks, and production per tick
+1. Own at least one planet (claim one from a sector with unclaimed planets)
+2. `planets` — verify output shows name, class, sector, level, colonists, stocks, and production
 3. Click the Planets icon in the activity bar — verify the panel shows the same data
-4. `planets all` — verify discovered planets view shows all planets from visited sectors with ownership markers (`[YOURS]`, owner name, or `*unclaimed*`)
-5. With no planets owned, verify `planets` shows "You do not own any planets"
-6. With no planets owned, verify Planets panel shows empty state message
-7. In the Planets panel, click "Discovered" tab — verify all visited planets appear with markers
+4. `planets all` — verify discovered planets view shows ownership markers (`[YOURS]`, owner name, or `*unclaimed*`)
+5. In the Planets panel, click "Discovered" tab — verify all visited planets appear
+6. Seed planets show `[seed world]` in `look`, cannot be claimed
+7. `land 1` — planet commands accept numbers from look listing
+8. `colonize 1 50` — verify number resolves to the planet, not the quantity
 
-**Watch for:** Panel not loading, `planets` showing no data when planets are owned, `planets all` failing, discovered tab showing nothing after exploring sectors.
-
----
-
-### Test 28: Seed Planet Guard (Item C)
-
-1. Navigate to a sector with a seed planet (class S) — use `scan` or explore until you find one
-2. `look` — verify seed planet shows `[seed world]` tag, NOT `*unclaimed*`
-3. Try `claim <seed planet name>` — verify error: "Seed planets cannot be claimed"
-4. Find a non-S unclaimed planet in the same or nearby sector
-5. `look` — verify it shows `*unclaimed*`
-6. `claim <name>` — verify it can be claimed successfully
-
-**Watch for:** Seed planets showing as `*unclaimed*`, seed planets being claimable, non-seed unclaimed planets missing the `*unclaimed*` tag.
+**Watch for:** Panel not loading, numbers not resolving, seed planets being claimable.
 
 ---
 
-### Test 29: Planet Commands by Number (Item D)
-
-1. Navigate to a sector with planets
-2. `look` — verify planets are numbered `[1]`, `[2]`, etc.
-3. `land 1` — verify it resolves to the first planet and shows details
-4. `claim 1` — verify number resolves to the correct planet (if unclaimed)
-5. `claim <partial name>` — verify fuzzy matching works (e.g. first few letters of the planet name)
-6. `colonize 1 50` — verify number resolves to the planet, not the quantity
-7. `collect 1 25` — verify same behavior at a seed planet
-8. `upgrade 1` — verify it resolves to the correct planet
-9. With multiple planets matching a partial name, verify disambiguation display appears showing numbered options
-
-**Watch for:** Numbers not resolving, `colonize 1 50` treating `1` as quantity instead of planet, fuzzy match not working, disambiguation not showing when multiple planets match.
-
----
-
-### Test 30: Star Mall Scenes & UX (Item E)
+### Test 26: Star Mall Scenes
 
 1. Navigate to a Star Mall sector and `dock` — verify:
-   - Docking scene plays
-   - Mall interior ambient scene replaces the normal docked scene (station backdrop with holographic displays)
-   - Welcome message appears with `=== STAR MALL ===`
-   - Each service shows with command hint: `-> type "dealer"`, etc.
-2. `mall` — verify same service list with command hints (not empty `-> type ""`)
-3. `cantina` — verify interior bar scene plays (not ship scene)
-4. `undock` — verify ambient scene returns to normal space/outpost
-5. Navigate to a non-mall outpost sector and `dock` — verify normal docked scene (no mall interior)
-6. Verify mall interior scene now has a subtle starfield effect (stars visible through viewports)
+   - Mall interior ambient scene with holographic displays
+   - Welcome message with `=== STAR MALL ===`
+   - Each service shows with command hint
+2. `mall` — verify service list with command hints
+3. `cantina` — verify interior bar scene plays
+4. `undock` — verify ambient scene returns to normal space
+5. Navigate to a non-mall outpost and `dock` — verify normal docked scene (no mall interior)
 
-**Watch for:** Mall interior not showing when docked at Star Mall, service command hints being empty, cantina showing ship scene, normal outpost showing mall interior, no starfield in mall scene.
+**Watch for:** Mall interior not showing, command hints empty, normal outpost showing mall interior.
 
 ---
 
-## Leveling System Tests (Item F)
+### Test 27: Leveling & Progression
 
-### Test 31: Profile & Rank Display
+1. `status` — verify level, rank, and XP shown (e.g. `Lv.1 | Recruit`)
+2. `profile` (or `p`, `rank`, `lvl`) — verify full progression display
+3. Move to a **new** sector — verify +10 XP awarded
+4. Move to an already-visited sector — verify no XP
+5. `buy` and `sell` at outpost — verify trade XP in response
+6. `claim` a planet — verify +75 XP
+7. `investigate` an anomaly — verify +25 XP
+8. Earn enough XP to level up — verify max_energy increases and bonuses display
 
-1. Register a new account (or use an existing one)
-2. `status` — verify level, rank, and XP are shown in the header (e.g. `=== PlayerName [Muscarian] Lv.1 | Recruit ===`) and XP line appears below
-3. `profile` — verify full progression display: level/100, XP progress bar, rank title, and level bonuses (all zeroes at level 1)
-4. `p` — alias for profile, should work the same
-5. `rank` — alias for profile, should work the same
-6. `lvl` — alias for profile, should work the same
-
-**Watch for:** Missing level/rank in status, profile command failing, aliases not working.
-
----
-
-### Test 32: XP from Exploration
-
-1. `profile` — note current XP
-2. `move` to a **new** (previously unvisited) sector
-3. Check the move response for `xp` data showing +10 XP awarded
-4. `profile` — verify XP increased by 10
-5. Move back to a sector you've already visited — verify no XP is awarded (no `xp` field in response)
-
-**Watch for:** XP awarded for revisiting already-explored sectors, XP not showing in profile.
+**Watch for:** XP for revisiting sectors, missing XP on actions, max energy not increasing on level-up.
 
 ---
 
-### Test 33: XP from Trading
+### Test 28: Achievements & Ranks
 
-1. `profile` — note current XP
-2. Dock at an outpost and `buy cyrillium 5` — response should include `xp` showing +10 (5 * 2 per unit buy)
-3. Navigate to another outpost and `sell cyrillium 5` — response should show +25 (5 * 5 per unit sell)
-4. `profile` — verify total XP increased by 35
+1. `achievements` (or `ach`) — verify locked/available achievements shown
+2. Perform an action that triggers an achievement (explore sectors, make a trade)
+3. `achievements` — verify it moved from LOCKED to EARNED
+4. `ranks` — verify full rank tier table (21 tiers from Recruit to Cosmic Legend)
+5. Verify ship level gates section matches `dealer` locked ships
 
-**Watch for:** No XP on buy/sell, incorrect XP amounts.
-
----
-
-### Test 34: XP from Combat
-
-1. Set up two players in the same standard sector
-2. `profile` on attacker — note XP
-3. `fire <target> 5` — response should show `xp` with +15 (volley XP)
-4. If defender is destroyed, response should show +150 (destroy XP) instead of +15
-5. `profile` — verify XP increased
-
-**Watch for:** No combat XP, destroy XP not awarding, XP awarding on volley miss.
+**Watch for:** Achievements not unlocking, credit rewards not paying, rank table incomplete.
 
 ---
 
-### Test 35: XP from Planets & Events
+### Test 29: Ship Level Gates
 
-1. Navigate to a sector with an unclaimed planet
-2. `claim <planet>` — response should include `xp` showing +75
-3. With colonists on ship, `colonize <planet> 10` — response should show +10 XP (1 per colonist)
-4. Navigate to a sector with an anomaly and `investigate` — response should show +25 XP
+1. `dealer` — verify locked ships show `[Lv.X]` in warning color
+2. Try `buyship corvette` at level 1 — should fail with "Requires level 5"
+3. `buyship scout` (no level gate) — should succeed at any level
 
-**Watch for:** No XP on claim/colonize/investigate, incorrect amounts.
-
----
-
-### Test 36: Level Up & Stat Bonuses
-
-1. Earn enough XP to level up (trade repeatedly or explore many new sectors)
-2. When a level-up occurs, the response `xp.levelUp` should contain:
-   - `levelsGained`, `oldLevel`, `newLevel`, `newRank`
-   - `bonuses` with `maxEnergy`, `cargo`, `weapon`, `engine` gains
-3. `status` — verify `maxEnergy` increased (should be +1 per level gained)
-4. `profile` — verify level bonuses section shows cumulative bonuses
-
-**Watch for:** Max energy not increasing on level-up, level bonuses not accumulating, rank not changing at tier boundaries.
+**Watch for:** Locked ships purchasable, wrong error message.
 
 ---
 
-### Test 37: Ship Level Gates
+### Test 30: Tiered Mission Board
 
-1. Navigate to a Star Mall
-2. `dealer` — verify each ship shows `requiredLevel` and locked ships show `[Lv.X]` in warning color
-3. Try `buyship corvette` at level 1 — should fail with "Requires level 5" error
-4. Level up to the required level and try again — should succeed
-5. `buyship scout` (no level gate) — should succeed at any level
+1. At Star Mall, `missionboard` — verify missions grouped by tier
+2. Tiers above your level show `[LOCKED - Requires Level X]`
+3. Each mission shows tier tag, type, reward credits, and XP
+4. Try to `accept` a mission from a locked tier — should be rejected
+5. Accept from an unlocked tier — should succeed with objectives shown
 
-**Watch for:** Locked ships purchasable, no level requirement shown in dealer, wrong error message.
-
----
-
-### Test 38: Achievements
-
-1. `achievements` — verify it shows locked/available achievements with descriptions
-2. `ach` — alias should work
-3. Perform an action that triggers an achievement (e.g. explore enough sectors, make a first trade)
-4. `achievements` — verify the achievement moved from "LOCKED" to "EARNED" section
-5. Check that credit rewards from achievements are added to your credits
-
-**Watch for:** Achievements not unlocking, credit rewards not paying, hidden achievements showing in locked list before being earned.
+**Watch for:** All tiers locked, missing tier headers, locked missions accepted.
 
 ---
 
-### Test 39: Ranks Command
+### Test 31: Mission Objectives & Claims
 
-1. `ranks` — verify full rank tier table is displayed (21 tiers from Recruit to Cosmic Legend)
-2. Verify ship level gates section appears showing required levels for each ship type
-3. Cross-reference with `dealer` locked ships — level requirements should match
+1. Accept a mission and `missions` — verify per-objective `[ ]` checkboxes with hints
+2. Make progress — verify counts update, `[x]` on completion
+3. Complete a claim-at-mall mission — should show `PENDING CLAIM`
+4. Move away from Star Mall — `claimreward` should error
+5. At Star Mall, `claimreward` — rewards granted (credits + XP)
+6. `cr` alias works for claimreward
 
-**Watch for:** Incomplete rank table, missing ship gates, mismatched levels between ranks and dealer.
-
----
-
-### Test 40: Level Leaderboard
-
-1. `leaderboard level` — verify rankings by player level, sorted by level then XP
-2. `leaderboard` — verify "level" category appears in the overview
-3. Verify the categories hint shows: `Categories: credits, planets, combat, explored, trade, syndicate, level`
-
-**Watch for:** Level leaderboard missing, incorrect sort order, empty despite players having levels.
+**Watch for:** Progress not updating, rewards auto-granted before claiming, alias not working.
 
 ---
 
-### Test 41: Mission XP
+### Test 32: Prerequisite & Cantina Missions
 
-1. Accept and complete a mission
-2. Verify XP is awarded on completion (base 50 * difficulty scaling)
-3. `profile` — verify XP increased
+1. Find a mission with a prerequisite — can't accept child until parent completed
+2. Complete parent, then accept child — should work
+3. `cantina talk` before "The Bartender's Trust" — bartender doesn't trust you
+4. Complete "The Bartender's Trust" mission
+5. `cantina talk` (or `ct`) — bartender interacts, may offer cantina mission
 
-**Watch for:** No XP on mission completion, incorrect XP amount.
-
----
-
-### Test 42: New Player Progression Row
-
-1. Register a brand new account
-2. `profile` — should show Level 1, Recruit, 0 XP with no errors
-3. `status` — should show Lv.1 and Recruit in header
-
-**Watch for:** Profile erroring for new player, missing progression row, level showing as null.
+**Watch for:** Prerequisite not checked, cantina unlocking before gate mission done.
 
 ---
 
-### Test 43: Tiered Mission Board
+### Test 33: UI & Layout
 
-1. Go to a Star Mall sector and `dock`
-2. `missionboard` — verify missions are grouped by tier (Tier 1, Tier 2, etc.)
-3. Verify tiers above your level show `[LOCKED - Requires Level X]`
-4. Verify each mission shows tier tag, type, reward credits, and XP
+1. Sector map fills left 2/3 of top area with space background (starfield + nebula parallax)
+2. Notification log fills right 1/3 of top area
+3. Activity bar on far left with panel icons
+4. Context panel (right sidebar) shows: player profile, ship card, mini chat, command input
+5. Move mouse over sector map — star layers shift with parallax depth effect
+6. Hover sector nodes — tooltip shows sector ID and type
+7. Click legend button (?) — legend overlay toggles
+8. Status bar at bottom shows all player stats with subtle ambient flicker
 
-**Watch for:** All tiers showing as locked, missing tier headers, XP not displayed.
-
----
-
-### Test 44: Accept Tier-Gated Mission
-
-1. At Star Mall, `missionboard` and note a locked tier
-2. Try to `accept` a mission from a locked tier — should be rejected with level requirement message
-3. Accept a mission from an unlocked tier — should succeed with objectives detail shown
-
-**Watch for:** Locked mission accepted anyway, unlocked mission rejected, missing error message.
+**Watch for:** Layout elements overlapping, parallax not working, tooltips mispositioned, missing sections in context panel.
 
 ---
 
-### Test 45: Per-Objective Progress Detail
+### Test 34: Activity Panels
 
-1. Accept a mission (e.g., a visit_sector or deliver_cargo mission)
-2. `missions` — verify each objective shows `[ ]` checkbox, description, target, current count, and hint
-3. Make progress on the mission (e.g., move to a new sector for visit_sector)
-4. `missions` — verify `current` count updated, checkbox shows `[x]` when objective complete
+1. Click each icon in the activity bar — correct panel opens
+2. Nav panel: LOOK, SCAN, WARP buttons work
+3. Gear panel: CLOAK, REFUEL, EJECT, SELF-DESTRUCT buttons work (with confirmations)
+4. Planets panel: LAND buttons appear for planets in current sector
+5. Actions panel (⚡): all buttons trigger correct commands
+6. Comms panel: full chat interface works
+7. Syndicate panel: pool-access, revoke-factory, cancel vote available
 
-**Watch for:** Objectives not showing, progress not updating, hints missing, checkbox never changing.
-
----
-
-### Test 46: Claim-at-Mall Missions
-
-1. Accept a mission with `requires_claim_at_mall` (Tier 3+ missions like "Interstellar Logistics")
-2. Complete all objectives — `missions` should show `Status: PENDING CLAIM - visit any Star Mall`
-3. Verify rewards are NOT yet awarded (credits unchanged)
-4. Move away from Star Mall — `claimreward` should error with "Must be at a star mall"
-5. Return to Star Mall, `claimreward` — rewards granted, credits and XP updated
-
-**Watch for:** Rewards auto-granted before claiming, claim working outside Star Mall, mission stuck in pending.
+**Watch for:** Wrong panel opening, buttons not triggering commands, missing panels.
 
 ---
 
-### Test 47: Claimreward Command
+### Test 35: Ambient Animations
 
-1. Complete a claim-at-mall mission
-2. At Star Mall, `claimreward` — if one claimable mission, auto-claims and shows rewards
-3. Complete multiple claim-at-mall missions
-4. `claimreward` — lists numbered claimable missions
-5. `claimreward 1` — claims specific mission, shows credits and XP awarded
-6. `cr` alias works the same as `claimreward`
+1. Sector map nodes twinkle subtly at different rates
+2. Notification log prefixes pulse gently
+3. Inactive activity bar icons shimmer
+4. Border corners pulse with accent color
+5. Ship sprite in context panel has breathing glow
+6. Status bar values flicker occasionally (~30-50s intervals)
+7. Notification log has faint horizontal scanline sweep
 
-**Watch for:** Auto-claim not triggering with single mission, numbering wrong, alias not working.
-
----
-
-### Test 48: Prerequisite Chain Missions
-
-1. `missionboard` — find a mission with a prerequisite (e.g., "Supply Chain Master" requires "Interstellar Logistics")
-2. Try to accept the child mission before completing parent — should be rejected
-3. Complete the parent mission
-4. `missionboard` — child mission should now show as unlocked
-5. Accept and verify it works normally
-
-**Watch for:** Prerequisite not checked, child mission always locked, prerequisite status not updating.
-
----
-
-### Test 49: Cantina Gate Mission
-
-1. `cantina talk` or `ct` before completing "The Bartender's Trust" — should say bartender doesn't trust you
-2. Accept "The Bartender's Trust" from mission board (Tier 2, trade_units, 100 units)
-3. Complete the mission
-4. `cantina talk` — bartender should now interact, may offer a cantina mission
-
-**Watch for:** Cantina talk working before gate mission done, gate mission not recognized, unlock state not persisting.
-
----
-
-### Test 50: Cantina Missions
-
-1. After unlocking cantina access, `cantina talk` repeatedly
-2. When bartender offers a mission, note the mission details (cantina-exclusive)
-3. Accept the cantina mission via normal `accept` command
-4. `missions` — verify cantina mission shows in active list with objectives detail
-5. Complete it like a normal mission
-
-**Watch for:** Cantina missions never offered, mission accept failing, cantina missions appearing on regular board.
-
----
-
-### Test 51: Mission XP Rewards (Expanded)
-
-1. Accept and complete a mission
-2. Verify both credits AND XP are shown in completion message
-3. `profile` — verify XP increased by the mission's reward_xp amount
-4. For claim-at-mall missions, verify XP is awarded at claim time, not completion time
-
-**Watch for:** XP not awarded, wrong XP amount, XP awarded twice (at completion and claim).
-
----
-
-### Test 52: Starter Mission Objectives Detail
-
-1. Register a new player, complete or skip tutorial
-2. `missions` — verify 3 starter missions are listed with per-objective detail
-3. Each starter mission should show `[ ]` checkboxes, targets, current progress (0), and hints
-4. Verify `claim_status` is 'auto' (rewards auto-granted on completion)
-
-**Watch for:** Starter missions missing objectives_detail, hints empty, claim_status wrong.
-
----
-
-### Test 53: Mission Board Cantina Status
-
-1. `cantina` at Star Mall — verify `cantinaUnlocked` status is shown (locked or unlocked)
-2. If locked, verify hint about "The Bartender's Trust" mission is shown
-3. After unlocking, `cantina` should show unlocked status
-
-**Watch for:** Cantina status not reflecting actual unlock state, hint missing for locked state.
-
----
-
-### Test 54: Active Missions with Pending Claims
-
-1. Have both active missions and completed-but-pending-claim missions
-2. `missions` — verify active missions show in main section
-3. Verify pending-claim missions show separately with PENDING CLAIM status
-4. Verify completed (claimed) missions do NOT appear in active list
-
-**Watch for:** Pending-claim missions missing, completed missions still showing, sections not separated.
-
----
-
-### Test 55: Expanded Mission Seeds
-
-1. Run the 005_expanded_missions seed
-2. `missionboard` at Star Mall — verify 20 board missions across 5 tiers appear
-3. Verify prerequisite chains: missions with prerequisites show lock/dependency info
-4. Verify cantina missions do NOT appear on the regular mission board
-5. Verify deterministic UUIDs (b0000000-...) are consistent across re-seeds
-
-**Watch for:** Missing missions, cantina missions on board, UUIDs changing on re-seed, broken prerequisite references.
+**Watch for:** Animations too fast/distracting, animations not playing, performance issues.
 
 ---
 
 ## Quick Smoke Test Checklist
 
-Run through this abbreviated flow to verify the basics:
-
 - [ ] Register a new player
-- [ ] Complete or skip the tutorial — verify starter missions are assigned
-- [ ] After post-tutorial lore, verify welcome message with getting-started tips appears
+- [ ] Complete or skip the tutorial — verify starter missions assigned
+- [ ] After post-tutorial lore, verify welcome message appears
 - [ ] Log out and log back in (try both username and email)
 - [ ] `look` — see sector contents
 - [ ] `move` to adjacent sector and back
+- [ ] Click adjacent sector on map to warp
 - [ ] `status` — verify energy decreased
-- [ ] `map` — verify map shows explored sectors with good spacing, zoom and pan work
+- [ ] Sector map shows explored sectors, zoom/pan works, parallax background
 - [ ] `dock` at outpost, `buy` a commodity, `sell` at another
 - [ ] `dealer` at Star Mall, buy a ship
 - [ ] `land` on a planet, `claim` it
 - [ ] Second player can see first player in same sector
-- [ ] `chat hello` — message appears in both players' terminals
+- [ ] Chat works in mini chat (context panel) and Comms panel
 - [ ] `fire` works in standard sector, blocked in protected
 - [ ] `flee` returns success/failure
-- [ ] `missions` — verify starter missions are listed
+- [ ] `missions` — starter missions listed with per-objective detail
 - [ ] `missionboard` and `accept` a mission
 - [ ] `investigate` a sector event
 - [ ] `leaderboard` shows rankings
@@ -982,44 +669,48 @@ Run through this abbreviated flow to verify the basics:
 - [ ] `warp` gates work with tolls
 - [ ] `help` — shows categories (not a wall of text)
 - [ ] `help trading` — shows trading commands
-- [ ] `help buy` — shows detailed help for buy
+- [ ] `help buy` — shows detailed help
 - [ ] `tips` — shows contextual guidance
 - [ ] `fuel 10` — alias for refuel works
-- [ ] `clear` — clears the terminal
+- [ ] Notification log shows color-coded entries, CLEAR button works
 - [ ] `note test` and `notes` — notes system works
-- [ ] `store` at Star Mall — numbered items with prices and categories
+- [ ] `store` at Star Mall — numbered items with prices
 - [ ] `purchase 1` — buy by number, credits deducted
 - [ ] `inventory` — items show with quantities and category tags
 - [ ] `planets` — owned planets with stocks and production
 - [ ] `planets all` — discovered planets with ownership markers
 - [ ] Planets panel — Owned/Discovered tabs work
-- [ ] Seed planet shows `[seed world]` in `look`, cannot be claimed
-- [ ] `land 1` — planet commands accept numbers from look listing
-- [ ] Star Mall dock — mall interior scene with starfield, service hints shown
+- [ ] Seed planet shows `[seed world]`, cannot be claimed
+- [ ] `land 1` — planet commands accept numbers
+- [ ] Star Mall dock — mall interior scene with service hints
 - [ ] `cantina` — bar interior scene plays
-- [ ] `status` shows level, rank, and XP (e.g. `Lv.1 | Recruit`)
-- [ ] `profile` shows level, XP bar, rank, and level bonuses
-- [ ] `p` alias works for profile
-- [ ] Move to new sector — XP awarded (+10), revisit — no XP
-- [ ] `buy` and `sell` at outpost — trade XP in response
-- [ ] `claim` planet — +75 XP in response
-- [ ] `investigate` anomaly — +25 XP in response
-- [ ] `achievements` — shows locked achievements, `ach` alias works
+- [ ] `status` shows level, rank, XP
+- [ ] `profile` shows level, XP bar, rank, bonuses
+- [ ] Move to new sector — XP awarded, revisit — no XP
+- [ ] Trade at outpost — trade XP in response
+- [ ] `claim` planet — +75 XP
+- [ ] `investigate` anomaly — +25 XP
+- [ ] `achievements` — shows locked/earned achievements
 - [ ] `ranks` — shows all 21 rank tiers and ship level gates
-- [ ] `dealer` — locked ships show `[Lv.X]` warning, can't buy locked ships
+- [ ] `dealer` — locked ships show `[Lv.X]`, can't buy locked ships
 - [ ] `leaderboard level` — shows level rankings
 - [ ] Level up triggers max_energy increase and bonus display
-- [ ] New registration — profile works immediately (Level 1, Recruit)
-- [ ] `missionboard` — shows tiered grouping, locked tiers grayed out
-- [ ] Accept tier 1 mission — `missions` shows per-objective `[ ]` detail with hints
+- [ ] `missionboard` — tiered grouping, locked tiers grayed out
+- [ ] Accept mission — `missions` shows per-objective detail with hints
 - [ ] Complete objectives — progress updates, `[x]` on completion
-- [ ] Claim-at-mall mission — pending claim after completion, `claimreward` at Star Mall works
+- [ ] Claim-at-mall mission — `claimreward` at Star Mall works
 - [ ] `cr` alias works for claimreward
 - [ ] Prerequisite mission — can't accept child until parent completed
-- [ ] `cantina talk` locked until "The Bartender's Trust" completed
-- [ ] After gate mission, `cantina talk` (or `ct`) offers cantina missions
-- [ ] Starter missions have objectives_detail and hints after tutorial
+- [ ] `cantina talk` locked until gate mission completed
+- [ ] After gate mission, cantina offers missions
 - [ ] Mission rewards show both credits and XP
+- [ ] Context panel: profile, ship card, mini chat, command input all visible
+- [ ] Activity bar panels all open correctly
+- [ ] Nav panel: LOOK/SCAN/WARP buttons work
+- [ ] Gear panel: CLOAK/REFUEL/EJECT/SELF-DESTRUCT buttons work
+- [ ] Actions panel (⚡): all action buttons functional
+- [ ] Ambient animations running smoothly (twinkle, shimmer, pulse, flicker, scanline)
+- [ ] Space background parallax responds to mouse movement
 
 ---
 
@@ -1042,16 +733,15 @@ Include:
 
 - New players get **double energy regeneration** for the first 72 hours
 - Star Mall sectors are safe zones — no combat allowed
-- The sector map in the sidebar shows icons for Star Malls, outposts, and planets
-- You can zoom into the map with the +/- buttons and drag to pan when zoomed
+- The sector map shows icons for Star Malls, outposts, and planets
+- You can zoom into the map with +/- buttons and drag to pan when zoomed
 - Outposts buy and sell different commodities — check the mode column when you `dock`
 - Seed planets (class S) are where you pick up colonists to populate your own planets
 - Type `tips` anytime for contextual guidance based on your current situation
 - Type `help <category>` to see commands in a specific area (e.g., `help trading`)
-- Ship upgrades now show in `status` — install a cargo upgrade and watch your capacity increase
-- You can install upgrades by name: `install cargo` instead of `install cargo_mk2`
-- Use `clear` to clean up the terminal when it gets cluttered
-- The terminal auto-trims to 200 lines during long sessions
+- Ship upgrades show in `status` — install a cargo upgrade and watch your capacity increase
+- You can install upgrades by partial name: `install cargo` instead of `install cargo_mk2`
 - After completing the tutorial, check `missions` for 3 starter missions to earn early credits
 - Use `fuel` as a shortcut for `refuel`
 - Use `chat <message>` or `say <message>` to talk to other players in your sector
+- The mini chat in the context panel supports channel switching (Sector/Syndicate/Alliance)
