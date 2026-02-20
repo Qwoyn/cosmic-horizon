@@ -259,7 +259,7 @@ export default function Game({ onLogout }: GameProps) {
   useEffect(() => {
     if (game.sector && game.lines.length === 0) {
       game.addLine('=== COSMIC HORIZON ===', 'system');
-      game.addLine('A text-based space trading game', 'system');
+      game.addLine('A persistent multiplayer space strategy game', 'system');
       if (game.player && !game.player.tutorialCompleted) {
         game.addLine('Follow the tutorial bar above to learn the basics.', 'info');
         game.addLine('Start by typing "look" to survey your sector.', 'info');

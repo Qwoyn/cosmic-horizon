@@ -520,7 +520,7 @@ The game server is built with Node.js and TypeScript, using Express for the REST
 
 ### 8.2 Frontend
 
-The web client is built with React and TypeScript, featuring a retro terminal aesthetic with modern usability enhancements. The main game narrative flows through a terminal-style text interface, supplemented by interactive panels for the sector map, ship status, inventory management, and trading tables. Clickable elements and styled UI components provide modern convenience without sacrificing the classic text-game feel.
+The web client is built with React and TypeScript, featuring a panel-based UI with pixel art scenes and ambient animations. The game interface is organized into interactive activity panels for navigation, trading, ship management, planets, syndicates, and more. An interactive sector map with parallax starfield serves as the central view, alongside a notification log for game events. A persistent sidebar provides player profile, ship status, mini chat, and command input.
 
 ### 8.3 Game Engine
 

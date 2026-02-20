@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build a fully playable text-based multiplayer space trading game (Cosmic Horizon) as a web application with all whitepaper mechanics except blockchain.
+**Goal:** Build a fully playable persistent multiplayer space strategy game (Cosmic Horizon) as a web application with all whitepaper mechanics except blockchain.
 
-**Architecture:** Monolithic Node.js/TypeScript backend with Express REST API + Socket.io WebSockets, PostgreSQL database, React/TypeScript frontend with retro terminal UI. Game engine is isolated from transport layer. 60-second game tick handles regeneration, production, decay.
+**Architecture:** Monolithic Node.js/TypeScript backend with Express REST API + Socket.io WebSockets, PostgreSQL database, React/TypeScript frontend with panel-based UI. Game engine is isolated from transport layer. 60-second game tick handles regeneration, production, decay.
 
 **Tech Stack:** Node.js, TypeScript, Express, Socket.io, PostgreSQL, Knex (migrations/queries), React, Vite, Docker
 
