@@ -1,8 +1,9 @@
 import db from '../db/connection';
-import { checkMissionProgress, updateObjectivesDetail, ObjectiveDetail } from '../engine/missions';
+import { checkMissionProgress, updateObjectivesDetail, buildObjectivesDetail, ObjectiveDetail } from '../engine/missions';
 import { awardXP } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
+import crypto from 'crypto';
 
 // Award mission rewards (credits, XP, items). Reused by auto-claim and manual claim.
 export async function awardMissionRewards(
@@ -101,6 +102,13 @@ export async function checkAndUpdateMissions(
               reward_xp: mission.reward_xp,
             });
           }
+
+          // SP mission hooks: mall unlocking and tier auto-advance
+          try {
+            await handleSPMissionCompletion(playerId, mission.missionId);
+          } catch (spErr) {
+            console.error('SP mission hook error:', spErr);
+          }
         } else {
           const updateData: Record<string, any> = {
             progress: JSON.stringify(result.progress),
@@ -114,5 +122,104 @@ export async function checkAndUpdateMissions(
     }
   } catch (err) {
     console.error('Mission tracker error:', err);
+  }
+}
+
+// SP mission IDs that trigger Star Mall unlocks
+const SP_MALL_UNLOCK_MISSIONS: Record<string, number> = {
+  'd0000000-0000-0000-0000-000000000005': 1, // Mission 5 → unlock Star Mall 1
+  'd0000000-0000-0000-0000-000000000012': 2, // Mission 12 → unlock Star Mall 2
+  'd0000000-0000-0000-0000-000000000018': 3, // Mission 18 → unlock Star Mall 3
+};
+
+// SP tier boundaries: completing all missions in a tier unlocks the next
+const SP_TIER_BOUNDARIES: Record<number, number[]> = {
+  1: [1, 2, 3, 4, 5],    // Tier 1 missions (sort_order)
+  2: [6, 7, 8, 9, 10],   // Tier 2
+  3: [11, 12, 13, 14, 15], // Tier 3
+  4: [16, 17, 18, 19, 20], // Tier 4
+};
+
+/**
+ * Handle SP-specific mission completion effects:
+ * - Unlock Star Malls when specific missions complete
+ * - Auto-assign next tier of missions when a tier gate mission completes
+ */
+async function handleSPMissionCompletion(playerId: string, playerMissionId: string): Promise<void> {
+  const player = await db('players').where({ id: playerId }).first();
+  if (!player || player.game_mode !== 'singleplayer') return;
+
+  // Get the template for this completed mission
+  const playerMission = await db('player_missions')
+    .where({ id: playerMissionId })
+    .first();
+  if (!playerMission) return;
+
+  const templateId = playerMission.template_id;
+
+  // Check if this mission unlocks a Star Mall
+  const mallNumber = SP_MALL_UNLOCK_MISSIONS[templateId];
+  if (mallNumber) {
+    // Find the Nth locked star mall in this player's SP sectors
+    const lockedMalls = await db('sectors')
+      .where({ owner_id: playerId, universe: 'sp', has_star_mall: true, sp_mall_locked: true })
+      .orderBy('id', 'asc');
+
+    if (lockedMalls.length > 0) {
+      // Unlock the first locked mall
+      await db('sectors').where({ id: lockedMalls[0].id }).update({ sp_mall_locked: false });
+    }
+  }
+
+  // Check if completing this mission should auto-assign next tier missions
+  // Get the template's sort_order to determine which tier was completed
+  const template = await db('mission_templates').where({ id: templateId }).first();
+  if (!template || template.source !== 'singleplayer') return;
+
+  const sortOrder = template.sort_order;
+
+  // Find which tier this mission belongs to and check if it's the gate mission (last in tier)
+  for (const [tier, missionOrders] of Object.entries(SP_TIER_BOUNDARIES)) {
+    const tierNum = Number(tier);
+    const lastInTier = missionOrders[missionOrders.length - 1];
+
+    if (sortOrder === lastInTier) {
+      // This is the gate mission for this tier — check if next tier missions should be assigned
+      const nextTier = tierNum + 1;
+      const nextTierMissions = await db('mission_templates')
+        .where({ source: 'singleplayer', tier: nextTier })
+        .orderBy('sort_order', 'asc');
+
+      if (nextTierMissions.length === 0) break; // No more tiers
+
+      // Check which next-tier missions aren't already assigned
+      for (const nextMission of nextTierMissions) {
+        const existing = await db('player_missions')
+          .where({ player_id: playerId, template_id: nextMission.id })
+          .first();
+
+        if (!existing) {
+          const objectives = typeof nextMission.objectives === 'string'
+            ? JSON.parse(nextMission.objectives) : nextMission.objectives;
+          const hints = typeof nextMission.hints === 'string'
+            ? JSON.parse(nextMission.hints) : (nextMission.hints || []);
+
+          const detail = buildObjectivesDetail(nextMission.type, objectives, hints);
+
+          await db('player_missions').insert({
+            id: crypto.randomUUID(),
+            player_id: playerId,
+            template_id: nextMission.id,
+            status: 'active',
+            progress: JSON.stringify({}),
+            objectives_detail: JSON.stringify(detail),
+            accepted_at: new Date().toISOString(),
+            reward_credits: nextMission.reward_credits,
+            claim_status: 'auto',
+          });
+        }
+      }
+      break;
+    }
   }
 }

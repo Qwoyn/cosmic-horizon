@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getLeaderboardOverview, getLeaderboard } from '../services/api';
+import { getLeaderboardOverview, getLeaderboard, toggleAlliance } from '../services/api';
 
 interface LeaderboardEntry {
   rank: number;
@@ -20,9 +20,11 @@ const CATEGORIES = ['credits', 'planets', 'combat', 'explored', 'trade', 'syndic
 interface Props {
   refreshKey?: number;
   bare?: boolean;
+  alliedPlayerIds?: string[];
+  onAllianceChange?: () => void;
 }
 
-export default function LeaderboardPanel({ refreshKey, bare }: Props) {
+export default function LeaderboardPanel({ refreshKey, bare, alliedPlayerIds = [], onAllianceChange }: Props) {
   const [category, setCategory] = useState('credits');
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [overview, setOverview] = useState<CategoryOverview[]>([]);
@@ -93,7 +95,18 @@ export default function LeaderboardPanel({ refreshKey, bare }: Props) {
               {e.username}
               {e.isCurrentPlayer && <span style={{ fontSize: 9, marginLeft: 4 }}>(you)</span>}
             </span>
-            <span style={{ color: categoryColor(category) }}>{Number(e.score).toLocaleString()}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {!e.isCurrentPlayer && (
+                <button
+                  className={`btn-sm btn-ally ${alliedPlayerIds.includes(e.playerId) ? 'btn-ally--active' : ''}`}
+                  style={{ fontSize: 8, padding: '1px 4px' }}
+                  onClick={(ev) => { ev.stopPropagation(); toggleAlliance(e.playerId).then(() => onAllianceChange?.()); }}
+                >
+                  {alliedPlayerIds.includes(e.playerId) ? 'ALLIED' : 'ALLY'}
+                </button>
+              )}
+              <span style={{ color: categoryColor(category) }}>{Number(e.score).toLocaleString()}</span>
+            </span>
           </div>
         ))
       )}

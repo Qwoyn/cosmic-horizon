@@ -35,10 +35,29 @@ router.get('/status', requireAuth, async (req, res) => {
     const progress = await getPlayerProgress(player.id);
     const levelBonuses = await getPlayerLevelBonuses(player.id);
 
+    // SP mission summary
+    let spMissions: { completed: number; total: number } | undefined;
+    if (player.game_mode === 'singleplayer') {
+      const spCompleted = await db('player_missions')
+        .join('mission_templates', 'player_missions.template_id', 'mission_templates.id')
+        .where({ 'player_missions.player_id': player.id, 'mission_templates.source': 'singleplayer', 'player_missions.status': 'completed' })
+        .count('* as count')
+        .first();
+      const spTotal = await db('mission_templates')
+        .where({ source: 'singleplayer' })
+        .count('* as count')
+        .first();
+      spMissions = {
+        completed: Number(spCompleted?.count || 0),
+        total: Number(spTotal?.count || 0),
+      };
+    }
+
     res.json({
       id: player.id,
       username: player.username,
       race: player.race,
+      gameMode: player.game_mode || 'multiplayer',
       energy: player.energy,
       maxEnergy: player.max_energy,
       credits: Number(player.credits),
@@ -52,6 +71,7 @@ router.get('/status', requireAuth, async (req, res) => {
       level: progress.level,
       rank: progress.rank,
       xp: progress.totalXp,
+      spMissions,
       currentShip: ship ? {
         id: ship.id,
         shipTypeId: ship.ship_type_id,
@@ -85,6 +105,14 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
 
     if (!canAffordAction(player.energy, 'move')) {
       return res.status(400).json({ error: 'Not enough energy', cost: getActionCost('move') });
+    }
+
+    // SP: validate target sector belongs to player's SP universe
+    if (player.game_mode === 'singleplayer') {
+      const targetSector = await db('sectors').where({ id: targetSectorId }).first();
+      if (!targetSector || targetSector.owner_id !== player.id) {
+        return res.status(400).json({ error: 'Sector is not in your universe' });
+      }
     }
 
     // Check adjacency
@@ -235,6 +263,7 @@ router.get('/sector', requireAuth, async (req, res) => {
       type: sector?.type,
       regionId: sector?.region_id,
       hasStarMall: sector?.has_star_mall,
+      spMallLocked: sector?.sp_mall_locked || false,
       adjacentSectors: edges.map(e => ({ sectorId: e.to_sector_id, oneWay: e.one_way })),
       players: playersInSector,
       outposts: outpostsInSector.map(o => ({ id: o.id, name: o.name })),
@@ -399,6 +428,14 @@ router.post('/dock', requireAuth, async (req, res) => {
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
 
+    // SP: check if Star Mall is locked
+    if (player.game_mode === 'singleplayer') {
+      const currentSector = await db('sectors').where({ id: player.current_sector_id }).first();
+      if (currentSector?.has_star_mall && currentSector?.sp_mall_locked) {
+        return res.status(400).json({ error: 'Complete more missions to unlock this Star Mall' });
+      }
+    }
+
     const outposts = await db('outposts').where({ sector_id: player.current_sector_id });
     if (outposts.length === 0) {
       return res.status(400).json({ error: 'No outpost in this sector' });
@@ -484,6 +521,99 @@ router.post('/seen-post-tutorial', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Seen post-tutorial error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Transition from single player to multiplayer
+router.post('/transition-to-mp', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    if (player.game_mode !== 'singleplayer') {
+      return res.status(400).json({ error: 'Already in multiplayer mode' });
+    }
+
+    const force = req.body.force === true;
+
+    // Check if all 20 SP missions are complete (unless forced)
+    if (!force) {
+      const spCompleted = await db('player_missions')
+        .join('mission_templates', 'player_missions.template_id', 'mission_templates.id')
+        .where({ 'player_missions.player_id': player.id, 'mission_templates.source': 'singleplayer', 'player_missions.status': 'completed' })
+        .count('* as count')
+        .first();
+      const spTotal = await db('mission_templates')
+        .where({ source: 'singleplayer' })
+        .count('* as count')
+        .first();
+
+      if (Number(spCompleted?.count || 0) < Number(spTotal?.count || 0)) {
+        return res.status(400).json({
+          error: 'Complete all single player missions first, or use --force to transition early',
+          completed: Number(spCompleted?.count || 0),
+          total: Number(spTotal?.count || 0),
+        });
+      }
+    }
+
+    // Find a random MP star mall for the new starting location
+    const mpStarMall = await db('sectors')
+      .where({ has_star_mall: true, universe: 'mp' })
+      .orderByRaw('RANDOM()')
+      .first();
+
+    if (!mpStarMall) {
+      return res.status(500).json({ error: 'Multiplayer universe not available' });
+    }
+
+    // Clean up SP universe data
+    const spSectors = await db('sectors')
+      .where({ owner_id: player.id, universe: 'sp' })
+      .select('id');
+    const spSectorIds = spSectors.map((s: any) => s.id);
+
+    if (spSectorIds.length > 0) {
+      // Delete SP-specific data (order matters for FKs)
+      await db('outposts').whereIn('sector_id', spSectorIds).del();
+      await db('planets').whereIn('sector_id', spSectorIds).del();
+      await db('npc_definitions').whereIn('sector_id', spSectorIds).del();
+      await db('sector_edges').whereIn('from_sector_id', spSectorIds).del();
+      await db('sector_edges').whereIn('to_sector_id', spSectorIds).del();
+      await db('sectors').whereIn('id', spSectorIds).del();
+    }
+
+    // Delete SP missions
+    await db('player_missions')
+      .where({ player_id: player.id })
+      .whereIn('template_id', db('mission_templates').where({ source: 'singleplayer' }).select('id'))
+      .del();
+
+    // Update player to MP mode
+    await db('players').where({ id: player.id }).update({
+      game_mode: 'multiplayer',
+      sp_sector_offset: null,
+      sp_last_tick_at: null,
+      current_sector_id: mpStarMall.id,
+      explored_sectors: JSON.stringify([mpStarMall.id]),
+      docked_at_outpost_id: null,
+    });
+
+    // Move active ship to MP sector
+    if (player.current_ship_id) {
+      await db('ships').where({ id: player.current_ship_id }).update({
+        sector_id: mpStarMall.id,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Welcome to multiplayer! You have been placed at a Star Mall.',
+      newSectorId: mpStarMall.id,
+    });
+  } catch (err) {
+    console.error('Transition to MP error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

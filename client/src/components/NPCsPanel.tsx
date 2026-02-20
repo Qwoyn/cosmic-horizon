@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import CollapsiblePanel from './CollapsiblePanel';
 import PixelSprite from './PixelSprite';
+import NPCDialogueView from './NPCDialogueView';
 import { getContacts } from '../services/api';
 import type { SectorState } from '../hooks/useGameState';
 
@@ -55,6 +56,20 @@ function getDispositionDots(level: number) {
 // Named exports for use in CrewGroupPanel
 export function NPCList({ sector, onCommand }: { sector: SectorState | null; onCommand?: (cmd: string) => void }) {
   const npcs: NPC[] = (sector?.npcs || []) as NPC[];
+  const [activeNpcId, setActiveNpcId] = useState<string | null>(null);
+
+  const activeNpc = npcs.find(n => n.id === activeNpcId);
+
+  if (activeNpc) {
+    return (
+      <NPCDialogueView
+        npcId={activeNpc.id}
+        npcName={activeNpc.name}
+        npcTitle={activeNpc.title}
+        onClose={() => setActiveNpcId(null)}
+      />
+    );
+  }
 
   if (npcs.length === 0) {
     return <div className="text-muted">No NPCs in this sector.</div>;
@@ -76,7 +91,7 @@ export function NPCList({ sector, onCommand }: { sector: SectorState | null; onC
                 </div>
               </div>
             </div>
-            <button className="btn-sm btn-buy" onClick={() => onCommand?.(`talk ${npc.name}`)}>TALK</button>
+            <button className="btn-sm btn-buy" onClick={() => setActiveNpcId(npc.id)}>TALK</button>
           </div>
         );
       })}

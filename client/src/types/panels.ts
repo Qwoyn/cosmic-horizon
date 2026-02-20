@@ -1,4 +1,4 @@
-export type PanelId = 'nav' | 'explore' | 'trade' | 'combat' | 'crew' | 'missions' | 'planets' | 'gear' | 'comms' | 'syndicate' | 'wallet';
+export type PanelId = 'nav' | 'explore' | 'trade' | 'combat' | 'crew' | 'missions' | 'planets' | 'gear' | 'comms' | 'syndicate' | 'wallet' | 'actions';
 
 export interface PanelDef {
   id: PanelId;
@@ -18,4 +18,5 @@ export const PANELS: PanelDef[] = [
   { id: 'comms',      label: 'COMMS',      spriteKey: 'icon_comms' },
   { id: 'syndicate', label: 'SYNDICATE', spriteKey: 'icon_syndicate' },
   { id: 'wallet',    label: 'WALLET',    spriteKey: 'icon_wallet' },
+  { id: 'actions',   label: 'ACTIONS',   spriteKey: 'icon_actions' },
 ];

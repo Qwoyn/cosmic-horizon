@@ -28,8 +28,8 @@ function App() {
     return data.player;
   }, []);
 
-  const handleRegister = useCallback(async (username: string, email: string, password: string, race: string) => {
-    const { data } = await api.register(username, email, password, race);
+  const handleRegister = useCallback(async (username: string, email: string, password: string, race: string, gameMode?: string) => {
+    const { data } = await api.register(username, email, password, race, gameMode);
     setIsLoggedIn(true);
     return data.player;
   }, []);

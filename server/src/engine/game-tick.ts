@@ -17,30 +17,34 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
   const now = new Date();
 
   try {
-    // 1. Regenerate energy for all players
+    // 1. Regenerate energy for MP players only (SP players get energy via on-demand tick)
     await db('players')
       .where('energy', '<', db.ref('max_energy'))
+      .where('game_mode', 'multiplayer')
       .increment('energy', GAME_CONFIG.ENERGY_REGEN_RATE);
 
     // Cap energy at max
     await db('players')
       .whereRaw('energy > max_energy')
+      .where('game_mode', 'multiplayer')
       .update({ energy: db.ref('max_energy') });
 
     // Bonus regen for new players
     await db('players')
       .where('energy', '<', db.ref('max_energy'))
       .where('energy_regen_bonus_until', '>', now.toISOString())
+      .where('game_mode', 'multiplayer')
       .increment('energy', GAME_CONFIG.ENERGY_REGEN_RATE);
 
     // Cap again
     await db('players')
       .whereRaw('energy > max_energy')
+      .where('game_mode', 'multiplayer')
       .update({ energy: db.ref('max_energy') });
 
     // Expire Vedic max_energy bonus after the regen bonus period ends
     await db('players')
-      .where({ race: 'vedic' })
+      .where({ race: 'vedic', game_mode: 'multiplayer' })
       .where('max_energy', '>', GAME_CONFIG.MAX_ENERGY)
       .where('energy_regen_bonus_until', '<=', now.toISOString())
       .update({ max_energy: GAME_CONFIG.MAX_ENERGY });
@@ -48,10 +52,14 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
     // Cap energy at new max_energy after bonus expiry
     await db('players')
       .whereRaw('energy > max_energy')
+      .where('game_mode', 'multiplayer')
       .update({ energy: db.ref('max_energy') });
 
-    // 2. Planet production (fetch all owned planets, calculate, batch update)
-    const planets = await db('planets').whereNotNull('owner_id').where('colonists', '>', 0);
+    // 2. Planet production — MP planets only (SP planets processed via on-demand tick)
+    const planets = await db('planets')
+      .whereNotNull('owner_id')
+      .where('colonists', '>', 0)
+      .whereIn('sector_id', db('sectors').where('universe', 'mp').select('id'));
     for (const planet of planets) {
       const production = calculateProduction(planet.planet_class, planet.colonists);
       const hasFoodSupply = (planet.food_stock || 0) > 0 || production.food > 0;
@@ -93,9 +101,10 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       }
     } catch { /* syndicate economy tables may not exist yet */ }
 
-    // 3. Decay - inactive player planets
+    // 3. Decay - inactive MP player planets only
     const inactivePlayers = await db('players')
       .whereNotNull('last_login')
+      .where('game_mode', 'multiplayer')
       .whereRaw(`julianday('now') - julianday(last_login) > ?`, [GAME_CONFIG.DECAY_INACTIVE_THRESHOLD_HOURS / 24]);
 
     for (const inactivePlayer of inactivePlayers) {
@@ -115,8 +124,10 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       }
     }
 
-    // Defense energy drain on all deployed defenses
-    const planetsWithDrones = await db('planets').where('drone_count', '>', 0);
+    // Defense energy drain on MP deployed defenses
+    const planetsWithDrones = await db('planets')
+      .where('drone_count', '>', 0)
+      .whereIn('sector_id', db('sectors').where('universe', 'mp').select('id'));
     for (const planet of planetsWithDrones) {
       const newDrones = processDefenseDecay(planet.drone_count, planet.drone_count * 2);
       await db('planets').where({ id: planet.id }).update({ drone_count: newDrones });
@@ -168,13 +179,15 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       } catch { /* syndicate economy tables may not exist yet */ }
     }
 
-    // 4. Outpost economy - inject treasury
-    await db('outposts').increment('treasury', GAME_CONFIG.OUTPOST_TREASURY_INJECTION);
+    // 4. Outpost economy - inject treasury (MP outposts only)
+    await db('outposts')
+      .whereIn('sector_id', db('sectors').where('universe', 'mp').select('id'))
+      .increment('treasury', GAME_CONFIG.OUTPOST_TREASURY_INJECTION);
 
-    // 5. Emit energy updates to connected players
+    // 5. Emit energy updates to connected MP players
     const connectedPlayers = getConnectedPlayers();
     for (const [, playerId] of connectedPlayers) {
-      const player = await db('players').where({ id: playerId }).select('energy', 'max_energy').first();
+      const player = await db('players').where({ id: playerId, game_mode: 'multiplayer' }).select('energy', 'max_energy').first();
       if (player) {
         notifyPlayer(io, playerId, 'energy:update', {
           energy: player.energy,

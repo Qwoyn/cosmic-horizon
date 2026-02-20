@@ -29,9 +29,11 @@ import npcsRouter from './api/npcs';
 import tabletsRouter from './api/tablets';
 import craftingRouter from './api/crafting';
 import syndicateEconomyRouter from './api/syndicate-economy';
+import syndicateGovernanceRouter from './api/syndicate-governance';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
 import { loadTutorialState, blockDuringTutorial } from './middleware/tutorial-sandbox';
+import { loadSPContext, blockInSinglePlayer } from './middleware/sp-mode';
 
 dotenv.config();
 
@@ -79,30 +81,31 @@ app.get('/api/health', (_req, res) => {
 
 // API routes
 app.use('/api/auth', authRouter);
-app.use('/api/game', loadTutorialState, gameRouter);
-app.use('/api/trade', loadTutorialState, tradeRouter);
+app.use('/api/game', loadTutorialState, loadSPContext, gameRouter);
+app.use('/api/trade', loadTutorialState, loadSPContext, tradeRouter);
 app.use('/api/wallet', walletRouter);
 app.use('/api/tutorial', tutorialRouter);
 
 // Routes blocked during tutorial
-app.use('/api/ships', loadTutorialState, blockDuringTutorial, shipsRouter);
-app.use('/api/planets', loadTutorialState, blockDuringTutorial, planetsRouter);
-app.use('/api/combat', loadTutorialState, blockDuringTutorial, combatRouter);
-app.use('/api/social', loadTutorialState, blockDuringTutorial, socialRouter);
-app.use('/api/deployables', loadTutorialState, blockDuringTutorial, deployablesRouter);
-app.use('/api/store', loadTutorialState, blockDuringTutorial, storeRouter);
-app.use('/api/starmall', loadTutorialState, blockDuringTutorial, starmallRouter);
-app.use('/api/missions', loadTutorialState, blockDuringTutorial, missionsRouter);
-app.use('/api/events', loadTutorialState, blockDuringTutorial, eventsRouter);
-app.use('/api/leaderboards', loadTutorialState, blockDuringTutorial, leaderboardsRouter);
-app.use('/api/messages', loadTutorialState, blockDuringTutorial, messagesRouter);
-app.use('/api/warp-gates', loadTutorialState, blockDuringTutorial, warpGatesRouter);
-app.use('/api/notes', loadTutorialState, notesRouter);
-app.use('/api/progression', loadTutorialState, blockDuringTutorial, progressionRouter);
-app.use('/api/npcs', loadTutorialState, blockDuringTutorial, npcsRouter);
-app.use('/api/tablets', loadTutorialState, blockDuringTutorial, tabletsRouter);
-app.use('/api/crafting', loadTutorialState, blockDuringTutorial, craftingRouter);
-app.use('/api/syndicate-economy', loadTutorialState, blockDuringTutorial, syndicateEconomyRouter);
+app.use('/api/ships', loadTutorialState, blockDuringTutorial, loadSPContext, shipsRouter);
+app.use('/api/planets', loadTutorialState, blockDuringTutorial, loadSPContext, planetsRouter);
+app.use('/api/combat', loadTutorialState, blockDuringTutorial, loadSPContext, combatRouter);
+app.use('/api/social', loadTutorialState, blockDuringTutorial, loadSPContext, blockInSinglePlayer, socialRouter);
+app.use('/api/deployables', loadTutorialState, blockDuringTutorial, loadSPContext, deployablesRouter);
+app.use('/api/store', loadTutorialState, blockDuringTutorial, loadSPContext, storeRouter);
+app.use('/api/starmall', loadTutorialState, blockDuringTutorial, loadSPContext, starmallRouter);
+app.use('/api/missions', loadTutorialState, blockDuringTutorial, loadSPContext, missionsRouter);
+app.use('/api/events', loadTutorialState, blockDuringTutorial, loadSPContext, eventsRouter);
+app.use('/api/leaderboards', loadTutorialState, blockDuringTutorial, loadSPContext, blockInSinglePlayer, leaderboardsRouter);
+app.use('/api/messages', loadTutorialState, blockDuringTutorial, loadSPContext, blockInSinglePlayer, messagesRouter);
+app.use('/api/warp-gates', loadTutorialState, blockDuringTutorial, loadSPContext, warpGatesRouter);
+app.use('/api/notes', loadTutorialState, loadSPContext, notesRouter);
+app.use('/api/progression', loadTutorialState, blockDuringTutorial, loadSPContext, progressionRouter);
+app.use('/api/npcs', loadTutorialState, blockDuringTutorial, loadSPContext, npcsRouter);
+app.use('/api/tablets', loadTutorialState, blockDuringTutorial, loadSPContext, tabletsRouter);
+app.use('/api/crafting', loadTutorialState, blockDuringTutorial, loadSPContext, craftingRouter);
+app.use('/api/syndicate-economy', loadTutorialState, blockDuringTutorial, loadSPContext, blockInSinglePlayer, syndicateEconomyRouter);
+app.use('/api/syndicate-governance', loadTutorialState, blockDuringTutorial, loadSPContext, blockInSinglePlayer, syndicateGovernanceRouter);
 
 // WebSocket
 setupWebSocket(io);

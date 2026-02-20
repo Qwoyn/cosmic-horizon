@@ -43,10 +43,10 @@ router.post('/alliance/:playerId', requireAuth, async (req, res) => {
   }
 });
 
-// Create syndicate
+// Create syndicate (enhanced with settings + preset roles)
 router.post('/syndicate/create', requireAuth, async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, motto, description, recruitment_mode, min_level, quorum_percent, vote_duration_hours, succession_rule, treasury_withdrawal_limit } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
 
     const player = await db('players').where({ id: req.session.playerId }).first();
@@ -62,12 +62,49 @@ router.post('/syndicate/create', requireAuth, async (req, res) => {
       leader_id: player.id,
     });
 
-    // syndicate_members uses composite PK (syndicate_id, player_id), no id column
     await db('syndicate_members').insert({
       syndicate_id: syndicateId,
       player_id: player.id,
       role: 'leader',
     });
+
+    // Create syndicate settings + preset roles (governance tables)
+    try {
+      await db('syndicate_settings').insert({
+        syndicate_id: syndicateId,
+        recruitment_mode: recruitment_mode || 'closed',
+        min_level: min_level || 1,
+        quorum_percent: quorum_percent || 60,
+        vote_duration_hours: vote_duration_hours || 48,
+        succession_rule: succession_rule || 'officer_vote',
+        treasury_withdrawal_limit: treasury_withdrawal_limit || 0,
+        motto: motto || null,
+        description: description || null,
+      });
+
+      const presetRoles = [
+        { name: 'Recruiter', priority: 10, permissions: ['invite'] },
+        { name: 'Treasurer', priority: 20, permissions: ['withdraw_treasury'] },
+        { name: 'Warlord', priority: 30, permissions: ['kick', 'start_vote'] },
+        { name: 'Admin', priority: 40, permissions: ['invite', 'kick', 'promote', 'withdraw_treasury', 'start_vote', 'manage_projects', 'edit_charter', 'manage_roles'] },
+      ];
+
+      for (const role of presetRoles) {
+        const roleId = crypto.randomUUID();
+        await db('syndicate_roles').insert({
+          id: roleId,
+          syndicate_id: syndicateId,
+          name: role.name,
+          priority: role.priority,
+          is_preset: true,
+        });
+        for (const perm of role.permissions) {
+          await db('syndicate_role_permissions').insert({ role_id: roleId, permission: perm });
+        }
+      }
+    } catch {
+      // Governance tables may not exist yet — syndicate still created successfully
+    }
 
     res.status(201).json({ syndicateId, name });
   } catch (err: any) {
@@ -120,16 +157,22 @@ router.get('/syndicate', requireAuth, async (req, res) => {
     if (!membership) return res.status(404).json({ error: 'Not in a syndicate' });
 
     const syndicate = await db('syndicates').where({ id: membership.syndicate_id }).first();
+    let settings = null;
+    try {
+      settings = await db('syndicate_settings').where({ syndicate_id: membership.syndicate_id }).first() || null;
+    } catch { /* table may not exist yet */ }
     const members = await db('syndicate_members')
       .join('players', 'syndicate_members.player_id', 'players.id')
       .where({ syndicate_id: membership.syndicate_id })
-      .select('players.id', 'players.username', 'syndicate_members.role');
+      .select('players.id', 'players.username', 'players.level', 'syndicate_members.role');
 
     res.json({
       id: syndicate.id,
       name: syndicate.name,
       leaderId: syndicate.leader_id,
       treasury: syndicate.treasury,
+      charter: syndicate.charter,
+      settings: settings || null,
       members,
     });
   } catch (err) {
@@ -712,6 +755,321 @@ router.get('/alliances', requireAuth, async (req, res) => {
     res.json({ personalAllies, syndicateAllies });
   } catch (err) {
     console.error('Alliances list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Browse/search syndicates
+router.get('/syndicates/browse', requireAuth, async (req, res) => {
+  try {
+    const { search, recruitment_mode, min_members, max_members, sort_by } = req.query;
+
+    let query = db('syndicates')
+      .leftJoin('syndicate_settings', 'syndicates.id', 'syndicate_settings.syndicate_id')
+      .leftJoin(
+        db('syndicate_members').select('syndicate_id').count('* as member_count').groupBy('syndicate_id').as('mc'),
+        'syndicates.id', 'mc.syndicate_id'
+      )
+      .select(
+        'syndicates.id',
+        'syndicates.name',
+        'syndicates.treasury',
+        'syndicates.created_at',
+        'syndicate_settings.recruitment_mode',
+        'syndicate_settings.min_level',
+        'syndicate_settings.motto',
+        db.raw('COALESCE(mc.member_count, 0) as member_count')
+      );
+
+    // Exclude invite_only unless exact name search
+    if (search) {
+      query = query.where(function() {
+        this.where('syndicates.name', 'like', `%${search}%`)
+          .orWhere('syndicate_settings.motto', 'like', `%${search}%`);
+      });
+    } else {
+      query = query.where(function() {
+        this.whereNull('syndicate_settings.recruitment_mode')
+          .orWhereNot('syndicate_settings.recruitment_mode', 'invite_only');
+      });
+    }
+
+    if (recruitment_mode && recruitment_mode !== 'all') {
+      query = query.where('syndicate_settings.recruitment_mode', recruitment_mode as string);
+    }
+
+    if (min_members) {
+      query = query.havingRaw('COALESCE(mc.member_count, 0) >= ?', [Number(min_members)]);
+    }
+    if (max_members) {
+      query = query.havingRaw('COALESCE(mc.member_count, 0) <= ?', [Number(max_members)]);
+    }
+
+    const sortField = sort_by === 'members' ? 'member_count' : sort_by === 'treasury' ? 'syndicates.treasury' : 'syndicates.created_at';
+    query = query.orderBy(sortField, 'desc').limit(50);
+
+    const syndicates = await query;
+    res.json({ syndicates });
+  } catch (err) {
+    console.error('Browse syndicates error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Join open syndicate or request to join closed
+router.post('/syndicate/:id/join', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const existing = await db('syndicate_members').where({ player_id: player.id }).first();
+    if (existing) return res.status(400).json({ error: 'Already in a syndicate' });
+
+    const syndicateId = req.params.id;
+    const syndicate = await db('syndicates').where({ id: syndicateId }).first();
+    if (!syndicate) return res.status(404).json({ error: 'Syndicate not found' });
+
+    const settings = await db('syndicate_settings').where({ syndicate_id: syndicateId }).first();
+    const mode = settings?.recruitment_mode || 'closed';
+
+    if (mode === 'invite_only') {
+      return res.status(403).json({ error: 'This syndicate is invite-only' });
+    }
+
+    if (settings?.min_level && player.level < settings.min_level) {
+      return res.status(403).json({ error: `Minimum level ${settings.min_level} required` });
+    }
+
+    if (mode === 'open') {
+      await db('syndicate_members').insert({
+        syndicate_id: syndicateId,
+        player_id: player.id,
+        role: 'member',
+      });
+      return res.json({ action: 'joined', syndicateId });
+    }
+
+    // Closed — create join request
+    const existingReq = await db('syndicate_join_requests')
+      .where({ syndicate_id: syndicateId, player_id: player.id, status: 'pending' }).first();
+    if (existingReq) return res.status(400).json({ error: 'Already have a pending request' });
+
+    await db('syndicate_join_requests').insert({
+      id: crypto.randomUUID(),
+      syndicate_id: syndicateId,
+      player_id: player.id,
+      message: req.body.message || null,
+    });
+
+    res.json({ action: 'requested', syndicateId });
+  } catch (err) {
+    console.error('Join syndicate error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Join via invite code
+router.post('/syndicate/join-code', requireAuth, async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'Code required' });
+
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const existing = await db('syndicate_members').where({ player_id: player.id }).first();
+    if (existing) return res.status(400).json({ error: 'Already in a syndicate' });
+
+    const invite = await db('syndicate_invite_codes')
+      .where({ code: code.toUpperCase() })
+      .where('uses_remaining', '>', 0)
+      .where('expires_at', '>', new Date().toISOString())
+      .first();
+
+    if (!invite) return res.status(404).json({ error: 'Invalid or expired invite code' });
+
+    await db('syndicate_members').insert({
+      syndicate_id: invite.syndicate_id,
+      player_id: player.id,
+      role: 'member',
+    });
+
+    await db('syndicate_invite_codes').where({ id: invite.id }).update({
+      uses_remaining: invite.uses_remaining - 1,
+    });
+
+    res.json({ action: 'joined', syndicateId: invite.syndicate_id });
+  } catch (err) {
+    console.error('Join by code error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List pending join requests (officer+)
+router.get('/syndicate/:id/requests', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const membership = await db('syndicate_members').where({ player_id: player.id }).first();
+    if (!membership || membership.role === 'member') {
+      return res.status(403).json({ error: 'Only leaders and officers can view requests' });
+    }
+    if (membership.syndicate_id !== req.params.id) {
+      return res.status(403).json({ error: 'Not your syndicate' });
+    }
+
+    const requests = await db('syndicate_join_requests')
+      .where({ syndicate_id: req.params.id, status: 'pending' })
+      .join('players', 'syndicate_join_requests.player_id', 'players.id')
+      .select(
+        'syndicate_join_requests.id',
+        'players.id as playerId',
+        'players.username',
+        'players.level',
+        'syndicate_join_requests.message',
+        'syndicate_join_requests.created_at'
+      )
+      .orderBy('syndicate_join_requests.created_at', 'asc');
+
+    res.json({ requests });
+  } catch (err) {
+    console.error('Join requests error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Accept/reject join request (officer+)
+router.post('/syndicate/:id/requests/:reqId/review', requireAuth, async (req, res) => {
+  try {
+    const { accept } = req.body;
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const membership = await db('syndicate_members').where({ player_id: player.id }).first();
+    if (!membership || membership.role === 'member') {
+      return res.status(403).json({ error: 'Only leaders and officers can review requests' });
+    }
+    if (membership.syndicate_id !== req.params.id) {
+      return res.status(403).json({ error: 'Not your syndicate' });
+    }
+
+    const request = await db('syndicate_join_requests').where({ id: req.params.reqId, status: 'pending' }).first();
+    if (!request) return res.status(404).json({ error: 'Request not found' });
+
+    if (accept) {
+      // Check if player is already in a syndicate
+      const alreadyIn = await db('syndicate_members').where({ player_id: request.player_id }).first();
+      if (alreadyIn) {
+        await db('syndicate_join_requests').where({ id: request.id }).update({ status: 'rejected', reviewed_by: player.id });
+        return res.status(400).json({ error: 'Player already in a syndicate' });
+      }
+
+      await db('syndicate_members').insert({
+        syndicate_id: request.syndicate_id,
+        player_id: request.player_id,
+        role: 'member',
+      });
+      await db('syndicate_join_requests').where({ id: request.id }).update({ status: 'accepted', reviewed_by: player.id });
+      res.json({ action: 'accepted', playerId: request.player_id });
+    } else {
+      await db('syndicate_join_requests').where({ id: request.id }).update({ status: 'rejected', reviewed_by: player.id });
+      res.json({ action: 'rejected', playerId: request.player_id });
+    }
+  } catch (err) {
+    console.error('Review request error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Generate invite code (officer+ with invite perm)
+router.post('/syndicate/:id/invite-code', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const membership = await db('syndicate_members').where({ player_id: player.id }).first();
+    if (!membership || membership.role === 'member') {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    if (membership.syndicate_id !== req.params.id) {
+      return res.status(403).json({ error: 'Not your syndicate' });
+    }
+
+    const { uses = 1, expires_hours = 24 } = req.body;
+    const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const expiresAt = new Date(Date.now() + expires_hours * 60 * 60 * 1000).toISOString();
+
+    const id = crypto.randomUUID();
+    await db('syndicate_invite_codes').insert({
+      id,
+      syndicate_id: req.params.id,
+      code,
+      created_by: player.id,
+      uses_remaining: uses,
+      expires_at: expiresAt,
+    });
+
+    res.json({ id, code, uses_remaining: uses, expires_at: expiresAt });
+  } catch (err) {
+    console.error('Invite code error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// List active invite codes (officer+)
+router.get('/syndicate/:id/invite-codes', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const membership = await db('syndicate_members').where({ player_id: player.id }).first();
+    if (!membership || membership.role === 'member') {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    if (membership.syndicate_id !== req.params.id) {
+      return res.status(403).json({ error: 'Not your syndicate' });
+    }
+
+    const codes = await db('syndicate_invite_codes')
+      .where({ syndicate_id: req.params.id })
+      .where('uses_remaining', '>', 0)
+      .where('expires_at', '>', new Date().toISOString())
+      .join('players', 'syndicate_invite_codes.created_by', 'players.id')
+      .select(
+        'syndicate_invite_codes.id',
+        'syndicate_invite_codes.code',
+        'syndicate_invite_codes.uses_remaining',
+        'syndicate_invite_codes.expires_at',
+        'players.username as createdBy'
+      )
+      .orderBy('syndicate_invite_codes.created_at', 'desc');
+
+    res.json({ codes });
+  } catch (err) {
+    console.error('List invite codes error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Revoke invite code
+router.delete('/syndicate/:id/invite-code/:codeId', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const membership = await db('syndicate_members').where({ player_id: player.id }).first();
+    if (!membership || membership.role === 'member') {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    if (membership.syndicate_id !== req.params.id) {
+      return res.status(403).json({ error: 'Not your syndicate' });
+    }
+
+    await db('syndicate_invite_codes').where({ id: req.params.codeId, syndicate_id: req.params.id }).del();
+    res.json({ revoked: true });
+  } catch (err) {
+    console.error('Revoke invite code error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

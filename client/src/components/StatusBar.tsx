@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import type { PlayerState } from '../hooks/useGameState';
 import PixelSprite from './PixelSprite';
+import ProfileDropdown from './ProfileDropdown';
 
 interface StatusBarProps {
   player: PlayerState | null;
@@ -28,6 +29,8 @@ function FlashValue({ value, className }: { value: number | string; className?: 
 }
 
 export default function StatusBar({ player, muted, onToggleMute, onLogout }: StatusBarProps) {
+  const [showProfile, setShowProfile] = useState(false);
+
   if (!player) return null;
 
   const ship = player.currentShip;
@@ -37,17 +40,27 @@ export default function StatusBar({ player, muted, onToggleMute, onLogout }: Sta
 
   return (
     <div className="status-bar">
-      <div className="status-section">
+      <div className="status-section" style={{ position: 'relative' }}>
         <div className="status-label">PILOT</div>
-        <div className="status-value">{player.username}</div>
+        <div
+          className="status-value status-value--clickable status-value--flicker"
+          onClick={() => setShowProfile(prev => !prev)}
+          title="View profile"
+          style={{ '--flicker-dur': '28s', '--flicker-delay': '0s' } as React.CSSProperties}
+        >
+          {player.username}
+        </div>
+        {showProfile && (
+          <ProfileDropdown onClose={() => setShowProfile(false)} />
+        )}
       </div>
       <div className="status-section">
         <div className="status-label"><PixelSprite spriteKey="icon_nav" size={9} /> SECTOR</div>
-        <div className="status-value">{player.currentSectorId}</div>
+        <div className="status-value status-value--flicker" style={{ '--flicker-dur': '36s', '--flicker-delay': '9.2s' } as React.CSSProperties}>{player.currentSectorId}</div>
       </div>
       <div className="status-section">
         <div className="status-label">ENERGY</div>
-        <div className="status-value">
+        <div className="status-value status-value--flicker" style={{ '--flicker-dur': '44s', '--flicker-delay': '16.4s' } as React.CSSProperties}>
           <FlashValue
             value={player.energy}
             className={player.energy < 50 ? 'text-warning' : 'text-success'}
@@ -57,25 +70,25 @@ export default function StatusBar({ player, muted, onToggleMute, onLogout }: Sta
       </div>
       <div className="status-section">
         <div className="status-label"><PixelSprite spriteKey="icon_trade" size={9} /> CREDITS</div>
-        <div className="status-value text-trade"><FlashValue value={player.credits} /></div>
+        <div className="status-value text-trade status-value--flicker" style={{ '--flicker-dur': '32s', '--flicker-delay': '26.8s' } as React.CSSProperties}><FlashValue value={player.credits} /></div>
       </div>
       {ship && (
         <>
           <div className="status-section">
             <div className="status-label">SHIP</div>
-            <div className="status-value"><PixelSprite spriteKey={`ship_${ship.shipTypeId}`} size={12} /> {ship.shipTypeId}</div>
+            <div className="status-value status-value--flicker" style={{ '--flicker-dur': '40s', '--flicker-delay': '6s' } as React.CSSProperties}><PixelSprite spriteKey={`ship_${ship.shipTypeId}`} size={12} /> {ship.shipTypeId}</div>
           </div>
           <div className="status-section">
             <div className="status-label"><PixelSprite spriteKey="icon_combat" size={9} /> WEAPONS</div>
-            <div className="status-value text-combat">{ship.weaponEnergy}</div>
+            <div className="status-value text-combat status-value--flicker" style={{ '--flicker-dur': '24s', '--flicker-delay': '32.8s' } as React.CSSProperties}>{ship.weaponEnergy}</div>
           </div>
           <div className="status-section">
             <div className="status-label">ENGINES</div>
-            <div className="status-value">{ship.engineEnergy}</div>
+            <div className="status-value status-value--flicker" style={{ '--flicker-dur': '48s', '--flicker-delay': '15.6s' } as React.CSSProperties}>{ship.engineEnergy}</div>
           </div>
           <div className="status-section">
             <div className="status-label">HULL</div>
-            <div className="status-value">
+            <div className="status-value status-value--flicker" style={{ '--flicker-dur': '28s', '--flicker-delay': '40.4s' } as React.CSSProperties}>
               <FlashValue
                 value={ship.hullHp}
                 className={`${ship.hullHp < ship.maxHullHp * 0.25 ? 'text-error hull-critical' : ship.hullHp < ship.maxHullHp * 0.5 ? 'text-warning' : 'text-success'}`}
@@ -85,7 +98,7 @@ export default function StatusBar({ player, muted, onToggleMute, onLogout }: Sta
           </div>
           <div className="status-section">
             <div className="status-label">CARGO</div>
-            <div className="status-value">{totalCargo}/{ship.maxCargoHolds}</div>
+            <div className="status-value status-value--flicker" style={{ '--flicker-dur': '36s', '--flicker-delay': '22s' } as React.CSSProperties}>{totalCargo}/{ship.maxCargoHolds}</div>
           </div>
         </>
       )}

@@ -1,5 +1,5 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
-import { sectorRoom, playerRoom } from './events';
+import { sectorRoom, playerRoom, syndicateRoom, allianceRoom } from './events';
 import db from '../db/connection';
 import { verifyJwt } from '../middleware/jwt';
 
@@ -34,6 +34,23 @@ export function setupWebSocket(io: SocketIOServer): void {
       socket.join(playerRoom(playerId));
       socket.join(sectorRoom(player.current_sector_id));
 
+      // Auto-join syndicate room if in a syndicate
+      const membership = await db('syndicate_members').where({ player_id: playerId }).first();
+      if (membership) {
+        socket.join(syndicateRoom(membership.syndicate_id));
+
+        // Also join alliance rooms
+        const alliances = await db('alliances')
+          .where(function() {
+            this.where({ syndicate_a_id: membership.syndicate_id })
+              .orWhere({ syndicate_b_id: membership.syndicate_id });
+          })
+          .whereNotNull('syndicate_a_id');
+        for (const alliance of alliances) {
+          socket.join(allianceRoom(alliance.id));
+        }
+      }
+
       // Notify sector
       socket.to(sectorRoom(player.current_sector_id)).emit('player:entered', {
         playerId,
@@ -56,6 +73,67 @@ export function setupWebSocket(io: SocketIOServer): void {
         message: data.message.slice(0, 500), // limit message length
         timestamp: Date.now(),
       });
+    });
+
+    // Syndicate chat
+    socket.on('chat:syndicate', async (data: { message: string }) => {
+      const playerId = connectedPlayers.get(socket.id);
+      if (!playerId || !data.message) return;
+
+      const player = await db('players').where({ id: playerId }).first();
+      if (!player) return;
+
+      const membership = await db('syndicate_members').where({ player_id: playerId }).first();
+      if (!membership) return;
+
+      // Ensure socket is in syndicate room
+      socket.join(syndicateRoom(membership.syndicate_id));
+
+      io.to(syndicateRoom(membership.syndicate_id)).emit('chat:syndicate', {
+        senderId: playerId,
+        senderName: player.username,
+        message: data.message.slice(0, 500),
+        timestamp: Date.now(),
+      });
+    });
+
+    // Alliance chat (broadcast to both syndicate rooms in the alliance)
+    socket.on('chat:alliance', async (data: { message: string; allianceId?: string }) => {
+      const playerId = connectedPlayers.get(socket.id);
+      if (!playerId || !data.message) return;
+
+      const player = await db('players').where({ id: playerId }).first();
+      if (!player) return;
+
+      const membership = await db('syndicate_members').where({ player_id: playerId }).first();
+      if (!membership) return;
+
+      const syndicate = await db('syndicates').where({ id: membership.syndicate_id }).first();
+
+      // Get syndicate alliances
+      const alliances = await db('alliances')
+        .where(function() {
+          this.where({ syndicate_a_id: membership.syndicate_id })
+            .orWhere({ syndicate_b_id: membership.syndicate_id });
+        })
+        .whereNotNull('syndicate_a_id');
+
+      if (alliances.length === 0) return;
+
+      // If allianceId specified, send to that alliance room; otherwise broadcast to all
+      const targetAlliances = data.allianceId
+        ? alliances.filter(a => a.id === data.allianceId)
+        : alliances;
+
+      for (const alliance of targetAlliances) {
+        io.to(allianceRoom(alliance.id)).emit('chat:alliance', {
+          senderId: playerId,
+          senderName: player.username,
+          syndicateName: syndicate?.name || 'Unknown',
+          message: data.message.slice(0, 500),
+          timestamp: Date.now(),
+        });
+      }
     });
 
     socket.on('disconnect', async () => {
@@ -111,4 +189,32 @@ export function handleSectorChange(
 
 export function getConnectedPlayers(): Map<string, string> {
   return connectedPlayers;
+}
+
+// Utility: notify a syndicate room
+export function notifySyndicate(io: SocketIOServer, syndicateId: string, event: string, data: any): void {
+  io.to(syndicateRoom(syndicateId)).emit(event, data);
+}
+
+// Utility: add/remove player from syndicate room
+export function handleSyndicateJoin(io: SocketIOServer, playerId: string, syndicateId: string): void {
+  const room = playerRoom(playerId);
+  const sockets = io.sockets.adapter.rooms.get(room);
+  if (sockets) {
+    for (const socketId of sockets) {
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) socket.join(syndicateRoom(syndicateId));
+    }
+  }
+}
+
+export function handleSyndicateLeave(io: SocketIOServer, playerId: string, syndicateId: string): void {
+  const room = playerRoom(playerId);
+  const sockets = io.sockets.adapter.rooms.get(room);
+  if (sockets) {
+    for (const socketId of sockets) {
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) socket.leave(syndicateRoom(syndicateId));
+    }
+  }
 }

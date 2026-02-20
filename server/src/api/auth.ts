@@ -8,12 +8,15 @@ import { getRace, VALID_RACE_IDS, RaceId } from '../config/races';
 import { signJwt } from '../middleware/jwt';
 import { requireAuth } from '../middleware/auth';
 import { getDefaultTutorialState } from '../config/tutorial-sandbox';
+import { generateSPUniverse } from '../engine/sp-universe';
+import { assignInitialSPMissions } from '../db/seeds/011_sp_missions';
 
 const router = Router();
 
 router.post('/register', async (req, res) => {
   try {
-    const { username, email, password, race } = req.body;
+    const { username, email, password, race, gameMode: rawGameMode } = req.body;
+    const gameMode = rawGameMode === 'singleplayer' ? 'singleplayer' : 'multiplayer';
     if (!username || !email || !password) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -35,14 +38,23 @@ router.post('/register', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Pick a random star mall sector for starting location
-    const starMallSector = await db('sectors')
-      .where({ has_star_mall: true })
-      .orderByRaw('RANDOM()')
-      .first();
+    // For MP: pick a random star mall. For SP: temporary sector, updated after universe generation.
+    let startingSectorId: number;
 
-    if (!starMallSector) {
-      return res.status(500).json({ error: 'Universe not initialized' });
+    if (gameMode === 'multiplayer') {
+      const starMallSector = await db('sectors')
+        .where({ has_star_mall: true, universe: 'mp' })
+        .orderByRaw('RANDOM()')
+        .first();
+
+      if (!starMallSector) {
+        return res.status(500).json({ error: 'Universe not initialized' });
+      }
+      startingSectorId = starMallSector.id;
+    } else {
+      // SP: we'll set the real starting sector after generating the universe
+      // Use sector 1 temporarily
+      startingSectorId = 1;
     }
 
     const bonusUntil = new Date(Date.now() + GAME_CONFIG.ENERGY_REGEN_BONUS_DURATION_HOURS * 60 * 60 * 1000);
@@ -58,11 +70,12 @@ router.post('/register', async (req, res) => {
       email,
       password_hash: passwordHash,
       race,
-      current_sector_id: starMallSector.id,
+      game_mode: gameMode,
+      current_sector_id: startingSectorId,
       energy: startingMaxEnergy,
       max_energy: startingMaxEnergy,
       credits: startingCredits,
-      explored_sectors: JSON.stringify([starMallSector.id]),
+      explored_sectors: JSON.stringify([startingSectorId]),
       energy_regen_bonus_until: bonusUntil,
       last_login: new Date(),
       tutorial_state: JSON.stringify(getDefaultTutorialState(startingCredits, startingMaxEnergy)),
@@ -77,7 +90,7 @@ router.post('/register', async (req, res) => {
       id: shipId,
       ship_type_id: raceConfig.starterShipType,
       owner_id: playerId,
-      sector_id: starMallSector.id,
+      sector_id: startingSectorId,
       weapon_energy: starterWeapon,
       max_weapon_energy: shipTypeConfig.maxWeaponEnergy,
       engine_energy: starterEngine,
@@ -89,6 +102,24 @@ router.post('/register', async (req, res) => {
     });
 
     await db('players').where({ id: playerId }).update({ current_ship_id: shipId });
+
+    // SP: Generate universe, assign missions, update starting sector
+    if (gameMode === 'singleplayer') {
+      const spResult = await generateSPUniverse(playerId, db);
+      startingSectorId = spResult.startingSectorId;
+
+      // Move player and ship to SP starting sector
+      await db('players').where({ id: playerId }).update({
+        current_sector_id: startingSectorId,
+        explored_sectors: JSON.stringify([startingSectorId]),
+      });
+      await db('ships').where({ id: shipId }).update({
+        sector_id: startingSectorId,
+      });
+
+      // Assign first tier of SP missions
+      await assignInitialSPMissions(playerId, db);
+    }
 
     // Create player_progression row
     await db('player_progression').insert({
@@ -109,7 +140,8 @@ router.post('/register', async (req, res) => {
         username,
         email,
         race,
-        currentSectorId: starMallSector.id,
+        gameMode,
+        currentSectorId: startingSectorId,
         energy: startingMaxEnergy,
         maxEnergy: startingMaxEnergy,
         credits: startingCredits,
@@ -161,6 +193,7 @@ router.post('/login', async (req, res) => {
         id: player.id,
         username: player.username,
         race: player.race,
+        gameMode: player.game_mode || 'multiplayer',
         currentSectorId: player.current_sector_id,
         energy: player.energy,
         maxEnergy: player.max_energy,
