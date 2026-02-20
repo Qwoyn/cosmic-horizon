@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import CollapsiblePanel from './CollapsiblePanel';
 import PixelSprite from './PixelSprite';
 import NPCDialogueView from './NPCDialogueView';
-import { getContacts } from '../services/api';
+import { getContacts, getFactionReps } from '../services/api';
 import type { SectorState } from '../hooks/useGameState';
 
 interface NPC {
@@ -22,6 +22,11 @@ interface Contact {
   lastSectorId: number;
   lastSeenAt: string;
 }
+
+const TIER_COLORS: Record<string, string> = {
+  Idolized: '#58a6ff', Vilified: '#8b0000', Liked: '#3fb950', Hated: '#f85149',
+  Mixed: '#f0883e', Accepted: '#6e7681', Shunned: '#bd5b00', Neutral: '#484f58',
+};
 
 interface Props {
   sector: SectorState | null;
@@ -54,9 +59,27 @@ function getDispositionDots(level: number) {
 }
 
 // Named exports for use in CrewGroupPanel
-export function NPCList({ sector, onCommand }: { sector: SectorState | null; onCommand?: (cmd: string) => void }) {
+export function NPCList({ sector, onCommand, autoTalkNpcId }: { sector: SectorState | null; onCommand?: (cmd: string) => void; autoTalkNpcId?: string | null }) {
   const npcs: NPC[] = (sector?.npcs || []) as NPC[];
   const [activeNpcId, setActiveNpcId] = useState<string | null>(null);
+  const [factionTiers, setFactionTiers] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    getFactionReps()
+      .then(({ data }) => {
+        const map: Record<string, string> = {};
+        for (const f of data.factions || []) map[f.factionName] = f.tier;
+        setFactionTiers(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Auto-start dialogue when directed externally
+  useEffect(() => {
+    if (autoTalkNpcId && npcs.some(n => n.id === autoTalkNpcId)) {
+      setActiveNpcId(autoTalkNpcId);
+    }
+  }, [autoTalkNpcId]);
 
   const activeNpc = npcs.find(n => n.id === activeNpcId);
 
@@ -85,7 +108,15 @@ export function NPCList({ sector, onCommand }: { sector: SectorState | null; onC
               <PixelSprite spriteKey={spriteKey} size={20} />
               <div className="npc-list-item__text">
                 <span className="npc-list-item__name">{npc.name}</span>
-                <span className="npc-list-item__title">{npc.title}{npc.faction ? ` - ${npc.faction}` : ''}</span>
+                <span className="npc-list-item__title">
+                  {npc.title}
+                  {npc.faction ? ` - ${npc.faction}` : ''}
+                  {npc.faction && factionTiers[npc.faction] && factionTiers[npc.faction] !== 'Neutral' && (
+                    <span className="faction-rep-tier" style={{ color: TIER_COLORS[factionTiers[npc.faction]] || '#484f58', marginLeft: 4 }}>
+                      [{factionTiers[npc.faction]}]
+                    </span>
+                  )}
+                </span>
                 <div className="npc-disposition">
                   {getDispositionDots(npc.disposition ?? 3)}
                 </div>

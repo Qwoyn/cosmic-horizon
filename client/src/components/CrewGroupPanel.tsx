@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PlayerListPanel from './PlayerListPanel';
 import { NPCList, ContactsList } from './NPCsPanel';
 import type { SectorState } from '../hooks/useGameState';
@@ -11,12 +11,19 @@ interface Props {
   onCommand?: (cmd: string) => void;
   alliedPlayerIds?: string[];
   onAllianceChange?: () => void;
+  initialTab?: 'players' | 'npcs' | 'contacts';
+  autoTalkNpcId?: string | null;
 }
 
 type TabView = 'players' | 'npcs' | 'contacts';
 
-export default function CrewGroupPanel({ sector, onFire, refreshKey, bare, onCommand, alliedPlayerIds, onAllianceChange }: Props) {
-  const [tab, setTab] = useState<TabView>('players');
+export default function CrewGroupPanel({ sector, onFire, refreshKey, bare, onCommand, alliedPlayerIds, onAllianceChange, initialTab, autoTalkNpcId }: Props) {
+  const [tab, setTab] = useState<TabView>(initialTab || 'players');
+
+  // Respond to external tab switch requests
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
 
   const tabBar = (
     <div className="group-panel-tabs">
@@ -38,7 +45,7 @@ export default function CrewGroupPanel({ sector, onFire, refreshKey, bare, onCom
     <>
       {tabBar}
       {tab === 'players' && <PlayerListPanel sector={sector} onFire={onFire} alliedPlayerIds={alliedPlayerIds} onAllianceChange={onAllianceChange} bare />}
-      {tab === 'npcs' && <NPCList sector={sector} onCommand={onCommand} />}
+      {tab === 'npcs' && <NPCList sector={sector} onCommand={onCommand} autoTalkNpcId={autoTalkNpcId} />}
       {tab === 'contacts' && <ContactsList refreshKey={refreshKey} />}
     </>
   );

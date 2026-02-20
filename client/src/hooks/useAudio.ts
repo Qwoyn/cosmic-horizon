@@ -64,6 +64,12 @@ export function useAudio() {
   const onEndedRef = useRef<(() => void) | null>(null);
   const [muted, setMuted] = useState(getStoredMuted);
   const [volume, setVolumeState] = useState(getStoredVolume);
+  const mutedRef = useRef(muted);
+  const volumeRef = useRef(volume);
+
+  // Keep refs in sync with state
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
+  useEffect(() => { volumeRef.current = volume; }, [volume]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -140,10 +146,11 @@ export function useAudio() {
     const targetVolume = track.volume * volumeVal;
 
     // For playlist tracks, listen for 'ended' to crossfade to next
+    // Read current muted/volume from refs to avoid stale closure values
     if (isPlaylist) {
       const onEnded = () => {
         const next = pickRandom(GAMEPLAY_TRACKS, track.id);
-        startTrack(next, true, mutedVal, volumeVal);
+        startTrack(next, true, mutedRef.current, volumeRef.current);
       };
       onEndedRef.current = onEnded;
       audio.addEventListener('ended', onEnded);
@@ -172,8 +179,9 @@ export function useAudio() {
 
     currentContextRef.current = contextId;
     pendingPlayRef.current = false;
-    await startTrack(resolved.track, resolved.isPlaylist, muted, volume);
-  }, [muted, volume, fadeOut, startTrack]);
+    // Read current muted/volume from refs to avoid stale closure values
+    await startTrack(resolved.track, resolved.isPlaylist, mutedRef.current, volumeRef.current);
+  }, [fadeOut, startTrack]);
 
   const play = useCallback(async (contextId: string) => {
     if (!userHasInteracted) {

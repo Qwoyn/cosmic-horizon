@@ -9,15 +9,20 @@ interface Resource {
   tier: number;
 }
 
-interface RecipeInput {
-  resourceName: string;
+interface Ingredient {
+  resourceId: string;
+  name: string;
   quantity: number;
 }
 
 interface Recipe {
   id: string;
   name: string;
-  inputs: RecipeInput[];
+  description?: string;
+  tier: number;
+  creditsCost: number;
+  craftTimeMinutes: number;
+  ingredients: Ingredient[];
 }
 
 interface OwnedPlanet {
@@ -38,6 +43,8 @@ interface Props {
   bare?: boolean;
 }
 
+const TIER_LABELS: Record<number, string> = { 1: 'Raw', 2: 'Processed', 3: 'Refined', 4: 'Assembled' };
+
 export default function CraftingPanel({ refreshKey, bare }: Props) {
   const [resources, setResources] = useState<Resource[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -45,6 +52,7 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [selectedPlanets, setSelectedPlanets] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     getPlayerResources()
@@ -60,7 +68,6 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
       .then(({ data }) => {
         const p = (data.planets || []).map((pl: any) => ({ id: pl.id, name: pl.name }));
         setPlanets(p);
-        // Default planet selection
         if (p.length > 0) {
           setSelectedPlanets(prev => {
             const next = { ...prev };
@@ -74,12 +81,19 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
 
   const tierClass = (tier: number) => `crafting-resource--t${Math.min(tier, 5)}`;
 
+  // Build a resource lookup by both id and name for ingredient matching
+  const resourceById = new Map(resources.map(r => [r.id, r]));
+  const resourceByName = new Map(resources.map(r => [r.name, r]));
+
+  const getHave = (ing: Ingredient): number => {
+    return resourceById.get(ing.resourceId)?.quantity
+      ?? resourceByName.get(ing.name)?.quantity
+      ?? 0;
+  };
+
   const canCraft = (recipe: Recipe): boolean => {
-    if (!recipe.inputs || recipe.inputs.length === 0) return false;
-    return recipe.inputs.every(input => {
-      const res = resources.find(r => r.name === input.resourceName);
-      return res && res.quantity >= input.quantity;
-    });
+    if (!recipe.ingredients || recipe.ingredients.length === 0) return false;
+    return recipe.ingredients.every(ing => getHave(ing) >= ing.quantity);
   };
 
   const handleCraft = async (recipeId: string) => {
@@ -114,6 +128,18 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
     } catch { /* silent */ } finally { setBusy(null); }
   };
 
+  const craftableRecipes = recipes.filter(r => canCraft(r));
+  const displayRecipes = showAll ? recipes : craftableRecipes;
+
+  // Group displayed recipes by tier
+  const groupedByTier = new Map<number, Recipe[]>();
+  for (const r of displayRecipes) {
+    const list = groupedByTier.get(r.tier) || [];
+    list.push(r);
+    groupedByTier.set(r.tier, list);
+  }
+  const sortedTiers = [...groupedByTier.keys()].sort((a, b) => a - b);
+
   const resourcesSection = (
     <CollapsiblePanel title="YOUR RESOURCES" defaultOpen>
       {resources.length === 0 ? (
@@ -133,42 +159,87 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
 
   const recipesSection = (
     <CollapsiblePanel title="RECIPES" defaultOpen>
-      {recipes.length === 0 ? (
-        <div className="text-muted">No recipes available</div>
+      <div className="recipe-toggle-row">
+        <button
+          className={`btn-sm ${showAll ? '' : 'btn-buy'}`}
+          onClick={() => setShowAll(false)}
+        >
+          Craftable ({craftableRecipes.length})
+        </button>
+        <button
+          className={`btn-sm ${showAll ? 'btn-buy' : ''}`}
+          onClick={() => setShowAll(true)}
+        >
+          All ({recipes.length})
+        </button>
+      </div>
+      {displayRecipes.length === 0 ? (
+        <div className="text-muted" style={{ marginTop: 6 }}>
+          {showAll ? 'No recipes available' : 'No craftable recipes — gather more resources or toggle "All" to browse'}
+        </div>
       ) : (
-        <>
-          {recipes.map(r => {
-            const craftable = canCraft(r);
-            return (
-              <div key={r.id} className={`recipe-item ${craftable ? 'recipe-item--craftable' : ''}`}>
-                <div className="recipe-item__name">{r.name}</div>
-                <div className="recipe-item__inputs">
-                  {(r.inputs || []).map((inp, i) => (
-                    <span key={i}>{inp.resourceName} x{inp.quantity}{i < (r.inputs || []).length - 1 ? ', ' : ''}</span>
-                  ))}
-                </div>
-                <div className="recipe-item__actions">
-                  {planets.length > 0 && (
-                    <select
-                      className="planet-selector"
-                      value={selectedPlanets[r.id] || planets[0]?.id || ''}
-                      onChange={e => setSelectedPlanets(prev => ({ ...prev, [r.id]: e.target.value }))}
-                    >
-                      {planets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+        sortedTiers.map(tier => (
+          <div key={tier}>
+            <div className="recipe-tier-header">
+              <span className={tierClass(tier)}>{TIER_LABELS[tier] || `Tier ${tier}`}</span>
+            </div>
+            {groupedByTier.get(tier)!.map(r => {
+              const craftable = canCraft(r);
+              return (
+                <div key={r.id} className={`recipe-item ${craftable ? 'recipe-item--craftable' : 'recipe-item--locked'}`}>
+                  <div className="recipe-item__header">
+                    <span className="recipe-item__name">{r.name}</span>
+                    {r.craftTimeMinutes > 0 && (
+                      <span className="recipe-item__time">{r.craftTimeMinutes}m</span>
+                    )}
+                  </div>
+                  {r.description && showAll && (
+                    <div className="recipe-item__desc">{r.description}</div>
                   )}
-                  <button
-                    className="btn-sm btn-buy"
-                    disabled={!craftable || busy === r.id || planets.length === 0}
-                    onClick={() => handleCraft(r.id)}
-                  >
-                    {busy === r.id ? '...' : 'CRAFT'}
-                  </button>
+                  <div className="recipe-item__ingredients">
+                    {(r.ingredients || []).map((ing, i) => {
+                      const have = getHave(ing);
+                      const enough = have >= ing.quantity;
+                      return (
+                        <span key={i} className={`recipe-ingredient ${enough ? 'recipe-ingredient--have' : 'recipe-ingredient--need'}`}>
+                          {ing.name}
+                          <span className="recipe-ingredient__qty">
+                            {have}/{ing.quantity}
+                          </span>
+                        </span>
+                      );
+                    })}
+                    {r.creditsCost > 0 && (
+                      <span className="recipe-ingredient recipe-ingredient--credits">
+                        {r.creditsCost.toLocaleString()} cr
+                      </span>
+                    )}
+                  </div>
+                  {craftable && (
+                    <div className="recipe-item__actions">
+                      {planets.length > 0 && (
+                        <select
+                          className="planet-selector"
+                          value={selectedPlanets[r.id] || planets[0]?.id || ''}
+                          onChange={e => setSelectedPlanets(prev => ({ ...prev, [r.id]: e.target.value }))}
+                        >
+                          {planets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                      )}
+                      <button
+                        className="btn-sm btn-buy"
+                        disabled={busy === r.id || planets.length === 0}
+                        onClick={() => handleCraft(r.id)}
+                      >
+                        {busy === r.id ? '...' : 'CRAFT'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
-            );
-          })}
-        </>
+              );
+            })}
+          </div>
+        ))
       )}
     </CollapsiblePanel>
   );
@@ -176,7 +247,6 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
   const now = Date.now();
   const readyItems = queue.filter(q => new Date(q.readyAt).getTime() <= now);
   const pendingItems = queue.filter(q => new Date(q.readyAt).getTime() > now);
-  // Group by planet for collect-all
   const planetIds = [...new Set(readyItems.map(q => q.planetId))];
 
   const queueSection = (

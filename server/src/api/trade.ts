@@ -7,6 +7,7 @@ import { checkAndUpdateMissions } from '../services/mission-tracker';
 import { applyUpgradesToShip } from '../engine/upgrades';
 import { awardXP } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
+import { onTradeComplete } from '../engine/npcs';
 import { GAME_CONFIG } from '../config/game';
 import {
   handleTutorialOutpost,
@@ -156,6 +157,9 @@ router.post('/buy', requireAuth, async (req, res) => {
     const xpResult = await awardXP(player.id, result.quantity * GAME_CONFIG.XP_TRADE_BUY, 'trade');
     await checkAchievements(player.id, 'trade', {});
 
+    // Faction fame for significant trades
+    try { await onTradeComplete(player.id, adjustedCost); } catch { /* non-critical */ }
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -262,6 +266,9 @@ router.post('/sell', requireAuth, async (req, res) => {
     // Award trade XP for selling
     const xpResult = await awardXP(player.id, result.quantity * GAME_CONFIG.XP_TRADE_SELL, 'trade');
     await checkAchievements(player.id, 'trade', {});
+
+    // Faction fame for significant trades
+    try { await onTradeComplete(player.id, adjustedRevenue); } catch { /* non-critical */ }
 
     res.json({
       commodity,

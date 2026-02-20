@@ -10,6 +10,7 @@ import { applyTabletBonuses, TabletBonuses } from '../engine/tablets';
 import { awardXP, getPlayerLevelBonuses } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
+import { onCombatKill } from '../engine/npcs';
 import db from '../db/connection';
 import { sendPushToPlayer } from '../services/push';
 
@@ -167,6 +168,9 @@ router.post('/fire', requireAuth, async (req, res) => {
       xpResult = await awardXP(player.id, GAME_CONFIG.XP_COMBAT_DESTROY, 'combat');
       await checkAchievements(player.id, 'combat_destroy', {});
       checkAndUpdateMissions(player.id, 'combat_destroy', {});
+
+      // Faction infamy for killing in a sector with NPC factions
+      try { await onCombatKill(player.id, player.current_sector_id); } catch { /* non-critical */ }
     }
 
     // Push notification to defender

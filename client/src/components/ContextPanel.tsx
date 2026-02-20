@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
 import PixelSprite from './PixelSprite';
+import { getInventory, getFactionReps } from '../services/api';
 import type { PlayerState } from '../hooks/useGameState';
 import type { ChatMessage, ChatChannel } from './SectorChatPanel';
 
@@ -10,6 +11,7 @@ interface ContextPanelProps {
   onCommand: (cmd: string) => void;
   hasSyndicate: boolean;
   hasAlliance: boolean;
+  refreshKey?: number;
 }
 
 const RACE_COLORS: Record<string, string> = {
@@ -19,13 +21,44 @@ const RACE_COLORS: Record<string, string> = {
   tarri: '#f0883e',
 };
 
-export default function ContextPanel({ player, chatMessages, onChatSend, onCommand, hasSyndicate, hasAlliance }: ContextPanelProps) {
+const TIER_COLORS: Record<string, string> = {
+  Idolized: '#58a6ff',
+  Vilified: '#8b0000',
+  Liked: '#3fb950',
+  Hated: '#f85149',
+  Mixed: '#f0883e',
+  Accepted: '#6e7681',
+  Shunned: '#bd5b00',
+  Neutral: '#484f58',
+};
+
+export default function ContextPanel({ player, chatMessages, onChatSend, onCommand, hasSyndicate, hasAlliance, refreshKey }: ContextPanelProps) {
   const [chatInput, setChatInput] = useState('');
   const [chatChannel, setChatChannel] = useState<ChatChannel>('sector');
   const [cmdInput, setCmdInput] = useState('');
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
   const [cmdHistoryIdx, setCmdHistoryIdx] = useState(-1);
   const chatListRef = useRef<HTMLDivElement>(null);
+  const [confirmDestruct, setConfirmDestruct] = useState(0); // 0=none, 1=first, 2=confirmed
+  const [hasRache, setHasRache] = useState(false);
+  const [factionReps, setFactionReps] = useState<Array<{ factionId: string; factionName: string; fame: number; infamy: number; tier: string }>>([]);
+
+  // Check inventory for Rache Device
+  useEffect(() => {
+    getInventory()
+      .then(({ data }) => {
+        const items = data.inventory || [];
+        setHasRache(items.some((i: any) => i.itemId === 'rache_device'));
+      })
+      .catch(() => setHasRache(false));
+  }, [refreshKey]);
+
+  // Load faction standings
+  useEffect(() => {
+    getFactionReps()
+      .then(({ data }) => setFactionReps(data.factions || []))
+      .catch(() => setFactionReps([]));
+  }, [refreshKey]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -108,6 +141,19 @@ export default function ContextPanel({ player, chatMessages, onChatSend, onComma
         </div>
       </div>
 
+      {/* Faction Standing */}
+      {factionReps.length > 0 && (
+        <div className="faction-rep-section">
+          <div className="faction-rep-header">FACTION STANDING</div>
+          {factionReps.map(f => (
+            <div key={f.factionId} className="faction-rep-row">
+              <span className="faction-rep-name">{f.factionName}</span>
+              <span className="faction-rep-tier" style={{ color: TIER_COLORS[f.tier] || '#484f58' }}>{f.tier}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Energy bar */}
       <div className="ctx-bar-section">
         <div className="ctx-bar-label">
@@ -162,6 +208,23 @@ export default function ContextPanel({ player, chatMessages, onChatSend, onComma
               </div>
             )}
           </div>
+
+          {/* Self-Destruct — requires Rache Device in inventory */}
+          <button
+            className={`btn-self-destruct${confirmDestruct > 0 ? ' btn-self-destruct--active' : ''}`}
+            disabled={!hasRache}
+            title={hasRache ? 'Detonate Rache Device — destroys your ship and damages all ships in sector' : 'Requires a Rache Device (buy at Star Mall store)'}
+            onClick={() => {
+              if (!hasRache) return;
+              if (confirmDestruct === 0) { setConfirmDestruct(1); return; }
+              if (confirmDestruct === 1) { setConfirmDestruct(2); return; }
+              onCommand('use rache_device');
+              setConfirmDestruct(0);
+            }}
+            onBlur={() => setConfirmDestruct(0)}
+          >
+            {confirmDestruct === 0 ? 'SELF-DESTRUCT' : confirmDestruct === 1 ? 'ARE YOU SURE?' : 'CONFIRM DESTRUCT'}
+          </button>
         </div>
       )}
 

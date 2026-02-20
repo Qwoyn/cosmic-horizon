@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { getNPCsInSector, getUnencounteredNPCsInSector, processDialogue, markEncountered, getContacts, getNPCDetail } from '../engine/npcs';
+import { getNPCsInSector, getUnencounteredNPCsInSector, processDialogue, markEncountered, getContacts, getNPCDetail, getPlayerFactionReps } from '../engine/npcs';
 import db from '../db/connection';
 
 const router = Router();
@@ -64,6 +64,17 @@ router.post('/:npcId/encountered', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('NPC encountered error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Player's faction standing (fame/infamy)
+router.get('/factions', requireAuth, async (req, res) => {
+  try {
+    const reps = await getPlayerFactionReps(req.session.playerId as string);
+    res.json({ factions: reps });
+  } catch (err) {
+    console.error('Faction reps error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

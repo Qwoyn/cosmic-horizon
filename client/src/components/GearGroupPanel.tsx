@@ -17,7 +17,6 @@ type TabView = 'items' | 'tablets' | 'crafting' | 'upgrades';
 export default function GearGroupPanel({ refreshKey, onItemUsed, atStarMall = false, onCommand, bare }: Props) {
   const [tab, setTab] = useState<TabView>('items');
   const [confirmEject, setConfirmEject] = useState(false);
-  const [confirmDestruct, setConfirmDestruct] = useState(0); // 0=none, 1=first, 2=confirmed
 
   const handleEject = () => {
     if (!confirmEject) {
@@ -26,19 +25,6 @@ export default function GearGroupPanel({ refreshKey, onItemUsed, atStarMall = fa
     }
     onCommand?.('eject');
     setConfirmEject(false);
-  };
-
-  const handleSelfDestruct = () => {
-    if (confirmDestruct === 0) {
-      setConfirmDestruct(1);
-      return;
-    }
-    if (confirmDestruct === 1) {
-      setConfirmDestruct(2);
-      return;
-    }
-    onCommand?.('self-destruct');
-    setConfirmDestruct(0);
   };
 
   const tabBar = (
@@ -74,12 +60,6 @@ export default function GearGroupPanel({ refreshKey, onItemUsed, atStarMall = fa
               onClick={handleEject}
             >
               {confirmEject ? 'CONFIRM EJECT?' : 'EJECT'}
-            </button>
-            <button
-              className="btn-action btn-action--attack"
-              onClick={handleSelfDestruct}
-            >
-              {confirmDestruct === 0 ? 'SELF-DESTRUCT' : confirmDestruct === 1 ? 'ARE YOU SURE?' : 'CONFIRM DESTRUCT'}
             </button>
           </div>
         </div>

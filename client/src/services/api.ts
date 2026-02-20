@@ -48,6 +48,7 @@ export const logout = async () => {
 // Game
 export const getStatus = () => api.get('/game/status');
 export const moveTo = (sectorId: number) => api.post(`/game/move/${sectorId}`);
+export const warpTo = (sectorId: number) => api.post(`/game/warp-to/${sectorId}`);
 export const getSector = () => api.get('/game/sector');
 export const getMap = () => api.get('/game/map');
 export const scan = () => api.post('/game/scan');
@@ -221,6 +222,7 @@ export const talkToNPC = (npcId: string, choiceIndex?: number) =>
 export const getContacts = () => api.get('/npcs/contacts');
 export const getNPCDetail = (npcId: string) => api.get(`/npcs/${npcId}`);
 export const markNPCEncountered = (npcId: string) => api.post(`/npcs/${npcId}/encountered`);
+export const getFactionReps = () => api.get('/npcs/factions');
 
 // Tablets
 export const getTablets = () => api.get('/tablets');
