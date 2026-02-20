@@ -11,20 +11,32 @@ interface SectorEvent {
   expiresAt: string;
 }
 
+interface ResourceNode {
+  resourceId: string;
+  name: string;
+  quantity: number;
+  harvested: boolean;
+}
+
 interface ResourceEvent {
   id: string;
-  type: string;
-  nodes?: { index: number; harvested: boolean; resource: string }[];
-  claimed?: boolean;
-  guardian_hp?: number;
-  guardian_max_hp?: number;
-  loot?: string[];
+  eventType: string;
+  resources: ResourceNode[];
+  remainingNodes: number;
+  totalValue: number;
+  timeRemaining: number;
   expiresAt: string;
+  guardianHp: number | null;
+  claimedBy: string | null;
 }
+
+type LineType = 'info' | 'success' | 'error' | 'warning' | 'system' | 'combat' | 'trade';
 
 interface Props {
   refreshKey?: number;
   bare?: boolean;
+  onAddLine?: (text: string, type?: LineType) => void;
+  onRefreshStatus?: () => void;
 }
 
 type TabView = 'events' | 'resources' | 'deployables';
@@ -43,7 +55,7 @@ function getTimeColor(ms: number): string {
   return 'var(--green)';
 }
 
-export default function ExplorePanel({ refreshKey, bare }: Props) {
+export default function ExplorePanel({ refreshKey, bare, onAddLine, onRefreshStatus }: Props) {
   const [tab, setTab] = useState<TabView>('events');
   const [events, setEvents] = useState<SectorEvent[]>([]);
   const [resourceEvents, setResourceEvents] = useState<ResourceEvent[]>([]);
@@ -82,28 +94,82 @@ export default function ExplorePanel({ refreshKey, bare }: Props) {
   const handleHarvest = async (eventId: string, nodeIndex: number) => {
     setBusy(`${eventId}-${nodeIndex}`);
     try {
-      await harvestEvent(eventId, nodeIndex);
+      const { data: hData } = await harvestEvent(eventId, nodeIndex);
+      if (hData.resource) {
+        const msg = `Harvested ${hData.resource.name} x${hData.resource.quantity}`;
+        setResult(msg);
+        onAddLine?.(msg, 'success');
+        if (hData.remainingNodes > 0) {
+          onAddLine?.(`${hData.remainingNodes} nodes remaining`, 'info');
+        } else {
+          onAddLine?.('Event depleted', 'info');
+        }
+      }
+      onRefreshStatus?.();
       const { data } = await getResourceEvents();
       setResourceEvents(data.resourceEvents || []);
-    } catch { /* silent */ } finally { setBusy(null); }
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Harvest failed';
+      setResult(msg);
+      onAddLine?.(msg, 'error');
+    } finally { setBusy(null); }
   };
 
   const handleSalvage = async (eventId: string) => {
     setBusy(eventId);
     try {
-      await salvageEvent(eventId);
+      const { data: sData } = await salvageEvent(eventId);
+      onAddLine?.('=== DERELICT SALVAGED ===', 'system');
+      if (sData.credits > 0) {
+        onAddLine?.(`Credits: +${sData.credits.toLocaleString()}`, 'trade');
+      }
+      if (sData.resources?.length > 0) {
+        for (const r of sData.resources) {
+          onAddLine?.(`${r.name} x${r.quantity} added to resources`, 'trade');
+        }
+      }
+      if (sData.tabletDrop) {
+        onAddLine?.(`Tablet found: ${sData.tabletDrop.name} (${sData.tabletDrop.rarity})!`, 'success');
+      }
+      const parts: string[] = [];
+      if (sData.credits > 0) parts.push(`+${sData.credits.toLocaleString()} cr`);
+      if (sData.resources?.length > 0) parts.push(sData.resources.map((r: any) => `${r.name} x${r.quantity}`).join(', '));
+      setResult(`Salvaged: ${parts.join(' | ') || 'nothing'}`);
+      onRefreshStatus?.();
       const { data } = await getResourceEvents();
       setResourceEvents(data.resourceEvents || []);
-    } catch { /* silent */ } finally { setBusy(null); }
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Salvage failed';
+      setResult(msg);
+      onAddLine?.(msg, 'error');
+    } finally { setBusy(null); }
   };
 
   const handleAttack = async (eventId: string) => {
     setBusy(eventId);
     try {
-      await attackGuardian(eventId);
+      const { data: aData } = await attackGuardian(eventId);
+      onAddLine?.(`You attack the guardian! Damage dealt: ${aData.damageDealt}`, 'combat');
+      if (aData.damageTaken > 0) onAddLine?.(`Damage taken: ${aData.damageTaken}`, 'warning');
+      if (aData.defeated) {
+        onAddLine?.('=== GUARDIAN DEFEATED ===', 'success');
+        if (aData.loot?.resources?.length > 0) {
+          for (const r of aData.loot.resources) {
+            onAddLine?.(`Loot: ${r.name} x${r.quantity}`, 'trade');
+          }
+        }
+        setResult('Guardian defeated!');
+      } else {
+        setResult(`Guardian HP: ${aData.remainingHp}/50`);
+      }
+      onRefreshStatus?.();
       const { data } = await getResourceEvents();
       setResourceEvents(data.resourceEvents || []);
-    } catch { /* silent */ } finally { setBusy(null); }
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Attack failed';
+      setResult(msg);
+      onAddLine?.(msg, 'error');
+    } finally { setBusy(null); }
   };
 
   const tabBar = (
@@ -151,38 +217,39 @@ export default function ExplorePanel({ refreshKey, bare }: Props) {
     <div className="text-muted">No resource events in this sector.</div>
   ) : (
     <>
+      {result && <div style={{ color: 'var(--cyan)', fontSize: '11px', marginBottom: 8 }}>{result}</div>}
       {resourceEvents.map(ev => {
-        const remaining = new Date(ev.expiresAt).getTime() - Date.now();
-        const typeClass = `resource-event-item__type--${ev.type}`;
+        const remaining = ev.timeRemaining > 0 ? ev.timeRemaining : Math.max(0, new Date(ev.expiresAt).getTime() - Date.now());
+        const typeClass = `resource-event-item__type--${ev.eventType}`;
         return (
           <div key={ev.id} className="resource-event-item">
             <div className="resource-event-item__header">
               <span className={`resource-event-item__type ${typeClass}`}>
-                {ev.type.replace('_', ' ').toUpperCase()}
+                {ev.eventType.replace('_', ' ').toUpperCase()}
               </span>
               <span className="resource-event-item__time" style={{ color: getTimeColor(remaining) }}>
                 {formatTimeRemaining(remaining)}
               </span>
             </div>
 
-            {ev.type === 'asteroid_field' && ev.nodes && (
+            {ev.eventType === 'asteroid_field' && ev.resources && (
               <div className="resource-event-item__nodes">
-                {ev.nodes.map(node => (
+                {ev.resources.map((node, idx) => (
                   <button
-                    key={node.index}
+                    key={idx}
                     className="btn-sm btn-buy"
-                    onClick={() => handleHarvest(ev.id, node.index)}
-                    disabled={node.harvested || busy === `${ev.id}-${node.index}`}
+                    onClick={() => handleHarvest(ev.id, idx)}
+                    disabled={node.harvested || busy === `${ev.id}-${idx}`}
                   >
-                    {node.harvested ? 'Done' : `Harvest ${node.resource}`}
+                    {node.harvested ? 'Done' : `Harvest ${node.name}`}
                   </button>
                 ))}
               </div>
             )}
 
-            {ev.type === 'derelict' && (
+            {ev.eventType === 'derelict' && (
               <div style={{ marginTop: 4 }}>
-                {ev.claimed ? (
+                {ev.claimedBy ? (
                   <span className="text-muted" style={{ fontSize: 11 }}>Already claimed</span>
                 ) : (
                   <button className="btn-sm btn-buy" onClick={() => handleSalvage(ev.id)} disabled={busy === ev.id}>
@@ -192,7 +259,7 @@ export default function ExplorePanel({ refreshKey, bare }: Props) {
               </div>
             )}
 
-            {ev.type === 'anomaly' && (
+            {ev.eventType === 'anomaly' && (
               <div style={{ marginTop: 4 }}>
                 <button className="btn-sm btn-buy" onClick={() => handleHarvest(ev.id, 0)} disabled={busy === `${ev.id}-0`}>
                   {busy === `${ev.id}-0` ? '...' : 'HARVEST'}
@@ -200,24 +267,24 @@ export default function ExplorePanel({ refreshKey, bare }: Props) {
               </div>
             )}
 
-            {ev.type === 'alien_cache' && (
+            {ev.eventType === 'alien_cache' && (
               <div style={{ marginTop: 4 }}>
-                {ev.guardian_hp != null && ev.guardian_max_hp != null && ev.guardian_hp > 0 ? (
+                {ev.guardianHp != null && ev.guardianHp > 0 ? (
                   <>
                     <div className="guardian-hp-bar">
-                      <div className="guardian-hp-bar__fill" style={{ width: `${(ev.guardian_hp / ev.guardian_max_hp) * 100}%` }} />
+                      <div className="guardian-hp-bar__fill" style={{ width: `${(ev.guardianHp / 50) * 100}%` }} />
                     </div>
-                    <div className="resource-event-item__details">Guardian HP: {ev.guardian_hp}/{ev.guardian_max_hp}</div>
+                    <div className="resource-event-item__details">Guardian HP: {ev.guardianHp}/50</div>
                     <button className="btn-sm btn-fire" onClick={() => handleAttack(ev.id)} disabled={busy === ev.id}>
                       {busy === ev.id ? '...' : 'ATTACK'}
                     </button>
                   </>
-                ) : ev.loot && ev.loot.length > 0 ? (
-                  <div className="resource-event-item__details" style={{ color: 'var(--green)' }}>
-                    Loot: {ev.loot.join(', ')}
-                  </div>
+                ) : ev.claimedBy ? (
+                  <div className="text-muted" style={{ fontSize: 11 }}>Already claimed</div>
                 ) : (
-                  <div className="text-muted" style={{ fontSize: 11 }}>Guardian defeated</div>
+                  <div className="resource-event-item__details" style={{ color: 'var(--green)' }}>
+                    Guardian defeated — claim available
+                  </div>
                 )}
               </div>
             )}

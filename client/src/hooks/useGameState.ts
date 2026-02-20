@@ -313,6 +313,57 @@ export function useGameState() {
     }
   }, [addLine, refreshSector, refreshStatus, refreshMap, advanceTutorial, player?.currentShip?.shipTypeId]);
 
+  const doWarpTo = useCallback(async (sectorId: number) => {
+    try {
+      const { data } = await api.warpTo(sectorId);
+      setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null } : null);
+
+      // Enqueue warp animation
+      setSceneQueue(_prev => {
+        const shipTypeId = player?.currentShip?.shipTypeId ?? 'scout';
+        const scenes = [buildWarpScene(shipTypeId)];
+        if (data.outposts.length > 0) {
+          scenes.push(buildDockingScene(shipTypeId, data.outposts[0].name));
+        }
+        return scenes;
+      });
+
+      addLine(`Warping to sector ${data.sectorId} (${data.hops} hops, ${data.energyCost} energy)...`, 'info');
+      if (data.path.length > 2) {
+        addLine(`Route: ${data.path.join(' > ')}`, 'system');
+      }
+      addLine(`Arrived in sector ${data.sectorId} [${data.sectorType}]`, 'success');
+      if (data.newSectorsDiscovered > 0) {
+        addLine(`Discovered ${data.newSectorsDiscovered} new sector${data.newSectorsDiscovered > 1 ? 's' : ''} along the way`, 'success');
+      }
+      if (data.players.length > 0) {
+        addLine(`Players here: ${data.players.map((p: any) => p.username).join(', ')}`, 'warning');
+      }
+      if (data.outposts.length > 0) {
+        addLine(`Outposts: ${data.outposts.map((o: any) => o.name).join(', ')}`, 'info');
+      }
+      if (data.planets.length > 0) {
+        addLine(`Planets: ${data.planets.map((p: any) => p.name).join(', ')}`, 'info');
+      }
+      if (data.npcs?.length > 0) {
+        addLine(`NPCs: ${data.npcs.map((n: any) => n.name).join(', ')}`, 'info');
+      }
+      await refreshSector();
+      await refreshStatus();
+      await refreshMap();
+    } catch (err: any) {
+      const errData = err.response?.data;
+      if (errData?.hops) {
+        addLine(errData.error, 'error');
+        if (errData.affordable > 0) {
+          addLine(`You can afford ${errData.affordable} of ${errData.hops} hops`, 'warning');
+        }
+      } else {
+        addLine(errData?.error || 'Warp failed', 'error');
+      }
+    }
+  }, [addLine, refreshSector, refreshStatus, refreshMap, player?.currentShip?.shipTypeId]);
+
   const doBuy = useCallback(async (outpostId: string, commodity: string, quantity: number) => {
     try {
       const { data } = await api.buyFromOutpost(outpostId, commodity, quantity);
@@ -365,41 +416,10 @@ export function useGameState() {
       const shipTypeId = player?.currentShip?.shipTypeId ?? 'scout';
       enqueueScene(buildDockingScene(shipTypeId, data.name));
       addLine(`Docked at ${data.name}`, 'success');
-      addLine(`Treasury: ${data.treasury.toLocaleString()} cr`, 'info');
-      for (const [commodity, info] of Object.entries(data.prices) as [string, any][]) {
-        const modeColor = info.mode === 'sell' ? 'success' : info.mode === 'buy' ? 'trade' : 'info';
-        addLine(`  ${commodity.padEnd(12)} ${String(info.price).padStart(5)} cr  [${info.stock}/${info.capacity}]  ${info.mode}`, modeColor as any);
-      }
-      addLine('Use "buy <commodity> <qty>" or "sell <commodity> <qty>"', 'info');
-
-      // Show Star Mall services if docked at a Star Mall
       if (sector?.hasStarMall) {
-        const MALL_SERVICES: Record<string, { label: string; cmd: string }> = {
-          shipDealer:   { label: 'Ship Dealer',   cmd: 'dealer' },
-          generalStore: { label: 'General Store',  cmd: 'store' },
-          garage:       { label: 'Garage',         cmd: 'garage' },
-          salvageYard:  { label: 'Salvage Yard',   cmd: 'salvage' },
-          cantina:      { label: 'Cantina',        cmd: 'cantina' },
-          refueling:    { label: 'Refueling',      cmd: 'refuel' },
-          bountyBoard:  { label: 'Bounty Board',   cmd: 'bounties' },
-        };
-        try {
-          const { data: mallData } = await api.getStarMallOverview();
-          addLine('', 'info');
-          addLine('=== STAR MALL ===', 'system');
-          addLine('Welcome to the Star Mall! Services available:', 'success');
-          for (const [key, svc] of Object.entries(mallData.services) as [string, any][]) {
-            const info = MALL_SERVICES[key] ?? { label: key, cmd: '' };
-            const extra = svc.storedShips != null ? ` (${svc.storedShips} ships stored)` :
-              svc.activeBounties != null ? ` (${svc.activeBounties} active)` : '';
-            const hint = info.cmd ? `  → type "${info.cmd}"` : '';
-            addLine(`  ${info.label.padEnd(16)} ${(svc.available ? 'OPEN' : 'CLOSED').padEnd(8)}${extra}${hint}`, svc.available ? 'success' : 'warning');
-          }
-        } catch {
-          addLine('', 'info');
-          addLine('=== STAR MALL ===', 'system');
-          addLine('Welcome to the Star Mall! Type "mall" to see services.', 'success');
-        }
+        addLine('Star Mall available — type "mall" for services', 'info');
+      } else {
+        addLine('Use "buy/sell <commodity> <qty>" to trade', 'info');
       }
 
       advanceTutorial('dock');
@@ -441,7 +461,7 @@ export function useGameState() {
     player, sector, lines, isLoggedIn, mapData,
     addLine, clearLines, refreshStatus, refreshSector, refreshMap,
     doLogin, doRegister, doLogout,
-    doMove, doBuy, doSell, doFire, doFlee, doDock, doUndock,
+    doMove, doWarpTo, doBuy, doSell, doFire, doFlee, doDock, doUndock,
     setPlayer, setSector,
     advanceTutorial, refreshTutorial, skipTutorial,
     markIntroSeen, markPostTutorialSeen,

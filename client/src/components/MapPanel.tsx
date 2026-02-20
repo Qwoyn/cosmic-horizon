@@ -21,11 +21,14 @@ interface ResourceEvent {
 interface MapPanelProps {
   sector: SectorState | null;
   onMoveToSector: (sectorId: number) => void;
+  onWarpTo?: (sectorId: number) => void;
   onCommand?: (cmd: string) => void;
+  onNPCClick?: (npcId: string) => void;
+  onAlertClick?: (panel: string) => void;
   bare?: boolean;
 }
 
-export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: MapPanelProps) {
+export default function MapPanel({ sector, onMoveToSector, onWarpTo, onCommand, onNPCClick, onAlertClick, bare }: MapPanelProps) {
   const [warpGates, setWarpGates] = useState<WarpGate[]>([]);
   const [warpTarget, setWarpTarget] = useState('');
   const [resourceEvents, setResourceEvents] = useState<ResourceEvent[]>([]);
@@ -51,7 +54,11 @@ export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: Ma
   const handleWarpTo = () => {
     const num = parseInt(warpTarget, 10);
     if (!isNaN(num) && num > 0) {
-      onMoveToSector(num);
+      if (onWarpTo) {
+        onWarpTo(num);
+      } else {
+        onMoveToSector(num);
+      }
       setWarpTarget('');
     }
   };
@@ -59,7 +66,7 @@ export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: Ma
   if (!sector) {
     const empty = <div>No data</div>;
     if (bare) return <div className="panel-content">{empty}</div>;
-    return <CollapsiblePanel title="NAV MAP">{empty}</CollapsiblePanel>;
+    return <CollapsiblePanel title="NAVIGATION">{empty}</CollapsiblePanel>;
   }
 
   const npcs = sector.npcs || [];
@@ -73,6 +80,9 @@ export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: Ma
       <div className="action-buttons" style={{ marginBottom: 6 }}>
         <button className="btn-action" onClick={() => onCommand?.('look')}>LOOK</button>
         <button className="btn-action" onClick={() => onCommand?.('scan')}>SCAN</button>
+        {sector.outposts.length > 0 && (
+          <button className="btn-action" onClick={() => onCommand?.('dock')}>DOCK</button>
+        )}
       </div>
 
       {/* Warp input */}
@@ -106,22 +116,32 @@ export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: Ma
           <div className="panel-subheader" style={{ color: 'var(--yellow)' }}>Sector Alerts</div>
           <div className="alert-items" style={{ padding: '0 0 4px' }}>
             {hasResourceEvents && (
-              <div className="alert-item alert-item--resource">
+              <div className="alert-item alert-item--resource" style={{ cursor: 'pointer' }} onClick={() => onAlertClick?.('explore')}>
                 {resourceEvents.length} resource event{resourceEvents.length !== 1 ? 's' : ''} detected
               </div>
             )}
             {hasAlienCache && (
-              <div className="alert-item alert-item--danger">
+              <div className="alert-item alert-item--danger" style={{ cursor: 'pointer' }} onClick={() => onAlertClick?.('explore')}>
                 Alien cache guardian active
               </div>
             )}
             {variantPlanets.length > 0 && (
-              <div className="alert-item alert-item--special">
+              <div className="alert-item alert-item--special" style={{ cursor: 'pointer' }} onClick={() => onAlertClick?.('planets')}>
                 {variantPlanets.length} variant planet{variantPlanets.length !== 1 ? 's' : ''}
               </div>
             )}
             {npcs.length > 0 && (
-              <div className="alert-item alert-item--npc">
+              <div
+                className="alert-item alert-item--npc"
+                style={{ cursor: 'pointer' }}
+                onClick={() => {
+                  if (onNPCClick && npcs.length === 1) {
+                    onNPCClick(npcs[0].id);
+                  } else if (onNPCClick) {
+                    onNPCClick('');
+                  }
+                }}
+              >
                 {npcs.length} NPC{npcs.length !== 1 ? 's' : ''} present
               </div>
             )}
@@ -200,5 +220,5 @@ export default function MapPanel({ sector, onMoveToSector, onCommand, bare }: Ma
   );
 
   if (bare) return <div className="panel-content">{content}</div>;
-  return <CollapsiblePanel title={`NAV MAP - Sector ${sector.sectorId}`}>{content}</CollapsiblePanel>;
+  return <CollapsiblePanel title={`NAVIGATION - Sector ${sector.sectorId}`}>{content}</CollapsiblePanel>;
 }

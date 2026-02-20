@@ -1,4 +1,4 @@
-export type PanelId = 'nav' | 'explore' | 'trade' | 'combat' | 'crew' | 'missions' | 'planets' | 'gear' | 'comms' | 'syndicate' | 'wallet' | 'actions';
+export type PanelId = 'nav' | 'explore' | 'trade' | 'combat' | 'crew' | 'missions' | 'planets' | 'gear' | 'inventory' | 'comms' | 'syndicate' | 'wallet' | 'actions';
 
 export interface PanelDef {
   id: PanelId;
@@ -7,7 +7,7 @@ export interface PanelDef {
 }
 
 export const PANELS: PanelDef[] = [
-  { id: 'nav',      label: 'NAV MAP',  spriteKey: 'icon_nav' },
+  { id: 'nav',      label: 'NAVIGATION',  spriteKey: 'icon_nav' },
   { id: 'explore',  label: 'EXPLORE',  spriteKey: 'icon_explore' },
   { id: 'trade',    label: 'TRADE',    spriteKey: 'icon_trade' },
   { id: 'combat',   label: 'COMBAT',   spriteKey: 'icon_combat' },
@@ -15,6 +15,7 @@ export const PANELS: PanelDef[] = [
   { id: 'missions', label: 'MISSIONS', spriteKey: 'icon_missions' },
   { id: 'planets',  label: 'PLANETS',  spriteKey: 'icon_planets' },
   { id: 'gear',     label: 'GEAR',     spriteKey: 'icon_gear' },
+  { id: 'inventory', label: 'INVENTORY', spriteKey: 'icon_inventory' },
   { id: 'comms',      label: 'COMMS',      spriteKey: 'icon_comms' },
   { id: 'syndicate', label: 'SYNDICATE', spriteKey: 'icon_syndicate' },
   { id: 'wallet',    label: 'WALLET',    spriteKey: 'icon_wallet' },

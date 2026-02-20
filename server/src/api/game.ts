@@ -9,6 +9,7 @@ import { GAME_CONFIG } from '../config/game';
 import { getNPCsInSector, getUnencounteredNPCsInSector } from '../engine/npcs';
 import { getResourceEventsInSector, getResourceEventsInSectors } from '../engine/rare-spawns';
 import { PLANET_TYPES } from '../config/planet-types';
+import { findShortestPath, type SectorEdge } from '../engine/universe';
 import {
   handleTutorialStatus,
   handleTutorialSector,
@@ -199,6 +200,150 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Move error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Warp-to: auto-path to a distant sector, costing 1 energy per hop
+router.post('/warp-to/:sectorId', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const targetSectorId = parseInt(req.params.sectorId as string, 10);
+    if (isNaN(targetSectorId)) return res.status(400).json({ error: 'Invalid sector ID' });
+
+    if (player.current_sector_id === targetSectorId) {
+      return res.status(400).json({ error: 'Already in that sector' });
+    }
+
+    // Verify target sector exists
+    const targetSector = await db('sectors').where({ id: targetSectorId }).first();
+    if (!targetSector) return res.status(404).json({ error: 'Sector not found' });
+
+    // SP: validate target sector belongs to player's universe
+    if (player.game_mode === 'singleplayer' && targetSector.owner_id !== player.id) {
+      return res.status(400).json({ error: 'Sector is not in your universe' });
+    }
+
+    // Build edge map from database for pathfinding
+    const edgeQuery = player.game_mode === 'singleplayer'
+      ? db('sector_edges')
+          .join('sectors', 'sector_edges.from_sector_id', 'sectors.id')
+          .where('sectors.owner_id', player.id)
+          .select('sector_edges.from_sector_id', 'sector_edges.to_sector_id', 'sector_edges.one_way')
+      : db('sector_edges').select('from_sector_id', 'to_sector_id', 'one_way');
+
+    const edgeRows = await edgeQuery;
+    const edgeMap = new Map<number, SectorEdge[]>();
+    for (const row of edgeRows) {
+      const from = row.from_sector_id;
+      const to = row.to_sector_id;
+      const fromList = edgeMap.get(from) || [];
+      fromList.push({ from, to, oneWay: !!row.one_way });
+      edgeMap.set(from, fromList);
+      // Add reverse edge for non-one-way
+      if (!row.one_way) {
+        const toList = edgeMap.get(to) || [];
+        if (!toList.some(e => e.to === from)) {
+          toList.push({ from: to, to: from, oneWay: false });
+          edgeMap.set(to, toList);
+        }
+      }
+    }
+
+    // Find shortest path
+    const path = findShortestPath(edgeMap, player.current_sector_id, targetSectorId);
+    if (!path) {
+      return res.status(400).json({ error: 'No route to that sector' });
+    }
+
+    // path includes starting sector; hops = path.length - 1
+    const hops = path.length - 1;
+    const costPerHop = getActionCost('move');
+    const totalCost = hops * costPerHop;
+
+    if (player.energy < totalCost) {
+      const affordable = Math.floor(player.energy / costPerHop);
+      return res.status(400).json({
+        error: `Not enough energy. Route is ${hops} hops (${totalCost} energy), you have ${player.energy}`,
+        hops,
+        totalCost,
+        affordable,
+        path,
+      });
+    }
+
+    // Move hop-by-hop: update explored sectors along the way
+    let explored: number[] = [];
+    try { explored = JSON.parse(player.explored_sectors || '[]'); } catch { explored = []; }
+
+    const newSectors: number[] = [];
+    for (let i = 1; i < path.length; i++) {
+      if (!explored.includes(path[i])) {
+        explored.push(path[i]);
+        newSectors.push(path[i]);
+      }
+    }
+
+    const newEnergy = player.energy - totalCost;
+
+    await db('players').where({ id: player.id }).update({
+      current_sector_id: targetSectorId,
+      energy: newEnergy,
+      explored_sectors: JSON.stringify(explored),
+      docked_at_outpost_id: null,
+    });
+
+    // Move active ship
+    if (player.current_ship_id) {
+      await db('ships').where({ id: player.current_ship_id }).update({ sector_id: targetSectorId });
+    }
+
+    // Award XP for new sectors discovered along the way
+    let xpResult = null;
+    if (newSectors.length > 0) {
+      xpResult = await awardXP(player.id, GAME_CONFIG.XP_EXPLORE_NEW_SECTOR * newSectors.length, 'explore');
+      for (const sid of newSectors) {
+        await checkAchievements(player.id, 'explore', { sectorId: sid, explored });
+      }
+    }
+
+    // Mission progress for each hop
+    for (let i = 1; i < path.length; i++) {
+      checkAndUpdateMissions(player.id, 'move', { sectorId: path[i] });
+    }
+
+    // Get destination sector contents
+    const sector = await db('sectors').where({ id: targetSectorId }).first();
+    const playersInSector = await db('players')
+      .where({ current_sector_id: targetSectorId })
+      .whereNot({ id: player.id })
+      .select('id', 'username');
+    const outpostsInSector = await db('outposts').where({ sector_id: targetSectorId });
+    const planetsInSector = await db('planets').where({ sector_id: targetSectorId });
+
+    let npcs: any[] = [];
+    try {
+      npcs = await getNPCsInSector(targetSectorId, player.id);
+    } catch { /* table may not exist yet */ }
+
+    res.json({
+      sectorId: targetSectorId,
+      sectorType: sector?.type,
+      energy: newEnergy,
+      hops,
+      energyCost: totalCost,
+      path,
+      newSectorsDiscovered: newSectors.length,
+      players: playersInSector,
+      outposts: outpostsInSector.map((o: any) => ({ id: o.id, name: o.name })),
+      planets: planetsInSector.map((p: any) => ({ id: p.id, name: p.name, ownerId: p.owner_id })),
+      xp: xpResult ? { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp } : undefined,
+      npcs: npcs.map((n: any) => ({ id: n.id, name: n.name, title: n.title, race: n.race, encountered: n.encountered })),
+    });
+  } catch (err) {
+    console.error('Warp-to error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

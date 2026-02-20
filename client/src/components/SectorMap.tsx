@@ -20,14 +20,22 @@ const NODE_RADIUS = 14;
 const IDEAL_EDGE_LENGTH = 60;
 const ITERATIONS = 120;
 
-const ZOOM_LEVELS = [1, 1.5, 2];
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 3;
+const ZOOM_BUTTON_STEP = 0.5;
+const ZOOM_WHEEL_STEP = 0.08;
+
+// Seeded PRNG (Lehmer / Park-Miller)
+function seededRng(seed: number) {
+  let s = seed % 2147483647;
+  if (s <= 0) s += 2147483646;
+  return () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+}
 
 // Generate deterministic star positions for background layers
 function generateStars(count: number, seed: number): string {
   const stars: string[] = [];
-  // Simple seeded random
-  let s = seed;
-  const rand = () => { s = (s * 16807 + 0) % 2147483647; return s / 2147483647; };
+  const rand = seededRng(seed);
   for (let i = 0; i < count; i++) {
     const x = Math.round(rand() * 2000);
     const y = Math.round(rand() * 2000);
@@ -56,6 +64,7 @@ function computeLayout(
   cached: Map<number, { x: number; y: number }>,
 ): Map<number, { x: number; y: number }> {
   const positions = new Map<number, { x: number; y: number }>();
+  const sectorIds = new Set(sectors.map(s => s.id));
 
   // Build adjacency for neighbor lookup
   const adjacency = new Map<number, Set<number>>();
@@ -65,22 +74,87 @@ function computeLayout(
     adjacency.get(e.to)?.add(e.from);
   }
 
-  // Initialize positions: use cached, or place near a connected neighbor, or center
   const cx = WIDTH / 2;
   const cy = HEIGHT / 2;
+
+  // Use cached positions if available
+  let hasCached = false;
   for (const s of sectors) {
     const c = cached.get(s.id);
     if (c) {
       positions.set(s.id, { x: c.x, y: c.y });
-    } else {
-      // Try to place near a connected neighbor that already has a position
-      let placed = false;
+      hasCached = true;
+    }
+  }
+
+  // For uncached nodes, use BFS ring layout centered on current sector
+  // This ensures adjacent sectors always start near each other
+  if (!hasCached) {
+    // Deterministic seed so layout is stable across refreshes
+    const seedBase = sectors.reduce((acc, s) => acc + s.id * 7919, currentSectorId * 104729);
+    const rand = seededRng(seedBase);
+
+    const visited = new Set<number>();
+    const queue: { id: number; depth: number }[] = [];
+
+    // Start BFS from current sector at center
+    if (sectorIds.has(currentSectorId)) {
+      positions.set(currentSectorId, { x: cx, y: cy });
+      visited.add(currentSectorId);
+      queue.push({ id: currentSectorId, depth: 0 });
+    }
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      const neighbors = adjacency.get(id);
+      if (!neighbors) continue;
+
+      // Collect unvisited neighbors, sort by ID for determinism
+      const unvisited = [...neighbors].filter(n => !visited.has(n) && sectorIds.has(n)).sort((a, b) => a - b);
+      if (unvisited.length === 0) continue;
+
+      const parentPos = positions.get(id)!;
+      const ringRadius = IDEAL_EDGE_LENGTH * (0.8 + depth * 0.15);
+      // Spread neighbors evenly around parent with a deterministic offset
+      const angleStep = (2 * Math.PI) / Math.max(unvisited.length, 3);
+      const baseAngle = rand() * Math.PI * 2;
+
+      for (let i = 0; i < unvisited.length; i++) {
+        const nid = unvisited[i];
+        const angle = baseAngle + angleStep * i;
+        // Add small jitter to prevent perfect overlaps
+        const jitter = (rand() - 0.5) * 8;
+        positions.set(nid, {
+          x: parentPos.x + Math.cos(angle) * ringRadius + jitter,
+          y: parentPos.y + Math.sin(angle) * ringRadius + jitter,
+        });
+        visited.add(nid);
+        queue.push({ id: nid, depth: depth + 1 });
+      }
+    }
+
+    // Place any disconnected nodes not reached by BFS
+    for (const s of sectors) {
+      if (!positions.has(s.id)) {
+        positions.set(s.id, {
+          x: cx + (rand() - 0.5) * WIDTH * 0.4,
+          y: cy + (rand() - 0.5) * HEIGHT * 0.4,
+        });
+      }
+    }
+  } else {
+    // Fill in any new uncached nodes near their neighbors
+    const seedBase = sectors.reduce((acc, s) => acc + s.id * 7919, currentSectorId * 104729);
+    const rand = seededRng(seedBase);
+    for (const s of sectors) {
+      if (positions.has(s.id)) continue;
       const neighbors = adjacency.get(s.id);
+      let placed = false;
       if (neighbors) {
         for (const nid of neighbors) {
-          const np = positions.get(nid) || cached.get(nid);
+          const np = positions.get(nid);
           if (np) {
-            const angle = Math.random() * Math.PI * 2;
+            const angle = rand() * Math.PI * 2;
             positions.set(s.id, {
               x: np.x + Math.cos(angle) * IDEAL_EDGE_LENGTH,
               y: np.y + Math.sin(angle) * IDEAL_EDGE_LENGTH,
@@ -91,33 +165,32 @@ function computeLayout(
         }
       }
       if (!placed) {
-        // Random position spread across canvas
         positions.set(s.id, {
-          x: cx + (Math.random() - 0.5) * WIDTH * 0.6,
-          y: cy + (Math.random() - 0.5) * HEIGHT * 0.6,
+          x: cx + (rand() - 0.5) * WIDTH * 0.4,
+          y: cy + (rand() - 0.5) * HEIGHT * 0.4,
         });
       }
     }
   }
 
   if (sectors.length <= 1) {
-    // Single node: just center it
     if (sectors.length === 1) positions.set(sectors[0].id, { x: cx, y: cy });
     return positions;
   }
 
-  // Force-directed iterations
+  // Force-directed iterations to refine the BFS layout
   const velocities = new Map<number, { vx: number; vy: number }>();
   for (const s of sectors) velocities.set(s.id, { vx: 0, vy: 0 });
 
   const damping = 0.82;
   const padding = NODE_RADIUS + 6;
-  const repulsionStrength = 3000;
+  const repulsionStrength = 2500;
+  const minSeparation = NODE_RADIUS * 2 + 10; // Minimum distance between node centers
 
   for (let iter = 0; iter < ITERATIONS; iter++) {
     const temp = 1 - iter / ITERATIONS; // cooling factor
 
-    // Repulsion between all pairs
+    // Repulsion between all pairs (extra strong when overlapping)
     for (let i = 0; i < sectors.length; i++) {
       for (let j = i + 1; j < sectors.length; j++) {
         const a = positions.get(sectors[i].id)!;
@@ -126,7 +199,10 @@ function computeLayout(
         let dy = a.y - b.y;
         let dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 1) { dx = 1; dy = 0; dist = 1; }
-        const force = repulsionStrength / (dist * dist);
+        // Boost repulsion when nodes are overlapping
+        const overlap = dist < minSeparation;
+        const strength = overlap ? repulsionStrength * 4 : repulsionStrength;
+        const force = strength / (dist * dist);
         const fx = (dx / dist) * force * temp;
         const fy = (dy / dist) * force * temp;
         const va = velocities.get(sectors[i].id)!;
@@ -136,7 +212,7 @@ function computeLayout(
       }
     }
 
-    // Attraction along edges — spring toward ideal length
+    // Attraction along edges — strong spring toward ideal length
     for (const e of edges) {
       const a = positions.get(e.from);
       const b = positions.get(e.to);
@@ -145,9 +221,8 @@ function computeLayout(
       const dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < 1) continue;
-      // Spring force: pulls together if dist > ideal, pushes apart if dist < ideal
       const displacement = dist - IDEAL_EDGE_LENGTH;
-      const force = 0.08 * displacement * temp;
+      const force = 0.15 * displacement * temp;
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
       const va = velocities.get(e.from)!;
@@ -160,16 +235,16 @@ function computeLayout(
     const cp = positions.get(currentSectorId);
     if (cp) {
       const cv = velocities.get(currentSectorId)!;
-      cv.vx += (cx - cp.x) * 0.015 * temp;
-      cv.vy += (cy - cp.y) * 0.015 * temp;
+      cv.vx += (cx - cp.x) * 0.02 * temp;
+      cv.vy += (cy - cp.y) * 0.02 * temp;
     }
 
     // Light gravity toward center for all nodes (prevents drifting)
     for (const s of sectors) {
       const p = positions.get(s.id)!;
       const v = velocities.get(s.id)!;
-      v.vx += (cx - p.x) * 0.003 * temp;
-      v.vy += (cy - p.y) * 0.003 * temp;
+      v.vx += (cx - p.x) * 0.005 * temp;
+      v.vy += (cy - p.y) * 0.005 * temp;
     }
 
     // Apply velocities
@@ -184,6 +259,33 @@ function computeLayout(
       p.x = Math.max(padding, Math.min(WIDTH - padding, p.x));
       p.y = Math.max(padding, Math.min(HEIGHT - padding, p.y));
     }
+
+    // Hard overlap separation — push apart any nodes closer than minSeparation
+    for (let i = 0; i < sectors.length; i++) {
+      for (let j = i + 1; j < sectors.length; j++) {
+        const a = positions.get(sectors[i].id)!;
+        const b = positions.get(sectors[j].id)!;
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minSeparation) {
+          if (dist < 1) { dx = 1; dy = 0; }
+          const overlap = minSeparation - dist;
+          const nx = dx / (dist || 1);
+          const ny = dy / (dist || 1);
+          const push = overlap * 0.5;
+          a.x -= nx * push;
+          a.y -= ny * push;
+          b.x += nx * push;
+          b.y += ny * push;
+          // Re-clamp
+          a.x = Math.max(padding, Math.min(WIDTH - padding, a.x));
+          a.y = Math.max(padding, Math.min(HEIGHT - padding, a.y));
+          b.x = Math.max(padding, Math.min(WIDTH - padding, b.x));
+          b.y = Math.max(padding, Math.min(HEIGHT - padding, b.y));
+        }
+      }
+    }
   }
 
   return positions;
@@ -191,8 +293,10 @@ function computeLayout(
 
 export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds, onMoveToSector, compact }: Props) {
   const positionCache = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const [zoomIndex, setZoomIndex] = useState(0);
+  const [zoom, setZoom] = useState(ZOOM_MIN);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panRef = useRef(pan);
+  const zoomRef = useRef(zoom);
   const dragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
@@ -200,6 +304,11 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   const [showLegend, setShowLegend] = useState(false);
   const [parallax, setParallax] = useState({ x: 0, y: 0 });
   const mapBodyRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // Keep refs in sync with state for stable event handlers
+  useEffect(() => { panRef.current = pan; }, [pan]);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
 
   const handleParallaxMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -209,7 +318,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
     setParallax({ x: nx, y: ny });
   }, []);
 
-  const zoom = ZOOM_LEVELS[zoomIndex];
+  // zoom is now state directly
 
   const positions = useMemo(() => {
     if (!mapData || currentSectorId == null) return new Map<number, { x: number; y: number }>();
@@ -226,13 +335,13 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   }, [adjacentSectorIds, onMoveToSector]);
 
   const handleZoomIn = useCallback(() => {
-    setZoomIndex(i => Math.min(i + 1, ZOOM_LEVELS.length - 1));
+    setZoom(z => Math.min(z + ZOOM_BUTTON_STEP, ZOOM_MAX));
   }, []);
 
   const handleZoomOut = useCallback(() => {
-    setZoomIndex(i => {
-      const next = Math.max(i - 1, 0);
-      if (next === 0) setPan({ x: 0, y: 0 });
+    setZoom(z => {
+      const next = Math.max(z - ZOOM_BUTTON_STEP, ZOOM_MIN);
+      if (next <= ZOOM_MIN) setPan({ x: 0, y: 0 });
       return next;
     });
   }, []);
@@ -240,20 +349,21 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     dragging.current = true;
     dragStart.current = { x: e.clientX, y: e.clientY };
-    panStart.current = { x: pan.x, y: pan.y };
-  }, [zoom, pan]);
+    panStart.current = { x: panRef.current.x, y: panRef.current.y };
+  }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (!dragging.current) return;
-    const vw = WIDTH / zoom;
-    const vh = HEIGHT / zoom;
+    const z = zoomRef.current;
+    const vw = WIDTH / z;
+    const vh = HEIGHT / z;
     // Convert pixel movement to viewBox units
     const svgEl = e.currentTarget;
     const rect = svgEl.getBoundingClientRect();
     const scaleX = WIDTH / rect.width;
     const scaleY = HEIGHT / rect.height;
-    const dx = (e.clientX - dragStart.current.x) * scaleX / zoom;
-    const dy = (e.clientY - dragStart.current.y) * scaleY / zoom;
+    const dx = (e.clientX - dragStart.current.x) * scaleX / z;
+    const dy = (e.clientY - dragStart.current.y) * scaleY / z;
     // Pan limits: always allow a minimum pan range even at base zoom
     const maxPanX = Math.max((WIDTH - vw) / 2, WIDTH * 0.3);
     const maxPanY = Math.max((HEIGHT - vh) / 2, HEIGHT * 0.3);
@@ -261,11 +371,67 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
       x: Math.max(-maxPanX, Math.min(maxPanX, panStart.current.x - dx)),
       y: Math.max(-maxPanY, Math.min(maxPanY, panStart.current.y - dy)),
     });
-  }, [zoom]);
+  }, []);
 
   const handleMouseUp = useCallback(() => {
     dragging.current = false;
   }, []);
+
+  const handleWheel = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+    const rect = svgEl.getBoundingClientRect();
+
+    // Mouse position as fraction of SVG element (0-1)
+    const mx = (e.clientX - rect.left) / rect.width;
+    const my = (e.clientY - rect.top) / rect.height;
+
+    setZoom(prev => {
+      const next = e.deltaY < 0
+        ? Math.min(prev + ZOOM_WHEEL_STEP, ZOOM_MAX)
+        : Math.max(prev - ZOOM_WHEEL_STEP, ZOOM_MIN);
+
+      if (next <= ZOOM_MIN) {
+        setPan({ x: 0, y: 0 });
+      } else {
+        // Read current pan from ref to avoid stale closure
+        const curPan = panRef.current;
+        // Shift pan toward/away from mouse cursor
+        const oldVw = WIDTH / prev;
+        const oldVh = HEIGHT / prev;
+        const newVw = WIDTH / next;
+        const newVh = HEIGHT / next;
+        const cursorVx = (WIDTH - oldVw) / 2 + curPan.x + oldVw * mx;
+        const cursorVy = (HEIGHT - oldVh) / 2 + curPan.y + oldVh * my;
+        const newPanX = cursorVx - (WIDTH - newVw) / 2 - newVw * mx;
+        const newPanY = cursorVy - (HEIGHT - newVh) / 2 - newVh * my;
+        const maxPanX = Math.max((WIDTH - newVw) / 2, WIDTH * 0.3);
+        const maxPanY = Math.max((HEIGHT - newVh) / 2, HEIGHT * 0.3);
+        setPan({
+          x: Math.max(-maxPanX, Math.min(maxPanX, newPanX)),
+          y: Math.max(-maxPanY, Math.min(maxPanY, newPanY)),
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  // Attach wheel listener to map body container so it works on hover anywhere in the map area
+  useEffect(() => {
+    const el = mapBodyRef.current;
+    if (!el || compact) return;
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [handleWheel, compact]);
+
+  // Re-attach if mapBodyRef becomes available after initial render
+  const mapBodyCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    mapBodyRef.current = node;
+    if (node && !compact) {
+      node.addEventListener('wheel', handleWheel, { passive: false });
+    }
+  }, [handleWheel, compact]);
 
   const effectiveWidth = compact ? 240 : WIDTH;
   const effectiveHeight = compact ? 200 : HEIGHT;
@@ -294,13 +460,14 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
 
   const zoomControls = (
     <span className="sector-map-controls">
-      <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoomIndex === 0} title="Zoom out">−</button>
-      <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoomIndex === ZOOM_LEVELS.length - 1} title="Zoom in">+</button>
+      <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} title="Zoom out">−</button>
+      <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} title="Zoom in">+</button>
     </span>
   );
 
   const svgContent = (
     <svg
+      ref={svgRef}
       className="sector-map-svg"
       viewBox={`${vx} ${vy} ${vw} ${vh}`}
       xmlns="http://www.w3.org/2000/svg"
@@ -379,8 +546,8 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
             onClick={isAdjacent ? () => handleNodeClick(s.id) : undefined}
             style={{
               ...(isAdjacent ? { cursor: 'pointer' } : {}),
-              '--twinkle-dur': `${6 + (s.id % 7) * 2}s`,
-              '--twinkle-delay': `${(s.id * 1.7) % 10}s`,
+              '--twinkle-dur': `${12 + (s.id % 11) * 4}s`,
+              '--twinkle-delay': `${(s.id * 3.7) % 40}s`,
             } as React.CSSProperties}
             onMouseEnter={(e) => {
               const svgEl = e.currentTarget.closest('svg');
@@ -474,11 +641,11 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
         <span className="sector-map-full__title">SECTOR MAP {currentSectorId != null ? `| ${currentSectorId}` : ''}</span>
         <span className="sector-map-controls">
           <button className="sector-map-zoom-btn" onClick={() => setShowLegend(v => !v)} title="Toggle legend">{showLegend ? '×' : '?'}</button>
-          <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoomIndex === 0} title="Zoom out">−</button>
-          <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoomIndex === ZOOM_LEVELS.length - 1} title="Zoom in">+</button>
+          <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} title="Zoom out">−</button>
+          <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} title="Zoom in">+</button>
         </span>
       </div>
-      <div className="sector-map-body" style={{ padding: 4, position: 'relative' }} onMouseMove={handleParallaxMove} ref={mapBodyRef}>
+      <div className="sector-map-body" style={{ padding: 4, position: 'relative' }} onMouseMove={handleParallaxMove} ref={mapBodyCallbackRef}>
         {/* Space background with parallax starfield + nebula */}
         <div className="space-bg">
           <div className="space-bg__nebula" style={{ transform: `translate(${parallax.x * 8}px, ${parallax.y * 8}px)` }} />

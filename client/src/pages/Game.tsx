@@ -9,6 +9,7 @@ import ExplorePanel from '../components/ExplorePanel';
 import PlanetsPanel from '../components/PlanetsPanel';
 import CrewGroupPanel from '../components/CrewGroupPanel';
 import GearGroupPanel from '../components/GearGroupPanel';
+import InventoryResourcePanel from '../components/InventoryResourcePanel';
 import CommsGroupPanel from '../components/CommsGroupPanel';
 import SyndicateGroupPanel from '../components/SyndicateGroupPanel';
 import WalletPanel from '../components/WalletPanel';
@@ -54,6 +55,8 @@ export default function Game({ onLogout }: GameProps) {
   const [alliedPlayerIds, setAlliedPlayerIds] = useState<string[]>([]);
   const [hasSyndicate, setHasSyndicate] = useState(false);
   const [hasAlliance, setHasAlliance] = useState(false);
+  const [crewInitialTab, setCrewInitialTab] = useState<'players' | 'npcs' | 'contacts' | undefined>(undefined);
+  const [autoTalkNpcId, setAutoTalkNpcId] = useState<string | null>(null);
   const lastSectorRef = useRef<number | null>(null);
   const lastListingRef = useRef<{ id: string; label: string }[] | null>(null);
   const activePanelRef = useRef(activePanel);
@@ -229,6 +232,7 @@ export default function Game({ onLogout }: GameProps) {
       player: game.player,
       sector: game.sector,
       doMove: game.doMove,
+      doWarpTo: game.doWarpTo,
       doBuy: game.doBuy,
       doSell: game.doSell,
       doFire: game.doFire,
@@ -275,10 +279,24 @@ export default function Game({ onLogout }: GameProps) {
     onCommand(cmd);
   }, [onCommand]);
 
+  const handleNPCClick = useCallback((npcId: string) => {
+    setCrewInitialTab('npcs');
+    setAutoTalkNpcId(npcId || null);
+    selectPanel('crew');
+  }, [selectPanel]);
+
+  // Clear auto-talk state when leaving crew panel
+  useEffect(() => {
+    if (activePanel !== 'crew') {
+      setAutoTalkNpcId(null);
+      setCrewInitialTab(undefined);
+    }
+  }, [activePanel]);
+
   function renderActivePanel() {
     switch (activePanel) {
-      case 'nav': return <MapPanel sector={game.sector} onMoveToSector={game.doMove} onCommand={handleActionButton} bare />;
-      case 'explore': return <ExplorePanel refreshKey={refreshKey} bare />;
+      case 'nav': return <MapPanel sector={game.sector} onMoveToSector={game.doMove} onWarpTo={game.doWarpTo} onCommand={handleActionButton} onNPCClick={handleNPCClick} onAlertClick={(panel) => selectPanel(panel as any)} bare />;
+      case 'explore': return <ExplorePanel refreshKey={refreshKey} bare onAddLine={game.addLine} onRefreshStatus={game.refreshStatus} />;
       case 'trade': {
         const atStarMall = !!activeOutpost && !!game.sector?.hasStarMall;
         if (atStarMall) {
@@ -287,10 +305,11 @@ export default function Game({ onLogout }: GameProps) {
         return <TradeTable outpostId={activeOutpost} onBuy={game.doBuy} onSell={game.doSell} bare />;
       }
       case 'combat': return <CombatGroupPanel sector={game.sector} onFire={game.doFire} onFlee={game.doFlee} weaponEnergy={game.player?.currentShip?.weaponEnergy ?? 0} combatAnimation={game.combatAnimation} onCombatAnimationDone={game.clearCombatAnimation} playerName={game.player?.username} refreshKey={refreshKey} bare />;
-      case 'crew': return <CrewGroupPanel sector={game.sector} onFire={game.doFire} refreshKey={refreshKey} onCommand={handleActionButton} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} bare />;
+      case 'crew': return <CrewGroupPanel sector={game.sector} onFire={game.doFire} refreshKey={refreshKey} onCommand={handleActionButton} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} initialTab={crewInitialTab} autoTalkNpcId={autoTalkNpcId} bare />;
       case 'missions': return <ActiveMissionsPanel refreshKey={refreshKey} atStarMall={!!activeOutpost && !!game.sector?.hasStarMall} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} bare />;
       case 'planets': return <PlanetsPanel refreshKey={refreshKey} currentSectorId={game.player?.currentSectorId ?? null} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} onCommand={handleActionButton} bare />;
       case 'gear': return <GearGroupPanel refreshKey={refreshKey} onItemUsed={handleItemUsed} atStarMall={!!activeOutpost && !!game.sector?.hasStarMall} onCommand={handleActionButton} bare />;
+      case 'inventory': return <InventoryResourcePanel refreshKey={refreshKey} onAddLine={game.addLine} onRefreshStatus={game.refreshStatus} />;
       case 'comms': return <CommsGroupPanel messages={chatMessages} onSend={handleChatSend} refreshKey={refreshKey} onAction={() => setRefreshKey(k => k + 1)} hasSyndicate={hasSyndicate} hasAlliance={hasAlliance} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} bare />;
       case 'syndicate': return <SyndicateGroupPanel refreshKey={refreshKey} onCommand={handleActionButton} bare />;
       case 'wallet': return <WalletPanel bare />;
@@ -453,6 +472,7 @@ export default function Game({ onLogout }: GameProps) {
           onCommand={onCommand}
           hasSyndicate={hasSyndicate}
           hasAlliance={hasAlliance}
+          refreshKey={refreshKey}
         />
       </div>
     </div>

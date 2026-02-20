@@ -334,13 +334,18 @@ export async function processDialogue(
           node.effects.reputation,
         );
 
-        // Faction spillover
-        if (npc.faction_id) {
-          await adjustFactionRep(
-            playerId,
-            npc.faction_id,
-            Math.floor(node.effects.reputation * GAME_CONFIG.NPC_FACTION_REP_SPILLOVER),
-          );
+        // Faction fame/infamy spillover from dialogue
+        if (npc.faction_id && npc.faction_id !== 'independent') {
+          const spillover = Math.floor(Math.abs(node.effects.reputation) * GAME_CONFIG.FACTION_DIALOGUE_SPILLOVER);
+          if (spillover > 0) {
+            if (node.effects.reputation > 0) {
+              await adjustFactionFame(playerId, npc.faction_id, spillover);
+              await applyRivalrySpillover(playerId, npc.faction_id, spillover, 0);
+            } else {
+              await adjustFactionInfamy(playerId, npc.faction_id, spillover);
+              await applyRivalrySpillover(playerId, npc.faction_id, 0, spillover);
+            }
+          }
         }
       }
     }
@@ -406,8 +411,42 @@ function annotateOptions(
 }
 
 // ---------------------------------------------------------------------------
-// Reputation
+// Reputation — Two-Axis Fame/Infamy System
 // ---------------------------------------------------------------------------
+
+export type ReputationTier =
+  | 'Idolized' | 'Vilified' | 'Liked' | 'Hated'
+  | 'Mixed' | 'Accepted' | 'Shunned' | 'Neutral';
+
+export interface FactionReputation {
+  factionId: string;
+  factionName: string;
+  fame: number;
+  infamy: number;
+  tier: ReputationTier;
+}
+
+export const REPUTATION_TIERS: Array<{
+  tier: ReputationTier;
+  test: (fame: number, infamy: number) => boolean;
+  color: string;
+}> = [
+  { tier: 'Idolized', test: (f, i) => f >= 75 && i < 10, color: '#58a6ff' },
+  { tier: 'Vilified', test: (f, i) => i >= 75 && f < 10, color: '#8b0000' },
+  { tier: 'Liked',    test: (f, i) => f >= 40 && i < 20, color: '#3fb950' },
+  { tier: 'Hated',    test: (f, i) => i >= 40 && f < 20, color: '#f85149' },
+  { tier: 'Mixed',    test: (f, i) => f >= 30 && i >= 30, color: '#f0883e' },
+  { tier: 'Accepted', test: (f, i) => f >= 20 && i < 20, color: '#6e7681' },
+  { tier: 'Shunned',  test: (f, i) => i >= 20 && f < 20, color: '#bd5b00' },
+  { tier: 'Neutral',  test: () => true, color: '#484f58' },
+];
+
+export function calculateTier(fame: number, infamy: number): ReputationTier {
+  for (const entry of REPUTATION_TIERS) {
+    if (entry.test(fame, infamy)) return entry.tier;
+  }
+  return 'Neutral';
+}
 
 /**
  * Adjust a player's reputation with a specific NPC by `amount`.
@@ -441,39 +480,179 @@ export async function adjustReputation(
 }
 
 /**
- * Adjust a player's reputation with a faction. Creates the row if it does not
- * yet exist. Clamped to [-100, 100].
+ * Ensure a player_faction_rep row exists. Creates with fame=0, infamy=0 if absent.
  */
-export async function adjustFactionRep(
+async function ensureFactionRep(playerId: string, factionId: string): Promise<{ fame: number; infamy: number }> {
+  const existing = await db('player_faction_rep')
+    .where({ player_id: playerId, faction_id: factionId })
+    .first();
+
+  if (existing) return { fame: existing.fame, infamy: existing.infamy };
+
+  await db('player_faction_rep').insert({
+    player_id: playerId,
+    faction_id: factionId,
+    fame: 0,
+    infamy: 0,
+  });
+  return { fame: 0, infamy: 0 };
+}
+
+/**
+ * Adjust fame for a faction. Clamped to [0, FACTION_MAX_FAME].
+ */
+export async function adjustFactionFame(
   playerId: string,
   factionId: string,
   amount: number,
 ): Promise<number> {
   try {
-    const existing = await db('player_faction_rep')
+    const current = await ensureFactionRep(playerId, factionId);
+    const newFame = Math.max(0, Math.min(GAME_CONFIG.FACTION_MAX_FAME, current.fame + amount));
+    await db('player_faction_rep')
       .where({ player_id: playerId, faction_id: factionId })
-      .first();
-
-    const clamp = (v: number) => Math.max(-100, Math.min(100, v));
-
-    if (existing) {
-      const newRep = clamp(existing.reputation + amount);
-      await db('player_faction_rep')
-        .where({ player_id: playerId, faction_id: factionId })
-        .update({ reputation: newRep });
-      return newRep;
-    }
-
-    const newRep = clamp(amount);
-    await db('player_faction_rep').insert({
-      player_id: playerId,
-      faction_id: factionId,
-      reputation: newRep,
-    });
-    return newRep;
+      .update({ fame: newFame });
+    return newFame;
   } catch (err) {
-    console.error('adjustFactionRep error:', err);
+    console.error('adjustFactionFame error:', err);
     throw err;
+  }
+}
+
+/**
+ * Adjust infamy for a faction. Clamped to [0, FACTION_MAX_INFAMY].
+ */
+export async function adjustFactionInfamy(
+  playerId: string,
+  factionId: string,
+  amount: number,
+): Promise<number> {
+  try {
+    const current = await ensureFactionRep(playerId, factionId);
+    const newInfamy = Math.max(0, Math.min(GAME_CONFIG.FACTION_MAX_INFAMY, current.infamy + amount));
+    await db('player_faction_rep')
+      .where({ player_id: playerId, faction_id: factionId })
+      .update({ infamy: newInfamy });
+    return newInfamy;
+  } catch (err) {
+    console.error('adjustFactionInfamy error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Apply rivalry spillover: fame with one faction → infamy with rival,
+ * infamy with one faction → small fame with rival.
+ */
+export async function applyRivalrySpillover(
+  playerId: string,
+  factionId: string,
+  fameGained: number,
+  infamyGained: number,
+): Promise<void> {
+  try {
+    const rivalries = await db('faction_rivalries')
+      .where({ faction_id: factionId });
+
+    for (const rivalry of rivalries) {
+      if (fameGained > 0) {
+        const spillInfamy = Math.floor(fameGained * rivalry.spillover_ratio);
+        if (spillInfamy > 0) {
+          await adjustFactionInfamy(playerId, rivalry.rival_faction_id, spillInfamy);
+        }
+      }
+      if (infamyGained > 0) {
+        const spillFame = Math.floor(infamyGained * rivalry.spillover_ratio * 0.5);
+        if (spillFame > 0) {
+          await adjustFactionFame(playerId, rivalry.rival_faction_id, spillFame);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('applyRivalrySpillover error:', err);
+  }
+}
+
+/**
+ * Get all faction reputations for a player (excludes 'independent').
+ */
+export async function getPlayerFactionReps(playerId: string): Promise<FactionReputation[]> {
+  try {
+    const factions = await db('factions')
+      .where('id', '!=', 'independent')
+      .select('id', 'name');
+
+    const reps = await db('player_faction_rep')
+      .where({ player_id: playerId })
+      .select('faction_id', 'fame', 'infamy');
+
+    const repMap = new Map(reps.map((r: any) => [r.faction_id, r]));
+
+    return factions.map((f: any) => {
+      const rep = repMap.get(f.id);
+      const fame = rep?.fame ?? 0;
+      const infamy = rep?.infamy ?? 0;
+      return {
+        factionId: f.id,
+        factionName: f.name,
+        fame,
+        infamy,
+        tier: calculateTier(fame, infamy),
+      };
+    });
+  } catch (err) {
+    console.error('getPlayerFactionReps error:', err);
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gameplay Triggers
+// ---------------------------------------------------------------------------
+
+/**
+ * Called when a player destroys another player's ship.
+ * Adds infamy with factions present in the sector + rivalry spillover.
+ */
+export async function onCombatKill(
+  attackerId: string,
+  sectorId: number,
+): Promise<void> {
+  try {
+    // Find factions of NPCs in this sector
+    const npcFactions = await db('npc_definitions')
+      .where({ sector_id: sectorId })
+      .whereNotNull('faction_id')
+      .where('faction_id', '!=', 'independent')
+      .distinct('faction_id')
+      .pluck('faction_id');
+
+    const amount = GAME_CONFIG.FACTION_INFAMY_KILL_IN_SECTOR;
+    for (const factionId of npcFactions) {
+      await adjustFactionInfamy(attackerId, factionId, amount);
+      await applyRivalrySpillover(attackerId, factionId, 0, amount);
+    }
+  } catch (err) {
+    console.error('onCombatKill reputation error:', err);
+  }
+}
+
+/**
+ * Called after a trade (buy or sell) completes at an outpost.
+ * Awards Traders Guild fame if total cost ≥ threshold.
+ */
+export async function onTradeComplete(
+  playerId: string,
+  totalCost: number,
+): Promise<void> {
+  try {
+    if (totalCost >= GAME_CONFIG.FACTION_FAME_TRADE_THRESHOLD) {
+      const amount = GAME_CONFIG.FACTION_FAME_TRADE_AMOUNT;
+      await adjustFactionFame(playerId, 'traders_guild', amount);
+      await applyRivalrySpillover(playerId, 'traders_guild', amount, 0);
+    }
+  } catch (err) {
+    console.error('onTradeComplete reputation error:', err);
   }
 }
 
