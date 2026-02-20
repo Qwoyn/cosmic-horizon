@@ -28,6 +28,7 @@ import progressionRouter from './api/progression';
 import npcsRouter from './api/npcs';
 import tabletsRouter from './api/tablets';
 import craftingRouter from './api/crafting';
+import syndicateEconomyRouter from './api/syndicate-economy';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
 import { loadTutorialState, blockDuringTutorial } from './middleware/tutorial-sandbox';
@@ -101,6 +102,7 @@ app.use('/api/progression', loadTutorialState, blockDuringTutorial, progressionR
 app.use('/api/npcs', loadTutorialState, blockDuringTutorial, npcsRouter);
 app.use('/api/tablets', loadTutorialState, blockDuringTutorial, tabletsRouter);
 app.use('/api/crafting', loadTutorialState, blockDuringTutorial, craftingRouter);
+app.use('/api/syndicate-economy', loadTutorialState, blockDuringTutorial, syndicateEconomyRouter);
 
 // WebSocket
 setupWebSocket(io);

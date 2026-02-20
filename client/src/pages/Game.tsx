@@ -3,13 +3,14 @@ import Terminal from '../components/Terminal';
 import StatusBar from '../components/StatusBar';
 import MapPanel from '../components/MapPanel';
 import TradeTable from '../components/TradeTable';
-import CombatView from '../components/CombatView';
+import CombatGroupPanel from '../components/CombatGroupPanel';
 import ActiveMissionsPanel from '../components/ActiveMissionsPanel';
-import SectorChatPanel, { type ChatMessage } from '../components/SectorChatPanel';
-import PlayerListPanel from '../components/PlayerListPanel';
-import InventoryPanel from '../components/InventoryPanel';
+import ExplorePanel from '../components/ExplorePanel';
 import PlanetsPanel from '../components/PlanetsPanel';
-import NotesPanel from '../components/NotesPanel';
+import CrewGroupPanel from '../components/CrewGroupPanel';
+import GearGroupPanel from '../components/GearGroupPanel';
+import CommsGroupPanel from '../components/CommsGroupPanel';
+import SyndicateGroupPanel from '../components/SyndicateGroupPanel';
 import WalletPanel from '../components/WalletPanel';
 import TutorialOverlay from '../components/TutorialOverlay';
 import IntroSequence, { INTRO_BEATS, POST_TUTORIAL_BEATS } from '../components/IntroSequence';
@@ -18,6 +19,7 @@ import SceneViewport from '../components/SceneViewport';
 import ActivityBar from '../components/ActivityBar';
 import ContextPanel from '../components/ContextPanel';
 import DataStreamRain from '../components/DataStreamRain';
+import { type ChatMessage } from '../components/SectorChatPanel';
 import { POST_TUTORIAL_SCENE } from '../config/scenes/post-tutorial-scene';
 import { buildIdleSpaceScene, buildIdleOutpostScene, buildIdleDockedScene } from '../config/scenes/ambient-scenes';
 import { buildCombatScene } from '../config/scenes/combat-scene';
@@ -117,7 +119,7 @@ export default function Game({ onLogout }: GameProps) {
       on('player:entered', (data: { username: string; sectorId: number }) => {
         game.addLine(`${data.username} has entered the sector`, 'warning');
         game.refreshSector();
-        if (activePanelRef.current !== 'players') incrementBadge('players');
+        if (activePanelRef.current !== 'crew') incrementBadge('crew');
       }),
       on('player:left', (_data: { playerId: string }) => {
         game.refreshSector();
@@ -147,7 +149,7 @@ export default function Game({ onLogout }: GameProps) {
           message: data.message,
           isOwn: false,
         }]);
-        if (activePanelRef.current !== 'chat') incrementBadge('chat');
+        if (activePanelRef.current !== 'comms') incrementBadge('comms');
       }),
       on('notification', (data: { message: string }) => {
         game.addLine(data.message, 'system');
@@ -203,15 +205,16 @@ export default function Game({ onLogout }: GameProps) {
 
   function renderActivePanel() {
     switch (activePanel) {
-      case 'nav': return <MapPanel sector={game.sector} onMoveToSector={game.doMove} bare />;
+      case 'nav': return <MapPanel sector={game.sector} onMoveToSector={game.doMove} onCommand={handleActionButton} bare />;
+      case 'explore': return <ExplorePanel refreshKey={refreshKey} bare />;
       case 'trade': return <TradeTable outpostId={activeOutpost} onBuy={game.doBuy} onSell={game.doSell} bare />;
-      case 'combat': return <CombatView sector={game.sector} onFire={game.doFire} onFlee={game.doFlee} weaponEnergy={game.player?.currentShip?.weaponEnergy ?? 0} combatAnimation={game.combatAnimation} onCombatAnimationDone={game.clearCombatAnimation} bare />;
-      case 'players': return <PlayerListPanel sector={game.sector} onFire={game.doFire} bare />;
+      case 'combat': return <CombatGroupPanel sector={game.sector} onFire={game.doFire} onFlee={game.doFlee} weaponEnergy={game.player?.currentShip?.weaponEnergy ?? 0} combatAnimation={game.combatAnimation} onCombatAnimationDone={game.clearCombatAnimation} playerName={game.player?.username} refreshKey={refreshKey} bare />;
+      case 'crew': return <CrewGroupPanel sector={game.sector} onFire={game.doFire} refreshKey={refreshKey} onCommand={handleActionButton} bare />;
       case 'missions': return <ActiveMissionsPanel refreshKey={refreshKey} bare />;
       case 'planets': return <PlanetsPanel refreshKey={refreshKey} bare />;
-      case 'inventory': return <InventoryPanel refreshKey={refreshKey} onItemUsed={handleItemUsed} bare />;
-      case 'chat': return <SectorChatPanel messages={chatMessages} onSend={handleChatSend} bare />;
-      case 'notes': return <NotesPanel refreshKey={refreshKey} bare />;
+      case 'gear': return <GearGroupPanel refreshKey={refreshKey} onItemUsed={handleItemUsed} bare />;
+      case 'comms': return <CommsGroupPanel messages={chatMessages} onSend={handleChatSend} refreshKey={refreshKey} bare />;
+      case 'syndicate': return <SyndicateGroupPanel refreshKey={refreshKey} onCommand={handleActionButton} bare />;
       case 'wallet': return <WalletPanel bare />;
     }
   }
@@ -318,6 +321,7 @@ export default function Game({ onLogout }: GameProps) {
           mapData={game.mapData}
           onMoveToSector={game.doMove}
           onCommand={handleActionButton}
+          onSelectPanel={selectPanel}
         />
       </div>
     </div>

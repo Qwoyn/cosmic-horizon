@@ -7,6 +7,8 @@ import { notifyPlayer, getConnectedPlayers } from '../ws/handlers';
 import { spawnSectorEvents, expireSectorEvents } from './events';
 import { refreshLeaderboardCache } from './leaderboards';
 import { producePlanetUniqueResources } from './crafting';
+import { spawnResourceEvents, expireResourceEvents, produceRarePlanetResources } from './rare-spawns';
+import { processFactoryProduction, checkAndCompleteProjects } from './syndicate-economy';
 
 let tickInterval: ReturnType<typeof setInterval> | null = null;
 let tickCount = 0;
@@ -71,6 +73,26 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       }
     } catch { /* crafting tables may not exist yet */ }
 
+    // 2c. Rare planet ultra-rare resource production
+    try {
+      for (const planet of planets) {
+        if (planet.variant && planet.rare_resource) {
+          await produceRarePlanetResources(planet);
+        }
+      }
+    } catch { /* rare spawns tables may not exist yet */ }
+
+    // 2d. Factory planet production → syndicate pool
+    try {
+      const factories = await db('planets')
+        .where({ is_syndicate_factory: true })
+        .whereNotNull('owner_id')
+        .where('colonists', '>', 0);
+      for (const factory of factories) {
+        await processFactoryProduction(factory);
+      }
+    } catch { /* syndicate economy tables may not exist yet */ }
+
     // 3. Decay - inactive player planets
     const inactivePlayers = await db('players')
       .whereNotNull('last_login')
@@ -123,12 +145,27 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       await expireSectorEvents();
     } catch { /* table may not exist yet */ }
 
+    // Resource events: expire every tick, spawn wave every N ticks
+    try {
+      await expireResourceEvents();
+      if (tickCount % GAME_CONFIG.RARE_EVENT_SPAWN_INTERVAL_TICKS === 0) {
+        await spawnResourceEvents();
+      }
+    } catch { /* table may not exist yet */ }
+
     // Leaderboards: refresh cache every 5 ticks
     tickCount++;
     if (tickCount % 5 === 0) {
       try {
         await refreshLeaderboardCache();
       } catch { /* table may not exist yet */ }
+    }
+
+    // Mega-project completion check every 10 ticks
+    if (tickCount % 10 === 0) {
+      try {
+        await checkAndCompleteProjects();
+      } catch { /* syndicate economy tables may not exist yet */ }
     }
 
     // 4. Outpost economy - inject treasury

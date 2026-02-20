@@ -98,6 +98,10 @@ export const getClaimedBounties = () => api.get('/social/bounties/claimed');
 export const getBountiesOnMe = () => api.get('/social/bounties/on-me');
 export const getCombatLog = () => api.get('/social/combat-log');
 
+export const getAlliances = () => api.get('/social/alliances');
+export const toggleSyndicateAlliance = (syndicateId: string) =>
+  api.post(`/social/syndicate/alliance/${syndicateId}`);
+
 // Syndicate enhancements
 export const leaveSyndicate = () => api.post('/social/syndicate/leave');
 export const disbandSyndicate = () => api.post('/social/syndicate/disband');
@@ -232,5 +236,44 @@ export const startCraft = (planetId: string, recipeId: string, batchSize?: numbe
 export const collectRefinery = (queueId: string) => api.post('/crafting/collect', { queueId });
 export const collectPlanetResources = (planetId: string) => api.post('/crafting/collect-planet', { planetId });
 export const collectAllRefinery = (planetId: string) => api.post('/crafting/collect-all', { planetId });
+
+// Rare Spawns
+export const getResourceEvents = () => api.get('/events/resource-events');
+export const harvestEvent = (eventId: string, nodeIndex: number) =>
+  api.post(`/events/harvest/${eventId}`, { nodeIndex });
+export const salvageEvent = (eventId: string) => api.post(`/events/salvage/${eventId}`);
+export const attackGuardian = (eventId: string) => api.post(`/events/attack-guardian/${eventId}`);
+
+// Syndicate Economy — Pool
+export const getSyndicatePool = () => api.get('/syndicate-economy/pool');
+export const depositToPool = (resourceId: string, quantity: number) =>
+  api.post('/syndicate-economy/pool/deposit', { resourceId, quantity });
+export const withdrawFromPool = (resourceId: string, quantity: number) =>
+  api.post('/syndicate-economy/pool/withdraw', { resourceId, quantity });
+export const setPoolPermission = (playerId: string, level: string) =>
+  api.post('/syndicate-economy/pool/permission', { playerId, level });
+export const getPoolLog = (limit?: number) =>
+  api.get('/syndicate-economy/pool/log', { params: limit ? { limit } : {} });
+
+// Syndicate Economy — Factory
+export const getSyndicateFactory = () => api.get('/syndicate-economy/factory');
+export const designateFactory = (planetId: string) =>
+  api.post('/syndicate-economy/factory/designate', { planetId });
+export const revokeFactory = () => api.post('/syndicate-economy/factory/revoke');
+
+// Syndicate Economy — Projects
+export const getMegaProjectDefinitions = () => api.get('/syndicate-economy/projects/definitions');
+export const getSyndicateProjects = () => api.get('/syndicate-economy/projects');
+export const startMegaProject = (projectTypeId: string, targetSectorId?: number) =>
+  api.post('/syndicate-economy/projects/start', { projectTypeId, targetSectorId });
+export const contributeToProject = (projectId: string, resourceId: string | null, quantity: number, fromPool?: boolean) =>
+  api.post(`/syndicate-economy/projects/${projectId}/contribute`, { resourceId, quantity, fromPool });
+export const getProjectDetail = (projectId: string) =>
+  api.get(`/syndicate-economy/projects/${projectId}`);
+export const cancelProject = (projectId: string) =>
+  api.post(`/syndicate-economy/projects/${projectId}/cancel`);
+
+// Syndicate Economy — Structures
+export const getSyndicateStructures = () => api.get('/syndicate-economy/structures');
 
 export default api;

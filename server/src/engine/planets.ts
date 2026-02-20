@@ -54,6 +54,22 @@ export function canUpgrade(planet: UpgradeCheck): boolean {
   );
 }
 
+export function calculateProductionWithFactoryBonus(
+  planetClass: string,
+  colonists: number,
+  isFactory: boolean,
+): ProductionResult {
+  const base = calculateProduction(planetClass, colonists);
+  if (!isFactory) return base;
+  const bonus = 0.50; // SYNDICATE_FACTORY_PRODUCTION_BONUS — inline to avoid circular import
+  return {
+    cyrillium: Math.floor(base.cyrillium * (1 + bonus)),
+    food: Math.floor(base.food * (1 + bonus)),
+    tech: Math.floor(base.tech * (1 + bonus)),
+    drones: Math.floor(base.drones * (1 + bonus) * 100) / 100,
+  };
+}
+
 export function calculateColonistGrowth(
   planetClass: string,
   currentColonists: number,

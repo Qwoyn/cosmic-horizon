@@ -7,6 +7,8 @@ import { awardXP, getPlayerProgress, getPlayerLevelBonuses } from '../engine/pro
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
 import { getNPCsInSector, getUnencounteredNPCsInSector } from '../engine/npcs';
+import { getResourceEventsInSector, getResourceEventsInSectors } from '../engine/rare-spawns';
+import { PLANET_TYPES } from '../config/planet-types';
 import {
   handleTutorialStatus,
   handleTutorialSector,
@@ -222,6 +224,12 @@ router.get('/sector', requireAuth, async (req, res) => {
       npcsInSector = await getNPCsInSector(sectorId, player.id);
     } catch { /* table may not exist yet */ }
 
+    // Resource events
+    let resourceEvents: any[] = [];
+    try {
+      resourceEvents = await getResourceEventsInSector(sectorId);
+    } catch { /* table may not exist yet */ }
+
     res.json({
       sectorId,
       type: sector?.type,
@@ -230,14 +238,32 @@ router.get('/sector', requireAuth, async (req, res) => {
       adjacentSectors: edges.map(e => ({ sectorId: e.to_sector_id, oneWay: e.one_way })),
       players: playersInSector,
       outposts: outpostsInSector.map(o => ({ id: o.id, name: o.name })),
-      planets: planetsInSector.map(p => ({
-        id: p.id, name: p.name, planetClass: p.planet_class,
-        ownerId: p.owner_id, upgradeLevel: p.upgrade_level,
-      })),
+      planets: planetsInSector.map(p => {
+        const base: any = {
+          id: p.id, name: p.name, planetClass: p.planet_class,
+          ownerId: p.owner_id, upgradeLevel: p.upgrade_level,
+        };
+        if (p.variant) {
+          const planetType = PLANET_TYPES[p.planet_class];
+          base.variant = p.variant;
+          base.variantName = planetType?.rareVariant?.variantName || p.variant;
+          base.rareResource = planetType?.rareVariant?.ultraRareResource?.name || p.rare_resource;
+        }
+        return base;
+      }),
       deployables: deployablesInSector.map(d => ({ id: d.id, type: d.type, ownerId: d.owner_id })),
       events: events.map(e => ({ id: e.id, eventType: e.event_type })),
       warpGates,
       npcs: npcsInSector.map(n => ({ id: n.id, name: n.name, title: n.title, race: n.race, encountered: n.encountered })),
+      resourceEvents: resourceEvents.map(e => ({
+        id: e.id,
+        eventType: e.eventType,
+        resources: e.resources,
+        remainingNodes: e.remainingNodes,
+        expiresAt: e.expiresAt,
+        guardianHp: e.guardianHp,
+        claimedBy: e.claimedBy,
+      })),
     });
   } catch (err) {
     console.error('Sector error:', err);
@@ -326,16 +352,39 @@ router.post('/scan', requireAuth, async (req, res) => {
     // Mission progress: scan
     checkAndUpdateMissions(player.id, 'scan', {});
 
+    // Resource events in scanned sectors (current + adjacent)
+    let scannedResourceEvents: any[] = [];
+    try {
+      const allSectorIds = [player.current_sector_id, ...adjacentIds];
+      scannedResourceEvents = await getResourceEventsInSectors(allSectorIds);
+    } catch { /* table may not exist yet */ }
+
     res.json({
       scannedSectors: adjacentSectors.map(s => ({
         id: s.id,
         type: s.type,
-        planets: adjacentPlanets.filter(p => p.sector_id === s.id).map(p => ({
-          id: p.id, name: p.name, planetClass: p.planet_class, ownerId: p.owner_id,
-        })),
+        planets: adjacentPlanets.filter(p => p.sector_id === s.id).map(p => {
+          const base: any = { id: p.id, name: p.name, planetClass: p.planet_class, ownerId: p.owner_id };
+          if (p.variant) {
+            const planetType = PLANET_TYPES[p.planet_class];
+            base.variant = p.variant;
+            base.variantName = planetType?.rareVariant?.variantName || p.variant;
+          }
+          return base;
+        }),
         players: adjacentPlayers.filter(p => p.current_sector_id === s.id).map(p => ({
           id: p.id, username: p.username,
         })),
+        resourceEvents: scannedResourceEvents
+          .filter(e => e.sectorId === s.id)
+          .map(e => ({
+            id: e.id,
+            eventType: e.eventType,
+            remainingNodes: e.remainingNodes,
+            totalValue: e.totalValue,
+            expiresAt: e.expiresAt,
+            guardianHp: e.guardianHp,
+          })),
       })),
     });
   } catch (err) {

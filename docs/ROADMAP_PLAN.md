@@ -1537,3 +1537,41 @@ K (Resource + Crafting) needs I (tablet definitions exist to make them craftable
 L (Rare Spawns) needs K (resource definitions, harvesting targets crafting system).
 M (Syndicate Economy) needs K (shared resource pool requires resource system).
 J (Single Player) needs F + G + H + I + K + L + M (all systems available in SP).
+
+---
+
+## N. Whitepaper Feature Gaps
+
+Features described in the whitepaper that have partial or no server-side implementation yet.
+
+### 1. Disruptor Torpedoes
+- **Status:** Store item exists, no combat integration
+- **Work:** Add torpedo firing mechanic to combat system; consume torpedo from inventory on use, apply damage/effects to target ship.
+
+### 2. Tow Beam
+- **Status:** DB schema exists, no mechanics
+- **Work:** Implement API/command to tow disabled ships; validate target is disabled, enforce range/energy cost, move towed ship with tower.
+
+### 3. PGD (Planet Genesis Device)
+- **Status:** Store item exists, no planet generation
+- **Work:** Implement command to consume PGD item and generate a new planet in the current sector with randomized attributes.
+
+### 4. Jump Drive
+- **Status:** Equip works, no jump command
+- **Work:** Add `jump` command that uses an equipped jump drive to move across multiple sectors in one action; consume fuel/energy.
+
+### 5. Capturing Vessels
+- **Status:** Not implemented
+- **Work:** Board and capture enemy ships; requires boarding mechanic, crew strength comparison, ownership transfer logic.
+
+### 6. Teleporter
+- **Status:** Not implemented
+- **Work:** Teleport between sectors; consume teleporter charges or energy, validate destination, handle cooldowns.
+
+### 7. Route Plotting
+- **Status:** Not implemented
+- **Work:** Auto-navigate multi-sector paths; pathfinding across sector graph, turn-by-turn movement queue, fuel/energy estimation.
+
+### 8. Terraforming
+- **Status:** Not implemented
+- **Work:** Transform planet types; consume terraforming device, long-duration process, change planet class and available resources.

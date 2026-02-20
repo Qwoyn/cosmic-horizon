@@ -10,6 +10,11 @@ export interface PlanetTypeConfig {
   };
   colonistGrowthRate: number; // % growth per tick when resources available
   uniqueResources?: { id: string; name: string; rate: number }[];
+  rareVariant?: {
+    variantId: string;
+    variantName: string;
+    ultraRareResource: { id: string; name: string };
+  };
 }
 
 export const PLANET_TYPES: Record<string, PlanetTypeConfig> = {
@@ -34,6 +39,11 @@ export const PLANET_TYPES: Record<string, PlanetTypeConfig> = {
       { id: 'silica_glass', name: 'Silica Glass', rate: 2.0 },
       { id: 'solar_crystal', name: 'Solar Crystal', rate: 1.0 },
     ],
+    rareVariant: {
+      variantId: 'ruin',
+      variantName: 'Desert-Ruin',
+      ultraRareResource: { id: 'artifact_fragment', name: 'Artifact Fragment' },
+    },
   },
   O: {
     classId: 'O',
@@ -45,6 +55,11 @@ export const PLANET_TYPES: Record<string, PlanetTypeConfig> = {
       { id: 'bio_extract', name: 'Bio-Extract', rate: 1.5 },
       { id: 'coral_alloy', name: 'Coral Alloy', rate: 1.0 },
     ],
+    rareVariant: {
+      variantId: 'abyssal',
+      variantName: 'Ocean-Abyssal',
+      ultraRareResource: { id: 'leviathan_pearl', name: 'Leviathan Pearl' },
+    },
   },
   A: {
     classId: 'A',
@@ -56,6 +71,11 @@ export const PLANET_TYPES: Record<string, PlanetTypeConfig> = {
       { id: 'resonite_ore', name: 'Resonite Ore', rate: 1.5 },
       { id: 'wind_essence', name: 'Wind Essence', rate: 1.0 },
     ],
+    rareVariant: {
+      variantId: 'crystal',
+      variantName: 'Alpine-Crystal',
+      ultraRareResource: { id: 'harmonic_resonator', name: 'Harmonic Resonator' },
+    },
   },
   F: {
     classId: 'F',
@@ -67,6 +87,11 @@ export const PLANET_TYPES: Record<string, PlanetTypeConfig> = {
       { id: 'cryo_compound', name: 'Cryogenic Compound', rate: 2.0 },
       { id: 'frost_lattice', name: 'Frost Lattice', rate: 1.0 },
     ],
+    rareVariant: {
+      variantId: 'ancient',
+      variantName: 'Frozen-Ancient',
+      ultraRareResource: { id: 'cryo_fossil', name: 'Cryo-Fossil' },
+    },
   },
   V: {
     classId: 'V',
@@ -78,6 +103,11 @@ export const PLANET_TYPES: Record<string, PlanetTypeConfig> = {
       { id: 'magma_crystal', name: 'Magma Crystal', rate: 2.5 },
       { id: 'obsidian_plate', name: 'Obsidian Plate', rate: 1.5 },
     ],
+    rareVariant: {
+      variantId: 'prime',
+      variantName: 'Volcanic-Prime',
+      ultraRareResource: { id: 'dark_matter_shard', name: 'Dark Matter Shard' },
+    },
   },
   G: {
     classId: 'G',
@@ -89,6 +119,11 @@ export const PLANET_TYPES: Record<string, PlanetTypeConfig> = {
       { id: 'plasma_vapor', name: 'Plasma Vapor', rate: 3.0 },
       { id: 'nebula_dust', name: 'Nebula Dust', rate: 2.0 },
     ],
+    rareVariant: {
+      variantId: 'storm',
+      variantName: 'Gaseous-Storm',
+      ultraRareResource: { id: 'ion_crystal', name: 'Ion Crystal' },
+    },
   },
   S: {
     classId: 'S',

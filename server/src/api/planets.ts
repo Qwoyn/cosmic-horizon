@@ -6,6 +6,7 @@ import { applyUpgradesToShip } from '../engine/upgrades';
 import { awardXP } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
+import { PLANET_TYPES } from '../config/planet-types';
 import { getRefineryQueue, getRefinerySlots } from '../engine/crafting';
 import db from '../db/connection';
 
@@ -54,6 +55,7 @@ router.get('/owned', requireAuth, async (req, res) => {
 
     const result = planets.map((p: any) => {
       const production = calculateProduction(p.planet_class, p.colonists || 0);
+      const pType = PLANET_TYPES[p.planet_class];
       return {
         id: p.id,
         name: p.name,
@@ -68,6 +70,9 @@ router.get('/owned', requireAuth, async (req, res) => {
         production,
         uniqueResources: planetResourceMap[p.id] || [],
         refineryQueueCount: queueCountMap[p.id] || 0,
+        variant: p.variant || null,
+        variantName: p.variant ? (pType?.rareVariant?.variantName || p.variant) : null,
+        rareResource: p.variant ? (pType?.rareVariant?.ultraRareResource?.name || p.rare_resource) : null,
       };
     });
 
@@ -148,6 +153,8 @@ router.get('/:id', requireAuth, async (req, res) => {
       } catch { /* crafting tables may not exist yet */ }
     }
 
+    const planetType = PLANET_TYPES[planet.planet_class];
+
     res.json({
       id: planet.id,
       name: planet.name,
@@ -164,6 +171,9 @@ router.get('/:id', requireAuth, async (req, res) => {
       uniqueResources,
       refineryQueue,
       refinerySlots,
+      variant: planet.variant || null,
+      variantName: planet.variant ? (planetType?.rareVariant?.variantName || planet.variant) : null,
+      rareResource: planet.variant ? (planetType?.rareVariant?.ultraRareResource?.name || planet.rare_resource) : null,
       canUpgrade: planet.owner_id === req.session.playerId
         ? canUpgrade({
             upgradeLevel: planet.upgrade_level,

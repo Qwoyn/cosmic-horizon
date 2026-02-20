@@ -90,9 +90,11 @@ export async function getRefineryQueue(planetId: string) {
   }));
 }
 
-export function getRefinerySlots(planetLevel: number): number {
-  return GAME_CONFIG.CRAFTING_BASE_REFINERY_SLOTS +
+export function getRefinerySlots(planetLevel: number, isFactory: boolean = false): number {
+  let slots = GAME_CONFIG.CRAFTING_BASE_REFINERY_SLOTS +
     Math.max(0, planetLevel - GAME_CONFIG.CRAFTING_BONUS_SLOTS_ABOVE_LEVEL);
+  if (isFactory) slots += GAME_CONFIG.SYNDICATE_FACTORY_BONUS_REFINERY_SLOTS;
+  return slots;
 }
 
 // === Crafting actions ===
@@ -130,7 +132,7 @@ export async function startCraft(
       .count('id as count')
       .first();
     const usedSlots = Number(activeQueue?.count || 0);
-    const maxSlots = getRefinerySlots(planet.upgrade_level);
+    const maxSlots = getRefinerySlots(planet.upgrade_level, planet.is_syndicate_factory || false);
     if (usedSlots >= maxSlots) {
       throw new Error(`All ${maxSlots} refinery slots are in use`);
     }

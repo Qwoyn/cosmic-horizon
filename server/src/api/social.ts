@@ -650,4 +650,70 @@ router.get('/combat-log', requireAuth, async (req, res) => {
   }
 });
 
+// Get all alliances (personal + syndicate)
+router.get('/alliances', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    // Personal alliances
+    const playerAlliances = await db('alliances')
+      .where(function() {
+        this.where({ player_a_id: player.id }).orWhere({ player_b_id: player.id });
+      })
+      .whereNotNull('player_a_id')
+      .join('players as a', 'alliances.player_a_id', 'a.id')
+      .join('players as b', 'alliances.player_b_id', 'b.id')
+      .select(
+        'alliances.id',
+        'a.id as playerAId',
+        'a.username as playerAName',
+        'b.id as playerBId',
+        'b.username as playerBName',
+        'alliances.created_at as formedAt',
+      );
+
+    const personalAllies = playerAlliances.map(a => ({
+      id: a.id,
+      allyId: a.playerAId === player.id ? a.playerBId : a.playerAId,
+      allyName: a.playerAId === player.id ? a.playerBName : a.playerAName,
+      formedAt: a.formedAt,
+    }));
+
+    // Syndicate alliances
+    let syndicateAllies: any[] = [];
+    const membership = await db('syndicate_members').where({ player_id: player.id }).first();
+    if (membership) {
+      const syndAlliances = await db('alliances')
+        .where(function() {
+          this.where({ syndicate_a_id: membership.syndicate_id })
+            .orWhere({ syndicate_b_id: membership.syndicate_id });
+        })
+        .whereNotNull('syndicate_a_id')
+        .join('syndicates as a', 'alliances.syndicate_a_id', 'a.id')
+        .join('syndicates as b', 'alliances.syndicate_b_id', 'b.id')
+        .select(
+          'alliances.id',
+          'a.id as syndAId',
+          'a.name as syndAName',
+          'b.id as syndBId',
+          'b.name as syndBName',
+          'alliances.created_at as formedAt',
+        );
+
+      syndicateAllies = syndAlliances.map(a => ({
+        id: a.id,
+        allySyndicateId: a.syndAId === membership.syndicate_id ? a.syndBId : a.syndAId,
+        allySyndicateName: a.syndAId === membership.syndicate_id ? a.syndBName : a.syndAName,
+        formedAt: a.formedAt,
+      }));
+    }
+
+    res.json({ personalAllies, syndicateAllies });
+  } catch (err) {
+    console.error('Alliances list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;
