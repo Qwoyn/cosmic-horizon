@@ -8,21 +8,27 @@ Cosmic Horizon is a persistent multiplayer space trading game set in a universe 
 
 ## The Story So Far
 
-In the year 3147, humanity's descendants — now split into four distinct races — discovered a network of ancient warp tunnels threading through a previously uncharted region of space. This frontier, dubbed the **Cosmic Horizon**, spans 5,000 sectors of unmapped territory filled with resource-rich planets, abandoned alien relics, and dangers no one fully understands.
+On the other side of the Cosmos, in a corner of the Agaricalis system, lived an advanced race of humanoids known as the **Muscarians**. After picking up a curious signal from deep space, they launched a mission to investigate — and discovered an artificial wormhole, created by an alien race of avid explorers known as the **Vedic**.
 
-The four races rushed to stake their claims:
+Traveling through the wormhole, Vedic emissaries introduced the Muscarians to **cyrillium** — a crystalline power source that revolutionized Muscarian space travel. Within years, the Muscarians developed ships capable of traversing galaxies, and the Vedic invited them through the wormhole into the **Calvatian Galaxy**, where cyrillium is plentiful.
 
-- **The Muscarians** — A warrior culture forged in the volcanic furnaces of their homeworld. They value strength above all and their ships hit harder than anyone else's. *"Strike first, negotiate later."*
+The promise of wealth drew adventurers and colonists alike. Population pressures on the Muscarian homeworld pushed thousands through the wormhole to start new lives on habitable planets. But the Muscarians were not alone in Calvatian space. The **Kalin**, a fractious warrior people, and the **Tar'ri**, pragmatic nomadic traders, also traversed this new frontier — all of them collecting cyrillium and jockeying for position.
 
-- **The Vedic** — Ancient scholars who mapped the first warp tunnels. Their deep understanding of energy systems gives them unmatched endurance in the void. *"Knowledge is the ultimate currency."*
+Initial contact brought a robust technology exchange with the Vedic and lucrative trading between the Muscarians and Tar'ri. But the Kalin's eagerness for a fight led to skirmishes, and tensions escalated when a Kalin ship discovered and breached the wormhole into Muscarian home space. The Muscarian Central Authority acted swiftly — they destroyed the only other wormhole in the Calvatian Galaxy and moved to fortify their own connection to home.
 
-- **The Kalin** — Master traders and diplomats whose vast merchant networks bankrolled the initial colonization efforts. Their defensive technologies are second to none. *"Every credit has a purpose."*
+The Kalin retaliated. Stranded in Calvatian space with no reinforcements coming, they hatched a desperate plan: a Kalin partisan piloted a captured Tar'ri freighter, overloaded with volatile raw cyrillium and Rache Devices, straight into the Muscarian wormhole — and detonated. The explosion severed the Muscarians' connection to their homeworld forever.
 
-- **The Tar'ri** — Nomadic haulers who live aboard their ships. Their massive cargo holds and trade instincts make them the backbone of the frontier economy. *"Home is wherever the cargo bay is full."*
+**Both races were now stranded.**
 
-Eight **Star Malls** — massive orbital trading stations — serve as the frontier's hubs of commerce, each offering ship dealers, equipment stores, cantinas, and mission boards. Between them, hundreds of outposts dot the sectors, buying and selling the three essential commodities that keep the frontier alive: **Cyrillium** (the universal fuel crystal), **Food** (sustenance for colonies), and **Tech** (advanced components).
+Decades of bloody conflict followed before an uneasy ceasefire took hold. The weakened Muscarian Central Authority could no longer police the galaxy, and a laissez-faire approach to galactic order emerged. Only a handful of **protected sectors** remained under official patrol by the Sector Harmony Enforcement Division. Everything else became frontier — lawless, profitable, and dangerous.
 
-But the Cosmic Horizon is no peaceful frontier. Pirates raid trade lanes, syndicates wage territorial wars, and strange anomalies appear without warning — remnants of whatever civilization built those ancient tunnels. Some pilots seek fortune through trade. Others carve empires from conquered planets. A few hunt the rarest resources in the galaxy, hidden in alien caches guarded by automated defenses.
+The Tar'ri, ever the opportunists, exploited the chaos to establish trading routes and outposts across the galaxy. The Vedic settled quietly into their confinement, their long-term ambitions unclear. The Kalin splintered into clans — some trading with Tar'ri, some collaborating with Vedic, some even colluding with their old Muscarian enemies. Loyalty became a commodity as fluid as cyrillium.
+
+Today, the four races coexist in the Calvatian Galaxy with an expected mixture of conflict and alliance. Eight **Star Malls** — massive orbital trading stations — serve as the frontier's hubs of commerce, each offering ship dealers, equipment stores, cantinas, and mission boards. Between them, hundreds of outposts dot the sectors, buying and selling the three commodities that keep the frontier alive: **Cyrillium** (the universal fuel crystal), **Food** (sustenance for colonies), and **Tech** (advanced components).
+
+But the galaxy is far from tamed. Pirates raid trade lanes. Syndicates wage territorial wars. Strange anomalies appear without warning — derelict ships, alien caches, and energy signatures that hint at whatever civilization built those original wormholes. Some pilots seek fortune through celestial arbitrage. Others carve empires from conquered planets. A few hunt the rarest resources in the galaxy, hidden in alien caches guarded by automated defenses.
+
+Stranded in this strange new world, you set out in the vast Calvatian Galaxy to carve out a piece for yourself, develop and protect it for future generations — and reign destruction on any who stand in the way of your path to establishing a new era of cosmic harmony.
 
 Your story begins at a Star Mall, with a ship, 10,000 credits, and a galaxy waiting to be explored.
 
@@ -30,14 +36,40 @@ Your story begins at a Star Mall, with a ship, 10,000 credits, and a galaxy wait
 
 ## The Races
 
+### The Muscarians (Muskies)
+*From the Agaricalis system. The first to cross through the Vedic wormhole, driven by ambition and population pressures. Their military tradition and industrial might make them natural fighters.*
+
+- **Permanent Bonus:** +5% Attack Ratio
+- **Starting Perk:** +2,000 bonus credits
+- **Playstyle:** Aggressive, combat-focused
+
+### The Vedic
+*The wormhole builders. An ancient race of explorers and scholars who opened the path to the Calvatian Galaxy. Their mastery of energy systems is unmatched, and their long-term ambitions in the sector remain... nebulous.*
+
+- **Permanent Bonus:** +10% Scan Range
+- **Starting Perk:** +100 max energy
+- **Playstyle:** Exploration, endurance
+
+### The Kalin
+*Once a unified military force, now splintered into competing clans after being stranded in Calvatian space. Their ships boast superior military engineering, and their fractious nature makes them unpredictable allies — and dangerous enemies.*
+
+- **Permanent Bonus:** +5% Defense Ratio
+- **Starting Perk:** +10 weapon energy, +10 engine energy
+- **Playstyle:** Defensive, resilient
+
+### The Tar'ri
+*Nomadic traders who seized opportunity while others fought. They established the trade routes and outposts that now form the backbone of the Calvatian economy. They live aboard their ships and measure success in cargo holds filled.*
+
+- **Permanent Bonus:** +5% Trade Bonus
+- **Starting Perk:** +5,000 bonus credits
+- **Playstyle:** Trading, empire building
+
 | Race | Strength | Permanent Bonus | Starting Perk |
 |------|----------|----------------|---------------|
 | **Muscarian** | Combat | +5% Attack Ratio | +2,000 bonus credits |
 | **Vedic** | Exploration | +10% Scan Range | +100 max energy |
-| **Kalin** | Defense | +5% Defense Ratio | +10 weapon energy, +10 engine energy |
+| **Kalin** | Defense | +5% Defense Ratio | +10 weapon, +10 engine |
 | **Tar'ri** | Trade | +5% Trade Bonus | +5,000 bonus credits |
-
-Your race determines your starting ship and gives you a permanent gameplay bonus that shapes your playstyle throughout the game. Choose based on how you want to play — there's no wrong answer.
 
 ---
 
