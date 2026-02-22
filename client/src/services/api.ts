@@ -84,6 +84,8 @@ export const collectColonists = (id: string, quantity: number, race: string) =>
   api.post(`/planets/${id}/collect-colonists`, { quantity, race });
 export const depositFood = (id: string, quantity: number) =>
   api.post(`/planets/${id}/deposit-food`, { quantity });
+export const depositColonists = (id: string, quantity: number, race: string) =>
+  api.post(`/planets/${id}/deposit-colonists`, { quantity, race });
 export const getProductionHistory = (id: string, hours?: number) =>
   api.get(`/planets/${id}/production-history`, { params: hours ? { hours } : {} });
 export const upgradePlanet = (id: string) => api.post(`/planets/${id}/upgrade`);

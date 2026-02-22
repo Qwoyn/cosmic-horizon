@@ -232,7 +232,7 @@ export default function MapPanel({ sector, onMoveToSector, onWarpTo, onCommand, 
               <PixelSprite spriteKey={`planet_${p.planetClass}`} size={16} />
               <span>
                 {p.name} [{p.planetClass}]
-                {p.ownerId ? ' (claimed)' : ' (unclaimed)'}
+                {p.ownerId ? ' (claimed)' : p.planetClass === 'S' ? ' [seed world]' : ' (unclaimed)'}
               </span>
             </div>
           ))}

@@ -480,8 +480,8 @@ router.post('/:id/collect-colonists', requireAuth, async (req, res) => {
 
     const planet = await db('planets').where({ id: req.params.id }).first();
     if (!planet) return res.status(404).json({ error: 'Planet not found' });
-    if (planet.planet_class !== 'S') {
-      return res.status(400).json({ error: 'Can only collect colonists from seed planets' });
+    if (planet.planet_class !== 'S' && planet.owner_id !== player.id) {
+      return res.status(400).json({ error: 'You do not own this planet' });
     }
     if (planet.sector_id !== player.current_sector_id) {
       return res.status(400).json({ error: 'Planet is not in your sector' });
@@ -504,14 +504,32 @@ router.post('/:id/collect-colonists', requireAuth, async (req, res) => {
     const currentCargo = (ship.cyrillium_cargo || 0) + (ship.food_cargo || 0) +
       (ship.tech_cargo || 0) + (ship.colonist_cargo || 0);
     const freeSpace = (ship.max_cargo_holds + upgrades.cargoBonus) - currentCargo;
-    const available = planet.colonists || 0;
-    const toCollect = Math.min(quantity, available, freeSpace);
-    if (toCollect <= 0) return res.status(400).json({ error: 'No colonists available or no cargo space' });
 
-    // Deduct from seed planet (raceless)
+    let available: number;
+    if (planet.planet_class === 'S') {
+      // Seed worlds: raceless colonists, use total
+      available = planet.colonists || 0;
+    } else {
+      // Owned planets: check specific race population
+      const racePop = await db('planet_colonists')
+        .where({ planet_id: planet.id, race })
+        .first();
+      available = racePop?.count || 0;
+    }
+
+    const toCollect = Math.min(quantity, available, freeSpace);
+    if (toCollect <= 0) return res.status(400).json({ error: 'No colonists of that race available or no cargo space' });
+
+    // Deduct from planet
     await db('planets').where({ id: planet.id }).update({
-      colonists: available - toCollect,
+      colonists: Math.max(0, (planet.colonists || 0) - toCollect),
     });
+    if (planet.planet_class !== 'S') {
+      // Also deduct from planet_colonists race row
+      await db('planet_colonists')
+        .where({ planet_id: planet.id, race })
+        .update({ count: Math.max(0, available - toCollect) });
+    }
 
     // Add to ship_colonists as chosen race
     const existingShipRace = await db('ship_colonists')
@@ -543,6 +561,73 @@ router.post('/:id/collect-colonists', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Collect colonists error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Deposit colonists into a seed planet
+router.post('/:id/deposit-colonists', requireAuth, async (req, res) => {
+  try {
+    const { quantity, race } = req.body;
+    if (!quantity || quantity < 1) return res.status(400).json({ error: 'Invalid quantity' });
+    if (!race || !VALID_RACE_IDS.includes(race)) {
+      return res.status(400).json({ error: 'Invalid race. Must be one of: ' + VALID_RACE_IDS.join(', ') });
+    }
+
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const planet = await db('planets').where({ id: req.params.id }).first();
+    if (!planet) return res.status(404).json({ error: 'Planet not found' });
+    if (planet.planet_class !== 'S') {
+      return res.status(400).json({ error: 'Can only deposit colonists into seed planets' });
+    }
+    if (planet.sector_id !== player.current_sector_id) {
+      return res.status(400).json({ error: 'Planet is not in your sector' });
+    }
+
+    // Must be landed or have transporter
+    if (player.landed_at_planet_id !== req.params.id) {
+      const hasTransporter = await db('game_events')
+        .where({ player_id: player.id, event_type: 'item:mycelial_transporter', read: false })
+        .first();
+      if (!hasTransporter) {
+        return res.status(400).json({ error: 'You must land on the planet first, or acquire a Mycelial Transporter' });
+      }
+    }
+
+    const ship = await db('ships').where({ id: player.current_ship_id }).first();
+    if (!ship) return res.status(400).json({ error: 'No active ship' });
+
+    // Check ship_colonists for this race
+    const shipRaceRow = await db('ship_colonists')
+      .where({ ship_id: ship.id, race })
+      .first();
+    const raceAvailable = shipRaceRow?.count || 0;
+    const toDeposit = Math.min(quantity, raceAvailable);
+    if (toDeposit <= 0) return res.status(400).json({ error: `No ${race} colonists on ship` });
+
+    // Deduct from ship
+    await db('ship_colonists')
+      .where({ ship_id: ship.id, race })
+      .update({ count: raceAvailable - toDeposit });
+    await db('ships').where({ id: ship.id }).update({
+      colonist_cargo: Math.max(0, (ship.colonist_cargo || 0) - toDeposit),
+    });
+
+    // Add to seed planet (raceless total)
+    await db('planets').where({ id: planet.id }).update({
+      colonists: (planet.colonists || 0) + toDeposit,
+    });
+
+    res.json({
+      deposited: toDeposit,
+      race,
+      planetColonists: (planet.colonists || 0) + toDeposit,
+      shipColonists: Math.max(0, (ship.colonist_cargo || 0) - toDeposit),
+    });
+  } catch (err) {
+    console.error('Deposit colonists error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

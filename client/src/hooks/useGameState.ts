@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import * as api from '../services/api';
 import type { MapData } from '../components/SectorMap';
 import type { SceneDefinition } from '../config/scene-types';
@@ -78,6 +78,9 @@ export function useGameState() {
   const [mapData, setMapData] = useState<MapData | null>(null);
   const [sceneQueue, setSceneQueue] = useState<SceneDefinition[]>([]);
   const [combatAnimation, setCombatAnimation] = useState<{ attackerShipType: string; damage: number } | null>(null);
+
+  const playerRef = useRef(player);
+  useEffect(() => { playerRef.current = player; }, [player]);
 
   // Track action counts for multi-count tutorial steps (e.g., step 4 requires 2 moves)
   const tutorialActionCount = useRef<Record<string, number>>({});
@@ -264,6 +267,8 @@ export function useGameState() {
   }, []);
 
   const doMove = useCallback(async (sectorId: number) => {
+    if (playerRef.current?.dockedAtOutpostId) { addLine('You must undock before traveling', 'error'); return; }
+    if (playerRef.current?.landedAtPlanetId) { addLine('You must liftoff before traveling', 'error'); return; }
     try {
       const { data } = await api.moveTo(sectorId);
       setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null, landedAtPlanetId: null } : null);
@@ -318,6 +323,8 @@ export function useGameState() {
   }, [addLine, refreshSector, refreshStatus, refreshMap, advanceTutorial, player?.currentShip?.shipTypeId]);
 
   const doWarpTo = useCallback(async (sectorId: number) => {
+    if (playerRef.current?.dockedAtOutpostId) { addLine('You must undock before traveling', 'error'); return; }
+    if (playerRef.current?.landedAtPlanetId) { addLine('You must liftoff before traveling', 'error'); return; }
     try {
       const { data } = await api.warpTo(sectorId);
       setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null, landedAtPlanetId: null } : null);
@@ -445,6 +452,7 @@ export function useGameState() {
   }, [addLine, enqueueScene, player?.currentShip?.shipTypeId]);
 
   const doLand = useCallback(async (planetId: string) => {
+    if (playerRef.current?.landedAtPlanetId) { addLine('You must liftoff before landing on another planet', 'error'); return; }
     try {
       const { data } = await api.landOnPlanet(planetId);
       setPlayer(prev => prev ? { ...prev, landedAtPlanetId: data.planetId, dockedAtOutpostId: null } : null);

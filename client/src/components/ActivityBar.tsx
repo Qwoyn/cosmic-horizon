@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import PixelSprite from './PixelSprite';
 import { PANELS } from '../types/panels';
 import type { PanelId } from '../types/panels';
@@ -24,6 +24,19 @@ export default function ActivityBar({ activePanel, onSelect, badges }: ActivityB
   const handleMouseLeave = useCallback(() => {
     setHoveredIndex(null);
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      const key = e.key.toUpperCase();
+      const panel = PANELS.find(p => p.hotkey === key);
+      if (panel) onSelect(panel.id);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onSelect]);
 
   return (
     <>
@@ -58,7 +71,7 @@ export default function ActivityBar({ activePanel, onSelect, badges }: ActivityB
           className="activity-bar__tooltip activity-bar__tooltip--visible"
           style={{ top: tooltipPos.top, left: tooltipPos.left }}
         >
-          {PANELS[hoveredIndex].label}
+          {PANELS[hoveredIndex].label} ({PANELS[hoveredIndex].hotkey})
         </div>
       )}
     </>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import CollapsiblePanel from './CollapsiblePanel';
 import PlanetAnalytics from './PlanetAnalytics';
-import { getOwnedPlanets, getDiscoveredPlanets, getPlanet, collectPlanetResources, collectAllRefinery, collectRefinery, upgradePlanet, colonizePlanet, collectColonists, claimPlanet, useScanner, namePlanet, depositFood } from '../services/api';
+import { getOwnedPlanets, getDiscoveredPlanets, getPlanet, collectPlanetResources, collectAllRefinery, collectRefinery, upgradePlanet, colonizePlanet, collectColonists, claimPlanet, useScanner, namePlanet, depositFood, depositColonists } from '../services/api';
 
 interface RacePopulation {
   race: string;
@@ -53,6 +53,7 @@ interface Props {
   onCommand?: (cmd: string) => void;
   onLand?: (planetId: string) => void;
   onLiftoff?: () => void;
+  onWarpTo?: (sectorId: number) => void;
   landedAtPlanetId?: string | null;
   bare?: boolean;
 }
@@ -85,9 +86,26 @@ const HAPPINESS_COLORS: Record<string, string> = {
 
 const VALID_RACES = ['muscarian', 'vedic', 'kalin', 'tarri'];
 
+// Planet affinities per race (from server config) — used to show best race per planet class
+const PLANET_AFFINITIES: Record<string, Record<string, number>> = {
+  muscarian: { H: 1.2, D: 0.8, O: 1.1, A: 1.0, F: 1.1, V: 0.7, G: 0.9 },
+  vedic:     { H: 1.0, D: 1.0, O: 0.9, A: 1.2, F: 1.1, V: 0.8, G: 1.1 },
+  kalin:     { H: 0.9, D: 1.2, O: 0.8, A: 1.0, F: 1.1, V: 1.2, G: 1.0 },
+  tarri:     { H: 1.1, D: 0.9, O: 1.2, A: 0.9, F: 0.8, V: 1.0, G: 1.1 },
+};
+
+function getBestRace(planetClass: string): { race: string; multiplier: number } | null {
+  let best: { race: string; multiplier: number } | null = null;
+  for (const [race, affinities] of Object.entries(PLANET_AFFINITIES)) {
+    const mult = affinities[planetClass] ?? 1.0;
+    if (!best || mult > best.multiplier) best = { race, multiplier: mult };
+  }
+  return best;
+}
+
 type TabView = 'owned' | 'discovered' | 'analytics';
 
-export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAuthority, hasTransporter, playerRace, shipFoodCargo, colonistsByRace, onAction, onCommand, onLand, onLiftoff, landedAtPlanetId, bare }: Props) {
+export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAuthority, hasTransporter, playerRace, shipFoodCargo, colonistsByRace, onAction, onCommand, onLand, onLiftoff, onWarpTo, landedAtPlanetId, bare }: Props) {
   const [planets, setPlanets] = useState<PlanetData[]>([]);
   const [discovered, setDiscovered] = useState<DiscoveredPlanetData[]>([]);
   const [tab, setTab] = useState<TabView>('owned');
@@ -100,6 +118,8 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
   const [collectColonistQty, setCollectColonistQty] = useState<Record<string, number>>({});
   const [collectColonistRace, setCollectColonistRace] = useState<Record<string, string>>({});
   const [depositFoodQty, setDepositFoodQty] = useState<Record<string, number>>({});
+  const [depositColonistQty, setDepositColonistQty] = useState<Record<string, number>>({});
+  const [depositColonistRace, setDepositColonistRace] = useState<Record<string, string>>({});
   const [renameInput, setRenameInput] = useState<Record<string, string>>({});
   const [scanResults, setScanResults] = useState<any[] | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -224,6 +244,22 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
     }
   };
 
+  const handleDepositColonists = async (planetId: string) => {
+    const qty = depositColonistQty[planetId] || 10;
+    const race = depositColonistRace[planetId] || defaultRace;
+    setBusy(planetId + '-depositcol');
+    setError('');
+    try {
+      await depositColonists(planetId, qty, race);
+      refresh();
+      onAction?.();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to deposit colonists');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const handleRename = async (planetId: string) => {
     const newName = renameInput[planetId]?.trim();
     if (!newName) return;
@@ -300,6 +336,7 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
         const ticksOfFood = p.foodConsumption > 0 ? Math.floor(p.foodStock / p.foodConsumption) : 999;
         const foodColor = ticksOfFood > 20 ? '#8f8' : ticksOfFood > 5 ? '#ff0' : '#f44';
         const hasShipFood = (shipFoodCargo || 0) > 0;
+        const bestRace = p.planetClass !== 'S' ? getBestRace(p.planetClass) : null;
         return (
           <div key={p.id} className="planet-panel-item">
             <div className="planet-panel-item__header" style={{ cursor: 'pointer' }} onClick={() => setExpandedId(expanded ? null : p.id)}>
@@ -311,6 +348,7 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
               <span>Level {p.upgradeLevel}</span>
               <span>{p.colonists.toLocaleString()} colonists</span>
               <span style={{ color: happinessColor }}>{p.happinessTier} ({Math.round(p.happiness)})</span>
+              {bestRace && <span style={{ color: 'var(--cyan)' }}>Best: {RACE_LABELS[bestRace.race] || bestRace.race} ({Math.round(bestRace.multiplier * 100)}%)</span>}
             </div>
             <div className="planet-panel-item__stocks">
               <span title="Cyrillium">Cyr: {p.cyrilliumStock}</span>
@@ -340,6 +378,15 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
               >
                 {busy === p.id + '-upgrade' ? '...' : 'UPGRADE'}
               </button>
+              {!inSector && onWarpTo && (
+                <button
+                  className="btn-sm"
+                  onClick={() => onWarpTo(p.sectorId)}
+                  style={{ color: 'var(--magenta)', borderColor: 'var(--magenta)' }}
+                >
+                  WARP
+                </button>
+              )}
               {inSector && landedAtPlanetId === p.id && onLiftoff && (
                 <button
                   className="btn-sm"
@@ -399,7 +446,7 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
                   </button>
                 </span>
               )}
-              {inSector && p.planetClass === 'S' && p.colonists > 0 && (
+              {inSector && p.colonists > 0 && (landedAtPlanetId === p.id || hasTransporter) && (
                 <span className="planet-colonize-group">
                   <input
                     type="number"
@@ -416,7 +463,28 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
                     onClick={() => handleCollectColonists(p.id)}
                     style={{ color: 'var(--orange)', borderColor: 'var(--orange)' }}
                   >
-                    {busy === p.id + '-collectcol' ? '...' : 'GATHER COLONISTS'}
+                    {busy === p.id + '-collectcol' ? '...' : 'WITHDRAW COLONISTS'}
+                  </button>
+                </span>
+              )}
+              {inSector && p.planetClass === 'S' && (landedAtPlanetId === p.id || hasTransporter) && colonistsByRace && colonistsByRace.some(r => r.count > 0) && (
+                <span className="planet-colonize-group">
+                  <input
+                    type="number"
+                    className="qty-input"
+                    min={1}
+                    value={depositColonistQty[p.id] || 10}
+                    onChange={e => setDepositColonistQty(prev => ({ ...prev, [p.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    style={{ width: '48px' }}
+                  />
+                  {raceSelect(p.id, depositColonistRace[p.id] || defaultRace, setDepositColonistRace)}
+                  <button
+                    className="btn-sm"
+                    disabled={busy === p.id + '-depositcol'}
+                    onClick={() => handleDepositColonists(p.id)}
+                    style={{ color: 'var(--cyan)', borderColor: 'var(--cyan)' }}
+                  >
+                    {busy === p.id + '-depositcol' ? '...' : 'DEPOSIT COLONISTS'}
                   </button>
                 </span>
               )}
@@ -500,7 +568,7 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
             <div key={p.id} style={{ fontSize: 11, marginBottom: 4, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
               <div><span style={{ color: 'var(--text-primary)' }}>{p.name}</span> <span style={{ color: 'var(--cyan)' }}>[{p.planetClass}]</span></div>
               <div style={{ color: 'var(--text-secondary)' }}>
-                Owner: {p.ownerName || 'Unclaimed'} | Lv.{p.upgradeLevel} | {p.colonists} colonists
+                Owner: {p.ownerName || (p.planetClass === 'S' ? 'Seed World' : 'Unclaimed')} | Lv.{p.upgradeLevel} | {p.colonists} colonists
               </div>
               {(p.cannonEnergy > 0 || p.shieldEnergy > 0 || p.drones > 0) && (
                 <div style={{ color: 'var(--orange)' }}>
@@ -522,10 +590,11 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
       <>
       {error && !scanResults && <div className="mall-error">{error}</div>}
       {discovered.map(p => {
-        const tag = p.owned ? ' [YOURS]' : (p.ownerName ? ` (${p.ownerName})` : ' *unclaimed*');
-        const tagColor = p.owned ? '#0f0' : (p.ownerName ? '#f80' : '#888');
+        const tag = p.owned ? ' [YOURS]' : (p.ownerName ? ` (${p.ownerName})` : (p.planetClass === 'S' ? ' [seed world]' : ' *unclaimed*'));
+        const tagColor = p.owned ? '#0f0' : (p.ownerName ? '#f80' : (p.planetClass === 'S' ? '#56d4dd' : '#888'));
         const inSector = currentSectorId != null && p.sectorId === currentSectorId;
         const canClaim = !p.owned && !p.ownerName && inSector && p.planetClass !== 'S';
+        const bestRace = p.planetClass !== 'S' ? getBestRace(p.planetClass) : null;
         return (
           <div key={p.id} className="planet-panel-item">
             <div className="planet-panel-item__header">
@@ -537,6 +606,7 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
               <span>Sector {p.sectorId}</span>
               <span>Level {p.upgradeLevel}</span>
               <span>{p.colonists.toLocaleString()} colonists</span>
+              {bestRace && <span style={{ color: 'var(--cyan)' }}>Best: {RACE_LABELS[bestRace.race] || bestRace.race} ({Math.round(bestRace.multiplier * 100)}%)</span>}
             </div>
             {p.owned && p.cyrilliumStock != null && (
               <div className="planet-panel-item__stocks">
@@ -573,7 +643,7 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
                   {busy === p.id + '-claim' ? '...' : 'CLAIM'}
                 </button>
               )}
-              {inSector && p.planetClass === 'S' && p.colonists > 0 && (
+              {inSector && p.colonists > 0 && (p.planetClass === 'S' || p.owned) && (landedAtPlanetId === p.id || hasTransporter) && (
                 <span className="planet-colonize-group">
                   <input
                     type="number"
@@ -590,7 +660,28 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAut
                     onClick={() => handleCollectColonists(p.id)}
                     style={{ color: 'var(--orange)', borderColor: 'var(--orange)' }}
                   >
-                    {busy === p.id + '-collectcol' ? '...' : 'GATHER COLONISTS'}
+                    {busy === p.id + '-collectcol' ? '...' : 'WITHDRAW COLONISTS'}
+                  </button>
+                </span>
+              )}
+              {inSector && p.planetClass === 'S' && (landedAtPlanetId === p.id || hasTransporter) && colonistsByRace && colonistsByRace.some(r => r.count > 0) && (
+                <span className="planet-colonize-group">
+                  <input
+                    type="number"
+                    className="qty-input"
+                    min={1}
+                    value={depositColonistQty[p.id] || 10}
+                    onChange={e => setDepositColonistQty(prev => ({ ...prev, [p.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    style={{ width: '48px' }}
+                  />
+                  {raceSelect(p.id, depositColonistRace[p.id] || defaultRace, setDepositColonistRace)}
+                  <button
+                    className="btn-sm"
+                    disabled={busy === p.id + '-depositcol'}
+                    onClick={() => handleDepositColonists(p.id)}
+                    style={{ color: 'var(--cyan)', borderColor: 'var(--cyan)' }}
+                  >
+                    {busy === p.id + '-depositcol' ? '...' : 'DEPOSIT COLONISTS'}
                   </button>
                 </span>
               )}

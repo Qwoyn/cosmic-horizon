@@ -120,6 +120,9 @@ router.post('/use/:gateId', requireAuth, async (req, res) => {
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
 
+    if (player.docked_at_outpost_id) return res.status(400).json({ error: 'You must undock before traveling' });
+    if (player.landed_at_planet_id) return res.status(400).json({ error: 'You must liftoff before traveling' });
+
     if (!canAffordAction(player.energy, 'warp')) {
       return res.status(400).json({ error: 'Not enough energy for warp' });
     }

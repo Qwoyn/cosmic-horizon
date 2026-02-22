@@ -536,7 +536,7 @@ export function handleCommand(input: string, ctx: CommandContext): void {
           if (data.planets.length === 0) { ctx.addLine('No planets discovered yet. Explore more sectors!', 'info'); return; }
           ctx.addLine('=== DISCOVERED PLANETS ===', 'system');
           data.planets.forEach((p: any, i: number) => {
-            const tag = p.owned ? ' [YOURS]' : (p.ownerName ? ` (${p.ownerName})` : ' *unclaimed*');
+            const tag = p.owned ? ' [YOURS]' : (p.ownerName ? ` (${p.ownerName})` : (p.planetClass === 'S' ? ' [seed world]' : ' *unclaimed*'));
             ctx.addLine(`  [${i + 1}] ${p.name} [${p.planetClass}] Sector ${p.sectorId}${tag}`, p.owned ? 'success' : 'info');
             if (p.owned && p.cyrilliumStock != null) {
               ctx.addLine(`      Level ${p.upgradeLevel} | Colonists: ${p.colonists.toLocaleString()} | Cyr: ${p.cyrilliumStock} Food: ${p.foodStock} Tech: ${p.techStock}`, 'info');

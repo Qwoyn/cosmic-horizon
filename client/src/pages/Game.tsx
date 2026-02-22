@@ -284,10 +284,8 @@ export default function Game({ onLogout }: GameProps) {
 
   const handleDock = useCallback(async () => {
     await game.doDock();
-    if (game.sector?.hasStarMall) {
-      selectPanel('trade');
-    }
-  }, [game.doDock, game.sector?.hasStarMall, selectPanel]);
+    selectPanel('trade');
+  }, [game.doDock, selectPanel]);
 
   const handleNPCClick = useCallback((npcId: string) => {
     setCrewInitialTab('npcs');
@@ -320,7 +318,7 @@ export default function Game({ onLogout }: GameProps) {
       case 'combat': return <CombatGroupPanel sector={game.sector} onFire={game.doFire} onFlee={game.doFlee} weaponEnergy={game.player?.currentShip?.weaponEnergy ?? 0} combatAnimation={game.combatAnimation} onCombatAnimationDone={game.clearCombatAnimation} playerName={game.player?.username} refreshKey={refreshKey} bare />;
       case 'crew': return <CrewGroupPanel sector={game.sector} onFire={game.doFire} refreshKey={refreshKey} onCommand={handleActionButton} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} initialTab={crewInitialTab} autoTalkNpcId={autoTalkNpcId} bare />;
       case 'missions': return <ActiveMissionsPanel refreshKey={refreshKey} atStarMall={!!activeOutpost && !!game.sector?.hasStarMall} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} bare />;
-      case 'planets': return <PlanetsPanel refreshKey={refreshKey} currentSectorId={game.player?.currentSectorId ?? null} hasNamingAuthority={game.player?.hasNamingAuthority} hasTransporter={game.player?.hasTransporter} onAction={() => { game.refreshStatus(); game.refreshSector(); setRefreshKey(k => k + 1); }} onCommand={handleActionButton} onLand={game.doLand} onLiftoff={game.doLiftoff} landedAtPlanetId={game.player?.landedAtPlanetId ?? null} bare />;
+      case 'planets': return <PlanetsPanel refreshKey={refreshKey} currentSectorId={game.player?.currentSectorId ?? null} hasNamingAuthority={game.player?.hasNamingAuthority} hasTransporter={game.player?.hasTransporter} playerRace={game.player?.race ?? null} shipFoodCargo={game.player?.currentShip?.foodCargo ?? 0} colonistsByRace={game.player?.currentShip?.colonistsByRace} onAction={() => { game.refreshStatus(); game.refreshSector(); setRefreshKey(k => k + 1); }} onCommand={handleActionButton} onLand={game.doLand} onLiftoff={game.doLiftoff} onWarpTo={game.doWarpTo} landedAtPlanetId={game.player?.landedAtPlanetId ?? null} bare />;
       case 'gear': return <GearGroupPanel refreshKey={refreshKey} onItemUsed={handleItemUsed} atStarMall={!!activeOutpost && !!game.sector?.hasStarMall} onCommand={handleActionButton} bare />;
       case 'inventory': return <InventoryResourcePanel refreshKey={refreshKey} onAddLine={game.addLine} onRefreshStatus={game.refreshStatus} />;
       case 'comms': return <CommsGroupPanel messages={chatMessages} onSend={handleChatSend} refreshKey={refreshKey} onAction={() => setRefreshKey(k => k + 1)} hasSyndicate={hasSyndicate} hasAlliance={hasAlliance} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} bare />;

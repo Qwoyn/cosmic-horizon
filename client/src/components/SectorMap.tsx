@@ -2,7 +2,7 @@ import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 
 export interface MapData {
   currentSectorId: number;
-  sectors: { id: number; type: string; regionId: number; hasStarMall: boolean; hasOutposts: boolean; hasPlanets: boolean; outpostCount?: number; planetCount?: number; sectorName?: string | null; owner?: { name: string; type: 'player' | 'syndicate' } | null; isNpcStarmall?: boolean }[];
+  sectors: { id: number; type: string; regionId: number; hasStarMall: boolean; hasOutposts: boolean; hasPlanets: boolean; outpostCount?: number; planetCount?: number; sectorName?: string | null; owner?: { name: string; type: 'player' | 'syndicate' } | null; isNpcStarmall?: boolean; npcCount?: number; planetNames?: string[]; outpostNames?: string[] }[];
   edges: { from: number; to: number; oneWay: boolean }[];
 }
 
@@ -307,7 +307,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   const dragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
-  const [hoveredSector, setHoveredSector] = useState<{ id: number; type: string; x: number; y: number; sectorName?: string | null; owner?: { name: string; type: string } | null; isNpcStarmall?: boolean } | null>(null);
+  const [hoveredSector, setHoveredSector] = useState<{ id: number; type: string; x: number; y: number; sectorName?: string | null; owner?: { name: string; type: string } | null; isNpcStarmall?: boolean; hasPlanets?: boolean; hasOutposts?: boolean; hasStarMall?: boolean; planetCount?: number; outpostCount?: number; npcCount?: number; planetNames?: string[]; outpostNames?: string[] } | null>(null);
   const [showLegend, setShowLegend] = useState(false);
   const [parallax, setParallax] = useState({ x: 0, y: 0 });
   const mapBodyRef = useRef<HTMLDivElement>(null);
@@ -351,6 +351,10 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
       if (next <= ZOOM_MIN) setPan({ x: 0, y: 0 });
       return next;
     });
+  }, []);
+
+  const handleDoubleClick = useCallback(() => {
+    setPan({ x: 0, y: 0 });
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
@@ -491,6 +495,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
+      onDoubleClick={handleDoubleClick}
       style={{ cursor: dragging.current ? 'grabbing' : 'grab' }}
     >
       <defs>
@@ -629,7 +634,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
               const ctm = svgEl.getScreenCTM();
               if (ctm) {
                 const screenPt = svgPt.matrixTransform(ctm);
-                setHoveredSector({ id: s.id, type: s.type, x: screenPt.x - rect.left, y: screenPt.y - rect.top, sectorName: s.sectorName, owner: s.owner, isNpcStarmall: s.isNpcStarmall });
+                setHoveredSector({ id: s.id, type: s.type, x: screenPt.x - rect.left, y: screenPt.y - rect.top, sectorName: s.sectorName, owner: s.owner, isNpcStarmall: s.isNpcStarmall, hasPlanets: s.hasPlanets, hasOutposts: s.hasOutposts, hasStarMall: s.hasStarMall, planetCount: s.planetCount, outpostCount: s.outpostCount, npcCount: s.npcCount, planetNames: s.planetNames, outpostNames: s.outpostNames });
               }
             }}
             onMouseLeave={() => setHoveredSector(null)}
@@ -684,14 +689,16 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
               />
             )}
 
-            {/* 6. Sector ID label */}
-            <text
-              className={`sector-node-label${isCurrent ? ' sector-node-label--current' : isAdjacent ? ' sector-node-label--adjacent' : ''}`}
-              textAnchor="middle"
-              dy={s.sectorName ? "-2.6em" : "-1.4em"}
-            >
-              {s.id}
-            </text>
+            {/* 6. Sector ID label — only visible when zoomed in, current, or adjacent */}
+            {(isCurrent || isAdjacent || zoom >= 4) && (
+              <text
+                className={`sector-node-label${isCurrent ? ' sector-node-label--current' : isAdjacent ? ' sector-node-label--adjacent' : ''}`}
+                textAnchor="middle"
+                dy={s.sectorName ? "-2.6em" : "-1.4em"}
+              >
+                {s.id}
+              </text>
+            )}
 
             {/* 7. Sector name label (below ID, closer to star) */}
             {s.sectorName && (
@@ -793,12 +800,28 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
             className="sector-map-tooltip"
             style={{ left: hoveredSector.x, top: hoveredSector.y - 28 }}
           >
-            <div>Sector {hoveredSector.id} [{hoveredSector.type}]</div>
+            <div>Sector {hoveredSector.id} <span style={{ opacity: 0.6 }}>[{hoveredSector.type}]</span></div>
             {hoveredSector.sectorName && <div style={{ color: 'var(--cyan)', fontWeight: 'bold' }}>{hoveredSector.sectorName}</div>}
-            {hoveredSector.isNpcStarmall && <div style={{ color: 'var(--yellow)' }}>NPC Star Mall</div>}
             {hoveredSector.owner && (
               <div style={{ color: hoveredSector.owner.type === 'player' ? 'var(--green)' : 'var(--purple)' }}>
                 Owner: {hoveredSector.owner.name} ({hoveredSector.owner.type})
+              </div>
+            )}
+            {hoveredSector.isNpcStarmall && <div className="sector-map-tooltip__sub" style={{ color: 'var(--yellow)' }}>NPC Star Mall</div>}
+            {hoveredSector.hasStarMall && !hoveredSector.isNpcStarmall && <div className="sector-map-tooltip__sub" style={{ color: 'var(--yellow)' }}>Star Mall</div>}
+            {hoveredSector.hasPlanets && (
+              <div className="sector-map-tooltip__sub" style={{ color: 'var(--blue)' }}>
+                {hoveredSector.planetCount} Planet{hoveredSector.planetCount !== 1 ? 's' : ''}{hoveredSector.planetNames && hoveredSector.planetNames.length > 0 ? ': ' + hoveredSector.planetNames.join(', ') : ''}
+              </div>
+            )}
+            {hoveredSector.hasOutposts && (
+              <div className="sector-map-tooltip__sub" style={{ color: 'var(--green)' }}>
+                {hoveredSector.outpostCount} Outpost{hoveredSector.outpostCount !== 1 ? 's' : ''}{hoveredSector.outpostNames && hoveredSector.outpostNames.length > 0 ? ': ' + hoveredSector.outpostNames.join(', ') : ''}
+              </div>
+            )}
+            {(hoveredSector.npcCount ?? 0) > 0 && (
+              <div className="sector-map-tooltip__sub" style={{ color: 'var(--red)' }}>
+                {hoveredSector.npcCount} NPC{hoveredSector.npcCount !== 1 ? 's' : ''}
               </div>
             )}
           </div>

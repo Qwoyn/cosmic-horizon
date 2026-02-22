@@ -48,7 +48,7 @@ const TIER_LABELS: Record<number, string> = { 1: 'BRONZE', 2: 'SILVER', 3: 'GOLD
 
 const SECTIONS: { id: Section; label: string; color: string }[] = [
   { id: 'stats', label: 'Stats', color: 'var(--cyan)' },
-  { id: 'milestones', label: 'Miles', color: 'var(--yellow)' },
+  { id: 'milestones', label: 'Badges', color: 'var(--yellow)' },
   { id: 'activity', label: 'Activity', color: 'var(--green)' },
   { id: 'bests', label: 'Bests', color: 'var(--orange)' },
   { id: 'achievements', label: 'Achieve', color: 'var(--purple)' },

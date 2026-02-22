@@ -132,6 +132,9 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     const targetSectorId = parseInt(req.params.sectorId as string, 10);
     if (isNaN(targetSectorId)) return res.status(400).json({ error: 'Invalid sector ID' });
 
+    if (player.docked_at_outpost_id) return res.status(400).json({ error: 'You must undock before traveling' });
+    if (player.landed_at_planet_id) return res.status(400).json({ error: 'You must liftoff before traveling' });
+
     if (!canAffordAction(player.energy, 'move')) {
       return res.status(400).json({ error: 'Not enough energy', cost: getActionCost('move') });
     }
@@ -248,6 +251,9 @@ router.post('/warp-to/:sectorId', requireAuth, async (req, res) => {
 
     const targetSectorId = parseInt(req.params.sectorId as string, 10);
     if (isNaN(targetSectorId)) return res.status(400).json({ error: 'Invalid sector ID' });
+
+    if (player.docked_at_outpost_id) return res.status(400).json({ error: 'You must undock before traveling' });
+    if (player.landed_at_planet_id) return res.status(400).json({ error: 'You must liftoff before traveling' });
 
     if (player.current_sector_id === targetSectorId) {
       return res.status(400).json({ error: 'Already in that sector' });
@@ -545,6 +551,32 @@ router.get('/map', requireAuth, async (req, res) => {
     const outpostCountMap = new Map(outpostCounts.map((r: any) => [r.sector_id, Number(r.count)]));
     const planetCountMap = new Map(planetCounts.map((r: any) => [r.sector_id, Number(r.count)]));
 
+    // NPC counts per sector
+    const npcCounts = explored.length > 0
+      ? await db('npc_definitions').select('sector_id').count('id as count').whereIn('sector_id', explored).groupBy('sector_id')
+      : [];
+    const npcCountMap = new Map(npcCounts.map((r: any) => [r.sector_id, Number(r.count)]));
+
+    // Planet names per sector
+    const planetRows = explored.length > 0
+      ? await db('planets').select('sector_id', 'name').whereIn('sector_id', explored)
+      : [];
+    const planetNameMap = new Map<number, string[]>();
+    for (const r of planetRows) {
+      if (!planetNameMap.has(r.sector_id)) planetNameMap.set(r.sector_id, []);
+      planetNameMap.get(r.sector_id)!.push(r.name);
+    }
+
+    // Outpost names per sector
+    const outpostRows = explored.length > 0
+      ? await db('outposts').select('sector_id', 'name').whereIn('sector_id', explored)
+      : [];
+    const outpostNameMap = new Map<number, string[]>();
+    for (const r of outpostRows) {
+      if (!outpostNameMap.has(r.sector_id)) outpostNameMap.set(r.sector_id, []);
+      outpostNameMap.get(r.sector_id)!.push(r.name);
+    }
+
     // Get sector ownership data (sector_name, claimed_by, is_npc_starmall)
     let sectorOwnerData = new Map<number, { sectorName: string | null; owner: { name: string; type: 'player' | 'syndicate' } | null; isNpcStarmall: boolean }>();
     if (explored.length > 0) {
@@ -589,6 +621,9 @@ router.get('/map', requireAuth, async (req, res) => {
         sectorName: sectorOwnerData.get(s.id)?.sectorName || null,
         owner: sectorOwnerData.get(s.id)?.owner || null,
         isNpcStarmall: sectorOwnerData.get(s.id)?.isNpcStarmall || false,
+        npcCount: npcCountMap.get(s.id) || 0,
+        planetNames: planetNameMap.get(s.id) || [],
+        outpostNames: outpostNameMap.get(s.id) || [],
       })),
       edges: edges.map(e => ({
         from: e.from_sector_id, to: e.to_sector_id, oneWay: e.one_way,
@@ -956,6 +991,10 @@ router.post('/land', requireAuth, async (req, res) => {
 
     if (planet.sector_id !== player.current_sector_id) {
       return res.status(400).json({ error: 'Planet is not in your current sector' });
+    }
+
+    if (player.landed_at_planet_id) {
+      return res.status(400).json({ error: 'You must liftoff before landing on another planet' });
     }
 
     await db('players').where({ id: player.id }).update({

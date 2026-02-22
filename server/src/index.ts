@@ -33,6 +33,7 @@ import syndicateGovernanceRouter from './api/syndicate-governance';
 import sectorsRouter from './api/sectors';
 import tradeRoutesRouter from './api/trade-routes';
 import profileRouter from './api/profile';
+import adminRouter from './api/admin';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
 import { loadTutorialState, blockDuringTutorial } from './middleware/tutorial-sandbox';
@@ -114,6 +115,7 @@ app.use('/api/syndicate-governance', loadTutorialState, blockDuringTutorial, loa
 app.use('/api/sectors', loadTutorialState, blockDuringTutorial, loadSPContext, sectorsRouter);
 app.use('/api/trade-routes', loadTutorialState, blockDuringTutorial, loadSPContext, tradeRoutesRouter);
 app.use('/api/profile', loadTutorialState, loadSPContext, profileRouter);
+app.use('/api/admin', adminRouter);
 
 // WebSocket
 setupWebSocket(io);
