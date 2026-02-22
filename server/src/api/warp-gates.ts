@@ -5,6 +5,7 @@ import { GAME_CONFIG } from '../config/game';
 import { canAffordAction, deductEnergy } from '../engine/energy';
 import { canBuildGate, calculateToll } from '../engine/warp-gates';
 import db from '../db/connection';
+import { incrementStat, logActivity, checkMilestones } from '../engine/profile-stats';
 
 const router = Router();
 
@@ -167,7 +168,8 @@ router.post('/use/:gateId', requireAuth, async (req, res) => {
     // Update explored sectors
     let explored: number[] = [];
     try { explored = JSON.parse(player.explored_sectors || '[]'); } catch { explored = []; }
-    if (!explored.includes(destinationSectorId)) {
+    const isNewSector = !explored.includes(destinationSectorId);
+    if (isNewSector) {
       explored.push(destinationSectorId);
       await db('players').where({ id: player.id }).update({
         explored_sectors: JSON.stringify(explored),
@@ -185,6 +187,13 @@ router.post('/use/:gateId', requireAuth, async (req, res) => {
     // Give toll to syndicate treasury if applicable
     if (toll > 0) {
       await db('syndicates').where({ id: gate.syndicate_id }).increment('treasury', toll);
+    }
+
+    // Profile stats: warp gate use
+    incrementStat(player.id, 'warp_gate_uses', 1);
+    if (isNewSector) {
+      incrementStat(player.id, 'sectors_explored', 1);
+      checkMilestones(player.id);
     }
 
     res.json({

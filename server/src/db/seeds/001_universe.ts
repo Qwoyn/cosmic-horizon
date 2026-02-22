@@ -41,7 +41,9 @@ export async function seed(knex: Knex): Promise<void> {
   console.log('Generating universe...');
   const universe = generateUniverse(GAME_CONFIG.TOTAL_SECTORS, 42);
 
-  // Clear existing data (order matters for foreign keys)
+  // Clear existing data — disable FK checks to avoid ordering issues with many cross-references
+  await knex.raw('PRAGMA foreign_keys = OFF');
+
   await knex('bounties').del();
   await knex('game_events').del();
   await knex('trade_logs').del();
@@ -65,11 +67,26 @@ export async function seed(knex: Knex): Promise<void> {
   await knex('player_faction_rep').del();
   await knex('player_npc_state').del();
   await knex('npc_definitions').del();
+  try { await knex('faction_rivalries').del(); } catch { /* table may not exist yet */ }
   await knex('factions').del();
   await knex('players').del();
   await knex('sector_edges').del();
   await knex('sectors').del();
   await knex('ship_types').del();
+
+  // Also clear tables from newer migrations that reference players
+  const extraTables = [
+    'player_discovered_recipes', 'syndicate_votes', 'syndicate_proposals',
+    'syndicate_diplomacy', 'syndicate_projects', 'syndicate_factories',
+    'warp_gate_uses', 'warp_gates', 'player_devices', 'messages',
+    'leaderboard_entries', 'player_missions', 'player_progression',
+    'player_achievements', 'sector_events', 'notes',
+  ];
+  for (const table of extraTables) {
+    try { await knex(table).del(); } catch { /* table may not exist */ }
+  }
+
+  await knex.raw('PRAGMA foreign_keys = ON');
 
   // 1. Seed ship types
   console.log('Seeding ship types...');

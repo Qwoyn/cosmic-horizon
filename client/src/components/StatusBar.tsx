@@ -6,7 +6,14 @@ import ProfileDropdown from './ProfileDropdown';
 interface StatusBarProps {
   player: PlayerState | null;
   muted?: boolean;
+  paused?: boolean;
   onToggleMute?: () => void;
+  onTogglePause?: () => void;
+  onSkipTrack?: () => void;
+  onPrevTrack?: () => void;
+  canSkipTrack?: boolean;
+  canPrevTrack?: boolean;
+  currentTrackId?: string | null;
   onLogout?: () => void;
 }
 
@@ -28,7 +35,7 @@ function FlashValue({ value, className }: { value: number | string; className?: 
   return <span className={`${className ?? ''} ${flash}`}>{typeof value === 'number' ? value.toLocaleString() : value}</span>;
 }
 
-export default function StatusBar({ player, muted, onToggleMute, onLogout }: StatusBarProps) {
+export default function StatusBar({ player, muted, paused, onToggleMute, onTogglePause, onSkipTrack, onPrevTrack, canSkipTrack, canPrevTrack, currentTrackId, onLogout }: StatusBarProps) {
   const [showProfile, setShowProfile] = useState(false);
 
   if (!player) return null;
@@ -117,15 +124,44 @@ export default function StatusBar({ player, muted, onToggleMute, onLogout }: Sta
         </div>
       )}
       <div className="status-bar__actions">
-        {onToggleMute && (
-          <button
-            className={`audio-toggle${muted ? ' audio-toggle--muted' : ''}`}
-            onClick={onToggleMute}
-            title={muted ? 'Unmute audio' : 'Mute audio'}
-          >
-            {muted ? 'SOUND OFF' : 'SOUND ON'}
-          </button>
-        )}
+        <div className="audio-controls">
+          {onToggleMute && (
+            <button
+              className="audio-controls__btn"
+              onClick={onToggleMute}
+              title={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted ? '\u{1F507}' : '\u{1F50A}'}
+            </button>
+          )}
+          {canPrevTrack && onPrevTrack && (
+            <button
+              className="audio-controls__btn"
+              onClick={onPrevTrack}
+              title="Previous track"
+            >
+              &#x23EE;
+            </button>
+          )}
+          {onTogglePause && currentTrackId && (
+            <button
+              className="audio-controls__btn"
+              onClick={onTogglePause}
+              title={paused ? 'Play' : 'Pause'}
+            >
+              {paused ? '\u25B6' : '\u23F8'}
+            </button>
+          )}
+          {canSkipTrack && onSkipTrack && (
+            <button
+              className="audio-controls__btn"
+              onClick={onSkipTrack}
+              title={currentTrackId ? `Now: ${currentTrackId} — skip` : 'Next track'}
+            >
+              &#x23ED;
+            </button>
+          )}
+        </div>
         {onLogout && (
           <button
             className="audio-toggle audio-toggle--logout"

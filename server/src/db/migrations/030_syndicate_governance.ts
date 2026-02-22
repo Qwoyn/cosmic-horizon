@@ -92,11 +92,8 @@ export async function up(knex: Knex): Promise<void> {
     t.primary(['vote_id', 'player_id']);
   });
 
-  // 8. Add role_id to syndicate_members
-  await knex.schema.alterTable('syndicate_members', (t) => {
-    t.uuid('role_id').nullable()
-      .references('id').inTable('syndicate_roles').onDelete('SET NULL');
-  });
+  // 8. Add role_id to syndicate_members (raw SQL to avoid table-recreate on SQLite)
+  await knex.raw(`ALTER TABLE syndicate_members ADD COLUMN role_id TEXT DEFAULT NULL REFERENCES syndicate_roles(id) ON DELETE SET NULL`);
 }
 
 export async function down(knex: Knex): Promise<void> {

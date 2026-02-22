@@ -3,12 +3,13 @@ import { checkMissionProgress, updateObjectivesDetail, buildObjectivesDetail, Ob
 import { awardXP } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
+import { incrementStat, logActivity, checkMilestones } from '../engine/profile-stats';
 import crypto from 'crypto';
 
 // Award mission rewards (credits, XP, items). Reused by auto-claim and manual claim.
 export async function awardMissionRewards(
   playerId: string,
-  mission: { reward_credits: number; reward_xp?: number; reward_items?: string | null }
+  mission: { reward_credits: number; reward_xp?: number; reward_items?: string | null; reward_faction_id?: string | null; reward_fame?: number }
 ): Promise<{ credits: number; xp: number }> {
   let creditsAwarded = 0;
   let xpAwarded = 0;
@@ -32,6 +33,74 @@ export async function awardMissionRewards(
 
   await checkAchievements(playerId, 'mission_complete', {});
 
+  // Grant reward items if configured
+  if (mission.reward_items) {
+    try {
+      const items = typeof mission.reward_items === 'string'
+        ? JSON.parse(mission.reward_items) : mission.reward_items;
+      for (const item of items) {
+        await db('game_events').insert({
+          id: crypto.randomUUID(),
+          player_id: playerId,
+          event_type: `item:${item.itemId}`,
+          message: `Received ${item.name}`,
+          read: false,
+          created_at: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error('Reward items grant error:', err);
+    }
+  }
+
+  // Award faction fame if configured
+  if (mission.reward_faction_id && mission.reward_fame && mission.reward_fame > 0) {
+    try {
+      const existing = await db('player_faction_rep')
+        .where({ player_id: playerId, faction_id: mission.reward_faction_id })
+        .first();
+
+      if (existing) {
+        await db('player_faction_rep')
+          .where({ player_id: playerId, faction_id: mission.reward_faction_id })
+          .increment('fame', mission.reward_fame);
+      } else {
+        await db('player_faction_rep').insert({
+          player_id: playerId,
+          faction_id: mission.reward_faction_id,
+          fame: mission.reward_fame,
+          infamy: 0,
+        });
+      }
+
+      // Apply rivalry spillover
+      const rivalries = await db('faction_rivalries')
+        .where({ faction_id: mission.reward_faction_id });
+      for (const rivalry of rivalries) {
+        const spilloverInfamy = Math.floor(mission.reward_fame * rivalry.spillover_ratio);
+        if (spilloverInfamy > 0) {
+          const rivalRep = await db('player_faction_rep')
+            .where({ player_id: playerId, faction_id: rivalry.rival_faction_id })
+            .first();
+          if (rivalRep) {
+            await db('player_faction_rep')
+              .where({ player_id: playerId, faction_id: rivalry.rival_faction_id })
+              .increment('infamy', spilloverInfamy);
+          } else {
+            await db('player_faction_rep').insert({
+              player_id: playerId,
+              faction_id: rivalry.rival_faction_id,
+              fame: 0,
+              infamy: spilloverInfamy,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Faction fame reward error:', err);
+    }
+  }
+
   return { credits: creditsAwarded, xp: xpAwarded };
 }
 
@@ -52,7 +121,9 @@ export async function checkAndUpdateMissions(
         'player_missions.reward_credits',
         'player_missions.objectives_detail',
         'mission_templates.requires_claim_at_mall',
-        'mission_templates.reward_xp'
+        'mission_templates.reward_xp',
+        'mission_templates.reward_faction_id',
+        'mission_templates.reward_fame'
       );
 
     for (const mission of activeMissions) {
@@ -100,8 +171,15 @@ export async function checkAndUpdateMissions(
             await awardMissionRewards(playerId, {
               reward_credits: mission.reward_credits,
               reward_xp: mission.reward_xp,
+              reward_faction_id: mission.reward_faction_id,
+              reward_fame: mission.reward_fame,
             });
           }
+
+          // Profile stats: mission completed
+          incrementStat(playerId, 'missions_completed', 1);
+          logActivity(playerId, 'mission_complete', `Completed mission: ${mission.type}`);
+          checkMilestones(playerId);
 
           // SP mission hooks: mall unlocking and tier auto-advance
           try {

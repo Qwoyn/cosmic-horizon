@@ -46,6 +46,7 @@ export default function SceneViewport({ actionScene, ambientScene, onActionCompl
 
   return (
     <div className={`scene-viewport ${glowClass}`}>
+      <div className="viewport-space-bg" />
       <PixelScene
         key={scene.id}
         scene={scene}

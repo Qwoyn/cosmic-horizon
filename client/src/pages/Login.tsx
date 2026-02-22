@@ -29,7 +29,7 @@ export default function Login({ onLogin }: LoginProps) {
   return (
     <div className="auth-page">
       <div className="auth-container">
-        <h1 className="auth-title">COSMIC HORIZON</h1>
+        <img src="/logo.png" alt="Cosmic Horizon" className="auth-logo" />
         <p className="auth-subtitle">Sector Terminal Access</p>
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="auth-error">{error}</div>}

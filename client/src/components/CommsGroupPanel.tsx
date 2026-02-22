@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import SectorChatPanel, { type ChatMessage, type ChatChannel } from './SectorChatPanel';
-import NotesPanel from './NotesPanel';
 import LeaderboardPanel from './LeaderboardPanel';
 import MailPanel from './MailPanel';
 
@@ -16,7 +15,7 @@ interface Props {
   bare?: boolean;
 }
 
-type TabView = 'chat' | 'mail' | 'notes' | 'rankings';
+type TabView = 'chat' | 'mail' | 'rankings';
 
 export default function CommsGroupPanel({ messages, onSend, refreshKey, onAction, hasSyndicate, hasAlliance, alliedPlayerIds, onAllianceChange, bare }: Props) {
   const [tab, setTab] = useState<TabView>('chat');
@@ -31,10 +30,6 @@ export default function CommsGroupPanel({ messages, onSend, refreshKey, onAction
         {tab === 'mail' ? '[Mail]' : 'Mail'}
       </span>
       <span style={{ color: '#444', margin: '0 0.5rem' }}>|</span>
-      <span onClick={() => setTab('notes')} style={{ cursor: 'pointer', color: tab === 'notes' ? '#0f0' : '#666' }}>
-        {tab === 'notes' ? '[Notes]' : 'Notes'}
-      </span>
-      <span style={{ color: '#444', margin: '0 0.5rem' }}>|</span>
       <span onClick={() => setTab('rankings')} style={{ cursor: 'pointer', color: tab === 'rankings' ? '#0f0' : '#666' }}>
         {tab === 'rankings' ? '[Rankings]' : 'Rankings'}
       </span>
@@ -46,7 +41,6 @@ export default function CommsGroupPanel({ messages, onSend, refreshKey, onAction
       {tabBar}
       {tab === 'chat' && <SectorChatPanel messages={messages} onSend={onSend} hasSyndicate={hasSyndicate} hasAlliance={hasAlliance} bare />}
       {tab === 'mail' && <MailPanel refreshKey={refreshKey} onAction={onAction} />}
-      {tab === 'notes' && <NotesPanel refreshKey={refreshKey} bare />}
       {tab === 'rankings' && <LeaderboardPanel refreshKey={refreshKey} alliedPlayerIds={alliedPlayerIds} onAllianceChange={onAllianceChange} bare />}
     </>
   );

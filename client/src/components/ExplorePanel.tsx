@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import CollapsiblePanel from './CollapsiblePanel';
 import DeployablesPanel from './DeployablesPanel';
-import { getSectorEvents, investigateEvent, getResourceEvents, harvestEvent, salvageEvent, attackGuardian } from '../services/api';
+import { getSectorEvents, investigateEvent, getResourceEvents, harvestEvent, salvageEvent, attackGuardian, getSectorInfo, claimSector, nameSector, conquerSector } from '../services/api';
 
 interface SectorEvent {
   id: string;
@@ -32,14 +32,25 @@ interface ResourceEvent {
 
 type LineType = 'info' | 'success' | 'error' | 'warning' | 'system' | 'combat' | 'trade';
 
+interface SectorInfo {
+  sectorName: string | null;
+  claimedByPlayer: string | null;
+  claimedBySyndicate: string | null;
+  isNpcStarmall: boolean;
+  claimedAt: string | null;
+}
+
 interface Props {
   refreshKey?: number;
   bare?: boolean;
+  sectorId?: number | null;
+  playerName?: string;
+  hasNamingAuthority?: boolean;
   onAddLine?: (text: string, type?: LineType) => void;
   onRefreshStatus?: () => void;
 }
 
-type TabView = 'events' | 'resources' | 'deployables';
+type TabView = 'events' | 'resources' | 'deployables' | 'sector';
 
 function formatTimeRemaining(ms: number): string {
   if (ms <= 0) return 'expired';
@@ -55,12 +66,19 @@ function getTimeColor(ms: number): string {
   return 'var(--green)';
 }
 
-export default function ExplorePanel({ refreshKey, bare, onAddLine, onRefreshStatus }: Props) {
+export default function ExplorePanel({ refreshKey, bare, sectorId, playerName, hasNamingAuthority, onAddLine, onRefreshStatus }: Props) {
   const [tab, setTab] = useState<TabView>('events');
   const [events, setEvents] = useState<SectorEvent[]>([]);
   const [resourceEvents, setResourceEvents] = useState<ResourceEvent[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+
+  // Sector tab state
+  const [sectorInfo, setSectorInfo] = useState<SectorInfo | null>(null);
+  const [sectorNameInput, setSectorNameInput] = useState('');
+  const [sectorBusy, setSectorBusy] = useState(false);
+  const [sectorError, setSectorError] = useState<string | null>(null);
+  const [claimType, setClaimType] = useState<'player' | 'syndicate'>('player');
 
   useEffect(() => {
     getSectorEvents()
@@ -75,6 +93,73 @@ export default function ExplorePanel({ refreshKey, bare, onAddLine, onRefreshSta
         .catch(() => setResourceEvents([]));
     }
   }, [tab, refreshKey]);
+
+  const fetchSectorInfo = async () => {
+    if (!sectorId) return;
+    try {
+      const { data } = await getSectorInfo(sectorId);
+      setSectorInfo(data);
+      setSectorError(null);
+    } catch {
+      setSectorInfo(null);
+      setSectorError('Failed to load sector info.');
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'sector' && sectorId) {
+      fetchSectorInfo();
+    }
+  }, [tab, sectorId, refreshKey]);
+
+  const handleClaimSector = async () => {
+    if (!sectorId) return;
+    setSectorBusy(true);
+    setSectorError(null);
+    try {
+      await claimSector(sectorId, claimType);
+      onAddLine?.(`Sector claimed as ${claimType}!`, 'success');
+      onRefreshStatus?.();
+      await fetchSectorInfo();
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Claim failed';
+      setSectorError(msg);
+      onAddLine?.(msg, 'error');
+    } finally { setSectorBusy(false); }
+  };
+
+  const handleNameSector = async () => {
+    if (!sectorId || !sectorNameInput.trim()) return;
+    setSectorBusy(true);
+    setSectorError(null);
+    try {
+      await nameSector(sectorId, sectorNameInput.trim());
+      onAddLine?.(`Sector renamed to "${sectorNameInput.trim()}"`, 'success');
+      onRefreshStatus?.();
+      await fetchSectorInfo();
+      setSectorNameInput('');
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Rename failed';
+      setSectorError(msg);
+      onAddLine?.(msg, 'error');
+    } finally { setSectorBusy(false); }
+  };
+
+  const handleConquerSector = async () => {
+    if (!sectorId) return;
+    setSectorBusy(true);
+    setSectorError(null);
+    try {
+      await conquerSector(sectorId);
+      onAddLine?.('Sector conquered!', 'success');
+      onRefreshStatus?.();
+      await fetchSectorInfo();
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Conquest failed';
+      setSectorError(msg);
+      onAddLine?.(msg, 'error');
+    } finally { setSectorBusy(false); }
+  };
 
   const handleInvestigate = async (eventId: string) => {
     setBusy(eventId);
@@ -185,6 +270,10 @@ export default function ExplorePanel({ refreshKey, bare, onAddLine, onRefreshSta
       <span onClick={() => setTab('deployables')} style={{ cursor: 'pointer', color: tab === 'deployables' ? '#0f0' : '#666' }}>
         {tab === 'deployables' ? '[Deployables]' : 'Deployables'}
       </span>
+      <span style={{ color: '#444', margin: '0 0.5rem' }}>|</span>
+      <span onClick={() => setTab('sector')} style={{ cursor: 'pointer', color: tab === 'sector' ? '#0f0' : '#666' }}>
+        {tab === 'sector' ? '[Sector]' : 'Sector'}
+      </span>
     </div>
   );
 
@@ -294,12 +383,111 @@ export default function ExplorePanel({ refreshKey, bare, onAddLine, onRefreshSta
     </>
   );
 
+  const isClaimedByMe = sectorInfo?.claimedByPlayer === playerName;
+  const isClaimed = !!(sectorInfo?.claimedByPlayer || sectorInfo?.claimedBySyndicate);
+
+  const sectorContent = !sectorId ? (
+    <div className="text-muted">No sector data available.</div>
+  ) : !sectorInfo ? (
+    sectorError ? <div style={{ color: 'var(--red)', fontSize: 11 }}>{sectorError}</div> : <div className="text-muted">Loading sector info...</div>
+  ) : (
+    <div style={{ fontSize: 12 }}>
+      {sectorError && <div style={{ color: 'var(--red)', fontSize: 11, marginBottom: 8 }}>{sectorError}</div>}
+
+      {/* Sector name */}
+      {sectorInfo.sectorName && (
+        <div style={{ color: 'var(--cyan)', fontWeight: 'bold', marginBottom: 6 }}>
+          {sectorInfo.sectorName}
+        </div>
+      )}
+
+      {/* Claim status */}
+      <div style={{ marginBottom: 8, color: '#aaa' }}>
+        {sectorInfo.isNpcStarmall ? (
+          <span style={{ color: 'var(--yellow)' }}>NPC Star Mall (cannot be claimed)</span>
+        ) : sectorInfo.claimedByPlayer ? (
+          <span>Claimed by <span style={{ color: 'var(--green)' }}>{sectorInfo.claimedByPlayer}</span></span>
+        ) : sectorInfo.claimedBySyndicate ? (
+          <span>Claimed by syndicate: <span style={{ color: 'var(--magenta)' }}>{sectorInfo.claimedBySyndicate}</span></span>
+        ) : (
+          <span style={{ color: '#666' }}>Unclaimed</span>
+        )}
+      </div>
+
+      {/* Claimed at date */}
+      {sectorInfo.claimedAt && (
+        <div style={{ fontSize: 10, color: '#555', marginBottom: 8 }}>
+          Claimed: {new Date(sectorInfo.claimedAt).toLocaleDateString()}
+        </div>
+      )}
+
+      {/* Unclaimed and not NPC: show claim controls */}
+      {!isClaimed && !sectorInfo.isNpcStarmall && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ marginBottom: 4 }}>
+            <label style={{ cursor: 'pointer', marginRight: 12, color: claimType === 'player' ? 'var(--green)' : '#666' }}>
+              <input type="radio" name="claimType" checked={claimType === 'player'} onChange={() => setClaimType('player')} style={{ marginRight: 4 }} />
+              Player
+            </label>
+            <label style={{ cursor: 'pointer', color: claimType === 'syndicate' ? 'var(--magenta)' : '#666' }}>
+              <input type="radio" name="claimType" checked={claimType === 'syndicate'} onChange={() => setClaimType('syndicate')} style={{ marginRight: 4 }} />
+              Syndicate
+            </label>
+          </div>
+          <button className="btn-sm btn-buy" onClick={handleClaimSector} disabled={sectorBusy}>
+            {sectorBusy ? '...' : 'CLAIM SECTOR'}
+          </button>
+        </div>
+      )}
+
+      {/* Claimed by current player: rename controls */}
+      {isClaimedByMe && !hasNamingAuthority && (
+        <div style={{ marginBottom: 8, fontSize: 11, color: '#888' }}>
+          Complete 'Stellar Census' to unlock naming
+        </div>
+      )}
+      {isClaimedByMe && hasNamingAuthority && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input
+              type="text"
+              value={sectorNameInput}
+              onChange={e => setSectorNameInput(e.target.value)}
+              placeholder="New sector name"
+              maxLength={32}
+              style={{
+                background: '#111', border: '1px solid #333', color: '#ccc',
+                padding: '2px 6px', fontSize: 11, flex: 1
+              }}
+            />
+            <button className="btn-sm btn-buy" onClick={handleNameSector} disabled={sectorBusy || !sectorNameInput.trim()}>
+              {sectorBusy ? '...' : 'RENAME'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Claimed by another player: conquer controls */}
+      {isClaimed && !isClaimedByMe && !sectorInfo.isNpcStarmall && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ color: 'var(--red)', fontSize: 10, marginBottom: 4 }}>
+            Warning: Conquering a sector will provoke hostility from the current owner.
+          </div>
+          <button className="btn-sm btn-fire" onClick={handleConquerSector} disabled={sectorBusy}>
+            {sectorBusy ? '...' : 'CONQUER SECTOR'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   const content = (
     <>
       {tabBar}
       {tab === 'events' && eventsContent}
       {tab === 'resources' && resourcesContent}
       {tab === 'deployables' && <DeployablesPanel refreshKey={refreshKey} bare />}
+      {tab === 'sector' && sectorContent}
     </>
   );
 

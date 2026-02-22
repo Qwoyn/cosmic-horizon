@@ -169,7 +169,7 @@ export function generateUniverse(
   const allSectorIds = [...sectors.keys()];
   const shuffledIds = shuffleArray(allSectorIds, rng);
 
-  const numStarMalls = Math.max(1, Math.min(GAME_CONFIG.NUM_STAR_MALLS, Math.floor(totalSectors / 500)));
+  const numStarMalls = Math.max(1, Math.min(GAME_CONFIG.NUM_STAR_MALLS, Math.floor(totalSectors / 100)));
   const numSeedPlanets = Math.max(1, Math.min(GAME_CONFIG.NUM_SEED_PLANETS, Math.floor(totalSectors / 300)));
   const numOneWay = Math.floor(totalSectors * GAME_CONFIG.SECTOR_TYPE_DISTRIBUTION.one_way);
 

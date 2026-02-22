@@ -1,43 +1,48 @@
-import { calculateProduction, canUpgrade, calculateColonistGrowth } from '../planets';
+import { calculateProduction, calculateProductionLegacy, canUpgrade, calculateColonistGrowth } from '../planets';
 import { processDecay, processDefenseDecay, isDeployableExpired } from '../decay';
 import { PLANET_TYPES } from '../../config/planet-types';
 
 describe('Planet Production', () => {
   test('production scales with colonist count', () => {
-    const prod1 = calculateProduction('H', 1000);
-    const prod2 = calculateProduction('H', 5000);
-    expect(prod2.food).toBeGreaterThan(prod1.food);
+    const prod1 = calculateProduction('H', [{ race: 'muscarian', count: 100 }], 50);
+    const prod2 = calculateProduction('H', [{ race: 'muscarian', count: 500 }], 50);
+    expect(prod2.cyrillium).toBeGreaterThan(prod1.cyrillium);
   });
 
   test('production drops when over ideal population', () => {
     const ideal = PLANET_TYPES.H.idealPopulation;
-    const atIdeal = calculateProduction('H', ideal);
-    const overIdeal = calculateProduction('H', ideal * 2);
-    expect(overIdeal.food).toBeLessThan(atIdeal.food);
+    const atIdeal = calculateProduction('H', [{ race: 'muscarian', count: ideal }], 50);
+    const overIdeal = calculateProduction('H', [{ race: 'muscarian', count: ideal * 2 }], 50);
+    expect(overIdeal.cyrillium).toBeLessThan(atIdeal.cyrillium);
   });
 
-  test('desert planet produces more cyrillium than food', () => {
-    const prod = calculateProduction('D', 5000);
-    expect(prod.cyrillium).toBeGreaterThan(prod.food);
-  });
-
-  test('volcanic planet produces no food', () => {
-    const prod = calculateProduction('V', 5000);
-    expect(prod.food).toBe(0);
+  test('desert planet produces more cyrillium than tech', () => {
+    const prod = calculateProduction('D', [{ race: 'muscarian', count: 500 }], 50);
+    expect(prod.cyrillium).toBeGreaterThan(prod.tech);
   });
 
   test('unknown planet class returns zero production', () => {
-    const prod = calculateProduction('Z', 5000);
+    const prod = calculateProduction('Z', [{ race: 'muscarian', count: 500 }], 50);
     expect(prod.cyrillium).toBe(0);
-    expect(prod.food).toBe(0);
     expect(prod.tech).toBe(0);
     expect(prod.drones).toBe(0);
+  });
+
+  test('happiness affects production multiplier', () => {
+    const happy = calculateProduction('H', [{ race: 'muscarian', count: 500 }], 90);
+    const miserable = calculateProduction('H', [{ race: 'muscarian', count: 500 }], 10);
+    expect(happy.cyrillium).toBeGreaterThan(miserable.cyrillium);
+  });
+
+  test('legacy production wrapper works', () => {
+    const prod = calculateProductionLegacy('H', 500, 50);
+    expect(prod.cyrillium).toBeGreaterThan(0);
   });
 
   test('canUpgrade checks requirements correctly', () => {
     const planet = {
       upgradeLevel: 0,
-      colonists: 2000,
+      colonists: 200,
       cyrilliumStock: 200,
       foodStock: 300,
       techStock: 200,
@@ -47,7 +52,7 @@ describe('Planet Production', () => {
 
     const weakPlanet = {
       upgradeLevel: 0,
-      colonists: 100, // too few
+      colonists: 10, // too few (need 50)
       cyrilliumStock: 200,
       foodStock: 300,
       techStock: 200,
@@ -68,18 +73,33 @@ describe('Planet Production', () => {
     expect(canUpgrade(planet)).toBe(false);
   });
 
-  test('colonist growth depends on food supply', () => {
-    const withFood = calculateColonistGrowth('H', 10000, true);
-    const withoutFood = calculateColonistGrowth('H', 10000, false);
-    expect(withFood).toBeGreaterThan(withoutFood);
-    expect(withoutFood).toBe(10000); // no growth without food
+  test('colonist growth consumes food on normal planets', () => {
+    const result = calculateColonistGrowth('H', 500, 70, 100, 0);
+    expect(result.foodConsumed).toBeGreaterThan(0);
+    expect(result.foodProduced).toBeGreaterThan(0);
+    expect(result.newColonists).toBeGreaterThan(500); // growing
   });
 
-  test('colonist growth uses planet type growth rate', () => {
-    const hospitable = calculateColonistGrowth('H', 10000, true);
-    const gaseous = calculateColonistGrowth('G', 10000, true);
-    // H has higher growth rate than G
-    expect(hospitable).toBeGreaterThan(gaseous);
+  test('colonist growth with food production but low happiness stagnates', () => {
+    // With 0 external food but food production > 0, colonists survive but don't grow
+    const result = calculateColonistGrowth('H', 500, 5, 0, 0);
+    // Food production keeps them alive, but happiness is too low for growth (< 40)
+    expect(result.newColonists).toBe(500); // stagnation, not decline
+    expect(result.foodProduced).toBeGreaterThan(0);
+  });
+
+  test('seed planets grow without food', () => {
+    const result = calculateColonistGrowth('S', 500, 50, 0, 0);
+    expect(result.newColonists).toBeGreaterThan(500);
+    expect(result.foodConsumed).toBe(0);
+    expect(result.foodProduced).toBe(0);
+  });
+
+  test('food production is roughly 30% of consumption', () => {
+    const result = calculateColonistGrowth('H', 500, 50, 1000, 0);
+    // H planet: foodConsumptionRate=3, foodProductionRate=1 (~33%)
+    expect(result.foodProduced).toBeGreaterThan(0);
+    expect(result.foodProduced).toBeLessThan(result.foodConsumed);
   });
 });
 

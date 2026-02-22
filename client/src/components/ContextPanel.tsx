@@ -3,6 +3,7 @@ import PixelSprite from './PixelSprite';
 import { getInventory, getFactionReps } from '../services/api';
 import type { PlayerState } from '../hooks/useGameState';
 import type { ChatMessage, ChatChannel } from './SectorChatPanel';
+import NotesPanel from './NotesPanel';
 
 interface ContextPanelProps {
   player: PlayerState | null;
@@ -230,26 +231,27 @@ export default function ContextPanel({ player, chatMessages, onChatSend, onComma
 
       {/* Mini Chat */}
       <div className="mini-chat">
-        <div className="mini-chat__header">
-          {visibleChannels.length > 1 ? (
-            visibleChannels.map((c, i) => (
-              <span key={c.key}>
-                {i > 0 && <span style={{ color: '#333' }}> | </span>}
-                <span
-                  onClick={() => setChatChannel(c.key)}
-                  style={{
-                    cursor: 'pointer',
-                    color: chatChannel === c.key ? (c.key === 'sector' ? '#0f0' : c.key === 'syndicate' ? 'var(--magenta)' : 'var(--cyan)') : '#555',
-                    fontSize: 10,
-                    fontWeight: chatChannel === c.key ? 'bold' : 'normal',
-                  }}
-                >
-                  {chatChannel === c.key ? `[${c.label}]` : c.label}
+        <div className="ctx-section-header">
+          <span className="ctx-section-header__label">CHAT</span>
+          {visibleChannels.length > 1 && (
+            <span className="ctx-section-header__channels">
+              {visibleChannels.map((c, i) => (
+                <span key={c.key}>
+                  {i > 0 && <span style={{ color: '#333' }}> | </span>}
+                  <span
+                    onClick={() => setChatChannel(c.key)}
+                    style={{
+                      cursor: 'pointer',
+                      color: chatChannel === c.key ? (c.key === 'sector' ? '#0f0' : c.key === 'syndicate' ? 'var(--magenta)' : 'var(--cyan)') : '#555',
+                      fontSize: 10,
+                      fontWeight: chatChannel === c.key ? 'bold' : 'normal',
+                    }}
+                  >
+                    {chatChannel === c.key ? `[${c.label}]` : c.label}
+                  </span>
                 </span>
-              </span>
-            ))
-          ) : (
-            <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>CHAT</span>
+              ))}
+            </span>
           )}
         </div>
         <div className="mini-chat__messages" ref={chatListRef}>
@@ -274,8 +276,19 @@ export default function ContextPanel({ player, chatMessages, onChatSend, onComma
         </form>
       </div>
 
+      {/* Notes */}
+      <div className="ctx-notes-section">
+        <div className="ctx-section-header">
+          <span className="ctx-section-header__label">NOTES</span>
+        </div>
+        <NotesPanel refreshKey={refreshKey} bare />
+      </div>
+
       {/* Command Input */}
       <div className="cmd-input-section">
+        <div className="ctx-section-header">
+          <span className="ctx-section-header__label">COMMAND</span>
+        </div>
         <div className="cmd-input-row">
           <span className="cmd-prompt">&gt;</span>
           <input

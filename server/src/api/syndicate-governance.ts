@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth';
 import db from '../db/connection';
+import { notifySyndicate } from '../ws/handlers';
 
 const router = Router();
 
@@ -285,6 +286,17 @@ router.post('/:id/votes', requireAuth, async (req, res) => {
     });
 
     res.status(201).json({ id: voteId, type, description, quorum_percent: quorum, expires_at: expiresAt });
+
+    // Notify syndicate members
+    const io = req.app.get('io');
+    if (io) {
+      notifySyndicate(io, paramStr(req.params.id), 'syndicate:vote_created', {
+        voteId,
+        type,
+        description,
+        proposedBy: player.username,
+      });
+    }
   } catch (err) {
     console.error('Propose vote error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -461,6 +473,15 @@ router.post('/:id/votes/:voteId/cast', requireAuth, async (req, res) => {
 
       await db('syndicate_votes').where({ id: vote.id }).update({ status: newStatus });
       res.json({ cast: choice, resolved: true, result: newStatus });
+
+      // Notify syndicate of vote resolution
+      const io = req.app.get('io');
+      if (io) {
+        notifySyndicate(io, paramStr(req.params.id), 'syndicate:vote_resolved', {
+          voteId: vote.id,
+          result: newStatus,
+        });
+      }
     } else {
       res.json({ cast: choice, resolved: false });
     }

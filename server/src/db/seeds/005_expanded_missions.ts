@@ -118,6 +118,20 @@ export async function seed(knex: Knex): Promise<void> {
       sort_order: 14,
     },
 
+    {
+      id: 'b0000000-0000-0000-0000-000000000021',
+      title: 'Stellar Census',
+      description: 'The Vedic Cartographers Guild requires a comprehensive stellar survey before granting naming authority. Scan 8 sectors to catalog the local star systems.',
+      type: 'scan_sectors',
+      difficulty: 2,
+      tier: 2,
+      objectives: { scansRequired: 8 },
+      reward_credits: 3000,
+      reward_xp: 200,
+      hints: ['Use your scanner in different sectors to build the catalog.'],
+      sort_order: 15,
+    },
+
     // --- Tier 3 (5 missions) ---
     {
       id: 'b0000000-0000-0000-0000-000000000009',

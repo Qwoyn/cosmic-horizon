@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState, useRef, useMemo } from 'react';
 import StatusBar from '../components/StatusBar';
 import MapPanel from '../components/MapPanel';
 import TradeTable from '../components/TradeTable';
+import TradeRoutesPanel from '../components/TradeRoutesPanel';
 import MallPanel from '../components/MallPanel';
 import CombatGroupPanel from '../components/CombatGroupPanel';
 import ActiveMissionsPanel from '../components/ActiveMissionsPanel';
@@ -14,11 +15,13 @@ import CommsGroupPanel from '../components/CommsGroupPanel';
 import SyndicateGroupPanel from '../components/SyndicateGroupPanel';
 import WalletPanel from '../components/WalletPanel';
 import ActionsPanel from '../components/ActionsPanel';
+import ProfilePanel from '../components/ProfilePanel';
 import TutorialOverlay from '../components/TutorialOverlay';
 import IntroSequence, { INTRO_BEATS, POST_TUTORIAL_BEATS } from '../components/IntroSequence';
 import PixelScene from '../components/PixelScene';
 import SceneViewport from '../components/SceneViewport';
 import ActivityBar from '../components/ActivityBar';
+import PixelSprite from '../components/PixelSprite';
 import ContextPanel from '../components/ContextPanel';
 import SectorMap from '../components/SectorMap';
 import NotificationLog from '../components/NotificationLog';
@@ -279,6 +282,13 @@ export default function Game({ onLogout }: GameProps) {
     onCommand(cmd);
   }, [onCommand]);
 
+  const handleDock = useCallback(async () => {
+    await game.doDock();
+    if (game.sector?.hasStarMall) {
+      selectPanel('trade');
+    }
+  }, [game.doDock, game.sector?.hasStarMall, selectPanel]);
+
   const handleNPCClick = useCallback((npcId: string) => {
     setCrewInitialTab('npcs');
     setAutoTalkNpcId(npcId || null);
@@ -295,25 +305,29 @@ export default function Game({ onLogout }: GameProps) {
 
   function renderActivePanel() {
     switch (activePanel) {
-      case 'nav': return <MapPanel sector={game.sector} onMoveToSector={game.doMove} onWarpTo={game.doWarpTo} onCommand={handleActionButton} onNPCClick={handleNPCClick} onAlertClick={(panel) => selectPanel(panel as any)} bare />;
-      case 'explore': return <ExplorePanel refreshKey={refreshKey} bare onAddLine={game.addLine} onRefreshStatus={game.refreshStatus} />;
+      case 'nav': return <MapPanel sector={game.sector} onMoveToSector={game.doMove} onWarpTo={game.doWarpTo} onCommand={handleActionButton} onNPCClick={handleNPCClick} onAlertClick={(panel) => selectPanel(panel as any)} isDocked={!!game.player?.dockedAtOutpostId} isLanded={!!game.player?.landedAtPlanetId} hasPlanets={(game.sector?.planets?.length ?? 0) > 0} onDock={handleDock} onUndock={game.doUndock} onLandClick={() => selectPanel('planets')} onLiftoff={game.doLiftoff} bare />;
+      case 'explore': return <ExplorePanel refreshKey={refreshKey} bare sectorId={game.player?.currentSectorId} playerName={game.player?.username} hasNamingAuthority={game.player?.hasNamingAuthority} onAddLine={game.addLine} onRefreshStatus={game.refreshStatus} />;
       case 'trade': {
         const atStarMall = !!activeOutpost && !!game.sector?.hasStarMall;
         if (atStarMall) {
           return <MallPanel outpostId={activeOutpost} onBuy={game.doBuy} onSell={game.doSell} credits={game.player?.credits ?? 0} energy={game.player?.energy ?? 0} maxEnergy={game.player?.maxEnergy ?? 100} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} bare />;
         }
-        return <TradeTable outpostId={activeOutpost} onBuy={game.doBuy} onSell={game.doSell} bare />;
+        return <>
+          <TradeTable outpostId={activeOutpost} onBuy={game.doBuy} onSell={game.doSell} bare />
+          <TradeRoutesPanel refreshKey={refreshKey} onCommand={handleActionButton} bare />
+        </>;
       }
       case 'combat': return <CombatGroupPanel sector={game.sector} onFire={game.doFire} onFlee={game.doFlee} weaponEnergy={game.player?.currentShip?.weaponEnergy ?? 0} combatAnimation={game.combatAnimation} onCombatAnimationDone={game.clearCombatAnimation} playerName={game.player?.username} refreshKey={refreshKey} bare />;
       case 'crew': return <CrewGroupPanel sector={game.sector} onFire={game.doFire} refreshKey={refreshKey} onCommand={handleActionButton} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} initialTab={crewInitialTab} autoTalkNpcId={autoTalkNpcId} bare />;
       case 'missions': return <ActiveMissionsPanel refreshKey={refreshKey} atStarMall={!!activeOutpost && !!game.sector?.hasStarMall} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} bare />;
-      case 'planets': return <PlanetsPanel refreshKey={refreshKey} currentSectorId={game.player?.currentSectorId ?? null} onAction={() => { game.refreshStatus(); setRefreshKey(k => k + 1); }} onCommand={handleActionButton} bare />;
+      case 'planets': return <PlanetsPanel refreshKey={refreshKey} currentSectorId={game.player?.currentSectorId ?? null} hasNamingAuthority={game.player?.hasNamingAuthority} hasTransporter={game.player?.hasTransporter} onAction={() => { game.refreshStatus(); game.refreshSector(); setRefreshKey(k => k + 1); }} onCommand={handleActionButton} onLand={game.doLand} onLiftoff={game.doLiftoff} landedAtPlanetId={game.player?.landedAtPlanetId ?? null} bare />;
       case 'gear': return <GearGroupPanel refreshKey={refreshKey} onItemUsed={handleItemUsed} atStarMall={!!activeOutpost && !!game.sector?.hasStarMall} onCommand={handleActionButton} bare />;
       case 'inventory': return <InventoryResourcePanel refreshKey={refreshKey} onAddLine={game.addLine} onRefreshStatus={game.refreshStatus} />;
       case 'comms': return <CommsGroupPanel messages={chatMessages} onSend={handleChatSend} refreshKey={refreshKey} onAction={() => setRefreshKey(k => k + 1)} hasSyndicate={hasSyndicate} hasAlliance={hasAlliance} alliedPlayerIds={alliedPlayerIds} onAllianceChange={refreshAlliances} bare />;
       case 'syndicate': return <SyndicateGroupPanel refreshKey={refreshKey} onCommand={handleActionButton} bare />;
       case 'wallet': return <WalletPanel bare />;
       case 'actions': return <ActionsPanel onCommand={handleActionButton} onClearLog={game.clearLines} bare />;
+      case 'profile': return <ProfilePanel refreshKey={refreshKey} bare />;
     }
   }
 
@@ -432,26 +446,22 @@ export default function Game({ onLogout }: GameProps) {
         tutorialCompleted={game.player?.tutorialCompleted ?? true}
         onSkip={game.skipTutorial}
       />
-      <StatusBar player={game.player} muted={audio.muted} onToggleMute={audio.toggleMute} onLogout={onLogout} />
+      <StatusBar player={game.player} muted={audio.muted} paused={audio.paused} onToggleMute={audio.toggleMute} onTogglePause={audio.togglePause} onSkipTrack={audio.skip} onPrevTrack={audio.previous} canSkipTrack={audio.canSkip} canPrevTrack={audio.canPrevious} currentTrackId={audio.currentTrackId} onLogout={onLogout} />
       <div className="game-main">
         <ActivityBar activePanel={activePanel} onSelect={selectPanel} badges={badges} />
         <div className="game-center">
-          <div className={`game-map-log${combatFlash ? ' terminal--combat-flash' : ''}`}>
-            <div className="game-map-area">
-              <SectorMap
-                mapData={game.mapData}
-                currentSectorId={game.player?.currentSectorId ?? null}
-                adjacentSectorIds={game.sector?.adjacentSectors?.map(a => a.sectorId) || []}
-                onMoveToSector={game.doMove}
-              />
-            </div>
-            <div className="game-log-area">
-              <NotificationLog lines={game.lines} onClear={game.clearLines} />
-            </div>
+          <div className={`game-map-area${combatFlash ? ' terminal--combat-flash' : ''}`}>
+            <SectorMap
+              mapData={game.mapData}
+              currentSectorId={game.player?.currentSectorId ?? null}
+              adjacentSectorIds={game.sector?.adjacentSectors?.map(a => a.sectorId) || []}
+              onMoveToSector={game.doMove}
+            />
           </div>
           <div className="game-panel-area">
             <div className="game-panel-content">
               <div className="panel-area-header">
+                <PixelSprite spriteKey={PANELS.find(p => p.id === activePanel)?.spriteKey ?? 'icon_nav'} size={14} />
                 {PANELS.find(p => p.id === activePanel)?.label}
               </div>
               {renderActivePanel()}
@@ -464,6 +474,7 @@ export default function Game({ onLogout }: GameProps) {
               shipType={game.player?.currentShip?.shipTypeId}
             />
           </div>
+          <NotificationLog lines={game.lines} onClear={game.clearLines} />
         </div>
         <ContextPanel
           player={game.player}

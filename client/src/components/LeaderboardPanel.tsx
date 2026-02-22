@@ -59,7 +59,7 @@ export default function LeaderboardPanel({ refreshKey, bare, alliedPlayerIds = [
       <div className="group-panel-tabs" style={{ flexWrap: 'wrap' }}>
         {CATEGORIES.map((cat, i) => (
           <span key={cat}>
-            {i > 0 && <span style={{ color: '#444', margin: '0 0.3rem' }}>·</span>}
+            {i > 0 && <span style={{ color: '#444', margin: '0 0.4rem' }}>|</span>}
             <span
               onClick={() => setCategory(cat)}
               style={{ cursor: 'pointer', color: category === cat ? categoryColor(cat) : '#666', fontSize: 11, textTransform: 'capitalize' }}

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth';
 import db from '../db/connection';
+import { incrementStat, logActivity } from '../engine/profile-stats';
 
 const router = Router();
 
@@ -163,8 +164,9 @@ router.get('/syndicate', requireAuth, async (req, res) => {
     } catch { /* table may not exist yet */ }
     const members = await db('syndicate_members')
       .join('players', 'syndicate_members.player_id', 'players.id')
+      .leftJoin('player_progression', 'players.id', 'player_progression.player_id')
       .where({ syndicate_id: membership.syndicate_id })
-      .select('players.id', 'players.username', 'players.level', 'syndicate_members.role');
+      .select('players.id', 'players.username', 'player_progression.level', 'syndicate_members.role');
 
     res.json({
       id: syndicate.id,
@@ -561,6 +563,10 @@ router.post('/bounty', requireAuth, async (req, res) => {
       target_player_id: targetPlayerId,
       reward: amount,
     });
+
+    // Profile stats: bounty placed
+    incrementStat(player.id, 'bounties_placed', 1);
+    logActivity(player.id, 'bounty_placed', `Placed ${amount} credit bounty on ${target.username}`, { targetId: targetPlayerId, amount });
 
     res.json({ targetId: targetPlayerId, amount, newCredits: Number(player.credits) - amount });
   } catch (err) {

@@ -64,6 +64,10 @@ export function useAudio() {
   const onEndedRef = useRef<(() => void) | null>(null);
   const [muted, setMuted] = useState(getStoredMuted);
   const [volume, setVolumeState] = useState(getStoredVolume);
+  const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
+  const [currentContext, setCurrentContext] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
+  const trackHistoryRef = useRef<string[]>([]);
   const mutedRef = useRef(muted);
   const volumeRef = useRef(volume);
 
@@ -141,7 +145,13 @@ export function useAudio() {
     audio.volume = 0;
     audio.muted = mutedVal;
     audioRef.current = audio;
+    // Push previous track to history before switching
+    if (currentTrackIdRef.current && currentTrackIdRef.current !== track.id) {
+      trackHistoryRef.current = [...trackHistoryRef.current.slice(-19), currentTrackIdRef.current];
+    }
     currentTrackIdRef.current = track.id;
+    setCurrentTrackId(track.id);
+    setPaused(false);
 
     const targetVolume = track.volume * volumeVal;
 
@@ -178,6 +188,7 @@ export function useAudio() {
     await fadeOut();
 
     currentContextRef.current = contextId;
+    setCurrentContext(contextId);
     pendingPlayRef.current = false;
     // Read current muted/volume from refs to avoid stale closure values
     await startTrack(resolved.track, resolved.isPlaylist, mutedRef.current, volumeRef.current);
@@ -220,7 +231,9 @@ export function useAudio() {
     }
     await fadeOut();
     currentContextRef.current = null;
+    setCurrentContext(null);
     currentTrackIdRef.current = null;
+    setCurrentTrackId(null);
     audioRef.current = null;
     pendingPlayRef.current = false;
   }, [fadeOut]);
@@ -249,5 +262,55 @@ export function useAudio() {
     });
   }, []);
 
-  return { play, stop, resume, setVolume, muted, toggleMute, volume };
+  const skip = useCallback(async () => {
+    if (currentContextRef.current !== 'gameplay') return;
+    if (GAMEPLAY_TRACKS.length < 2) return;
+
+    if (audioRef.current && onEndedRef.current) {
+      audioRef.current.removeEventListener('ended', onEndedRef.current);
+      onEndedRef.current = null;
+    }
+
+    await fadeOut();
+
+    const next = pickRandom(GAMEPLAY_TRACKS, currentTrackIdRef.current);
+    await startTrack(next, true, mutedRef.current, volumeRef.current);
+  }, [fadeOut, startTrack]);
+
+  const previous = useCallback(async () => {
+    if (currentContextRef.current !== 'gameplay') return;
+    if (trackHistoryRef.current.length === 0) return;
+
+    const prevId = trackHistoryRef.current[trackHistoryRef.current.length - 1];
+    trackHistoryRef.current = trackHistoryRef.current.slice(0, -1);
+
+    const prevTrack = GAMEPLAY_TRACKS.find(t => t.id === prevId);
+    if (!prevTrack) return;
+
+    if (audioRef.current && onEndedRef.current) {
+      audioRef.current.removeEventListener('ended', onEndedRef.current);
+      onEndedRef.current = null;
+    }
+
+    await fadeOut();
+    await startTrack(prevTrack, true, mutedRef.current, volumeRef.current);
+  }, [fadeOut, startTrack]);
+
+  const togglePause = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (audio.paused) {
+      audio.play().catch(() => {});
+      setPaused(false);
+    } else {
+      audio.pause();
+      setPaused(true);
+    }
+  }, []);
+
+  const canSkip = currentContext === 'gameplay' && GAMEPLAY_TRACKS.length > 1;
+  const canPrevious = currentContext === 'gameplay' && trackHistoryRef.current.length > 0;
+
+  return { play, stop, resume, skip, previous, togglePause, canSkip, canPrevious, paused, setVolume, muted, toggleMute, volume, currentTrackId };
 }

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import db from '../db/connection';
 import { GAME_CONFIG } from '../config/game';
 import { calculateProductionWithFactoryBonus } from './planets';
+import { type RacePopulation } from './happiness';
 
 // === Helper ===
 
@@ -295,8 +296,20 @@ export async function getFactoryStatus(syndicateId: string) {
   if (!factory) return { hasFactory: false };
 
   const owner = await db('players').where({ id: factory.owner_id }).first();
+
+  // Load race populations for factory
+  let racePopulations: RacePopulation[] = [];
+  try {
+    racePopulations = await db('planet_colonists')
+      .where({ planet_id: factory.id })
+      .select('race', 'count');
+  } catch { /* table may not exist yet */ }
+  if (racePopulations.length === 0) {
+    racePopulations = [{ race: 'unknown', count: factory.colonists }];
+  }
+
   const production = calculateProductionWithFactoryBonus(
-    factory.planet_class, factory.colonists, true,
+    factory.planet_class, racePopulations, factory.happiness || 50, true,
   );
 
   return {
@@ -316,14 +329,24 @@ export async function getFactoryStatus(syndicateId: string) {
 export async function processFactoryProduction(planet: any) {
   if (!planet.factory_syndicate_id || !planet.owner_id || planet.colonists <= 0) return;
 
+  // Load race populations for factory
+  let racePopulations: RacePopulation[] = [];
+  try {
+    racePopulations = await db('planet_colonists')
+      .where({ planet_id: planet.id })
+      .select('race', 'count');
+  } catch { /* table may not exist yet */ }
+  if (racePopulations.length === 0) {
+    racePopulations = [{ race: 'unknown', count: planet.colonists }];
+  }
+
   const production = calculateProductionWithFactoryBonus(
-    planet.planet_class, planet.colonists, true,
+    planet.planet_class, racePopulations, planet.happiness || 50, true,
   );
 
   // Deposit base commodities to pool as resources
   const commodities = [
     { resourceId: 'cyrillium', amount: production.cyrillium },
-    { resourceId: 'food', amount: production.food },
     { resourceId: 'tech', amount: production.tech },
   ];
 
@@ -346,7 +369,7 @@ export async function processFactoryProduction(planet: any) {
   }
 
   // Log the production
-  const totalProduced = production.cyrillium + production.food + production.tech;
+  const totalProduced = production.cyrillium + production.tech;
   if (totalProduced > 0) {
     await db('syndicate_pool_log').insert({
       id: crypto.randomUUID(),
@@ -355,7 +378,7 @@ export async function processFactoryProduction(planet: any) {
       action: 'factory_production',
       resource_id: null,
       quantity: totalProduced,
-      details: JSON.stringify({ cyrillium: production.cyrillium, food: production.food, tech: production.tech }),
+      details: JSON.stringify({ cyrillium: production.cyrillium, tech: production.tech }),
       created_at: new Date().toISOString(),
     });
   }

@@ -128,6 +128,13 @@ export const STORE_ITEMS: StoreItem[] = [
     price: 500,
     category: 'consumable',
   },
+  {
+    id: 'scanner_probe',
+    name: 'Planetary Scanner Probe',
+    description: 'Single-use probe that reveals detailed info about all planets in your current sector.',
+    price: 2500,
+    category: 'consumable',
+  },
 ];
 
 export function getStoreItem(id: string): StoreItem | undefined {

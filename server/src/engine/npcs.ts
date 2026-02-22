@@ -316,6 +316,23 @@ export async function processDialogue(
         };
       }
 
+      // Track olive branch usage (one-time recovery per NPC)
+      if (selected.next === 'olive_branch') {
+        if (dialogueState.olive_branch_used) {
+          return {
+            npcName: npc.name,
+            npcTitle: npc.title ?? null,
+            text: 'You have already accepted this olive branch.',
+            options: annotateOptions(currentNode.options || [], currentReputation),
+            reputation: currentReputation,
+            effects: null,
+            isEnd: false,
+            ...(xpResult ? { xp: xpResult } : {}),
+          };
+        }
+        dialogueState.olive_branch_used = true;
+      }
+
       currentNodeKey = selected.next;
     }
 
