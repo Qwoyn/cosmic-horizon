@@ -30,6 +30,9 @@ import tabletsRouter from './api/tablets';
 import craftingRouter from './api/crafting';
 import syndicateEconomyRouter from './api/syndicate-economy';
 import syndicateGovernanceRouter from './api/syndicate-governance';
+import sectorsRouter from './api/sectors';
+import tradeRoutesRouter from './api/trade-routes';
+import profileRouter from './api/profile';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
 import { loadTutorialState, blockDuringTutorial } from './middleware/tutorial-sandbox';
@@ -42,6 +45,8 @@ const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: { origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }
 });
+
+app.set('io', io);
 
 const corsOptions = { origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true };
 app.use(cors(corsOptions));
@@ -106,6 +111,9 @@ app.use('/api/tablets', loadTutorialState, blockDuringTutorial, loadSPContext, t
 app.use('/api/crafting', loadTutorialState, blockDuringTutorial, loadSPContext, craftingRouter);
 app.use('/api/syndicate-economy', loadTutorialState, blockDuringTutorial, loadSPContext, blockInSinglePlayer, syndicateEconomyRouter);
 app.use('/api/syndicate-governance', loadTutorialState, blockDuringTutorial, loadSPContext, blockInSinglePlayer, syndicateGovernanceRouter);
+app.use('/api/sectors', loadTutorialState, blockDuringTutorial, loadSPContext, sectorsRouter);
+app.use('/api/trade-routes', loadTutorialState, blockDuringTutorial, loadSPContext, tradeRoutesRouter);
+app.use('/api/profile', loadTutorialState, loadSPContext, profileRouter);
 
 // WebSocket
 setupWebSocket(io);

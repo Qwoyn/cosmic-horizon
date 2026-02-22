@@ -1078,6 +1078,21 @@ export const SPRITES: Record<string, SpriteDefinition> = {
     ],
   },
 
+  icon_profile: {
+    cols: 8, rows: 8,
+    palette: ['', CYAN, BLUE, WHITE],
+    grid: [
+      [0,0,0,3,3,0,0,0],
+      [0,0,3,1,1,3,0,0],
+      [0,0,3,1,1,3,0,0],
+      [0,0,0,3,3,0,0,0],
+      [0,0,2,2,2,2,0,0],
+      [0,2,1,1,1,1,2,0],
+      [0,2,1,1,1,1,2,0],
+      [0,0,2,2,2,2,0,0],
+    ],
+  },
+
   icon_planets: {
     cols: 8, rows: 8,
     palette: ['', GREEN, BLUE, '#2ea043', CYAN],

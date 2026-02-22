@@ -2,7 +2,7 @@ import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 
 export interface MapData {
   currentSectorId: number;
-  sectors: { id: number; type: string; regionId: number; hasStarMall: boolean; hasOutposts: boolean; hasPlanets: boolean }[];
+  sectors: { id: number; type: string; regionId: number; hasStarMall: boolean; hasOutposts: boolean; hasPlanets: boolean; outpostCount?: number; planetCount?: number; sectorName?: string | null; owner?: { name: string; type: 'player' | 'syndicate' } | null; isNpcStarmall?: boolean }[];
   edges: { from: number; to: number; oneWay: boolean }[];
 }
 
@@ -16,14 +16,13 @@ interface Props {
 
 const WIDTH = 400;
 const HEIGHT = 380;
-const NODE_RADIUS = 14;
-const IDEAL_EDGE_LENGTH = 60;
+const IDEAL_EDGE_LENGTH = 80;
 const ITERATIONS = 120;
 
 const ZOOM_MIN = 1;
-const ZOOM_MAX = 3;
-const ZOOM_BUTTON_STEP = 0.5;
-const ZOOM_WHEEL_STEP = 0.08;
+const ZOOM_MAX = 15;
+const ZOOM_BUTTON_STEP = 1.0;
+const ZOOM_WHEEL_STEP = 0.15;
 
 // Seeded PRNG (Lehmer / Park-Miller)
 function seededRng(seed: number) {
@@ -44,18 +43,35 @@ function generateStars(count: number, seed: number): string {
   return stars.join(', ');
 }
 
-// Pre-generate 3 star layers (far=tiny+many, mid, near=big+few)
-const STAR_LAYER_FAR = generateStars(200, 42);
-const STAR_LAYER_MID = generateStars(80, 137);
-const STAR_LAYER_NEAR = generateStars(30, 293);
+// Pre-generate 4 star layers (dust=ultra-tiny, far=tiny+many, mid, near=big+few)
+const STAR_LAYER_DUST = generateStars(800, 7);
+const STAR_LAYER_FAR = generateStars(400, 42);
+const STAR_LAYER_MID = generateStars(150, 137);
+const STAR_LAYER_NEAR = generateStars(50, 293);
 
-// Map sector type to fill color (CSS variable values)
-const TYPE_FILLS: Record<string, string> = {
-  standard: '#1a2332',
-  protected: '#1a3a2a',
-  harmony_enforced: '#1a2a3a',
-  one_way: '#2a2a1a',
+// Map sector type to star color scheme { gradient id suffix, core color }
+const STAR_COLORS: Record<string, { gradient: string; core: string }> = {
+  standard: { gradient: 'white', core: '#fffbe8' },
+  protected: { gradient: 'green', core: '#a0ffb0' },
+  harmony_enforced: { gradient: 'blue', core: '#a0c8ff' },
+  one_way: { gradient: 'amber', core: '#ffd080' },
 };
+
+const BASE_RADIUS = 10;
+function getNodeRadius(s: MapData['sectors'][0]): number {
+  let r = BASE_RADIUS;
+  r += (s.planetCount || 0) * 2;
+  r += (s.outpostCount || 0) * 1.5;
+  if (s.hasStarMall) r += 3;
+  return Math.min(r, 24);
+}
+
+function getStarCoreRadius(s: MapData['sectors'][0]): number {
+  const rand = ((s.id * 7919 + 104729) % 1000) / 1000;
+  const base = 1.5 + rand * 2.0;
+  const bonus = (s.planetCount || 0) * 0.3 + (s.outpostCount || 0) * 0.2 + (s.hasStarMall ? 0.5 : 0);
+  return Math.min(base + bonus, 5);
+}
 
 function computeLayout(
   sectors: MapData['sectors'],
@@ -183,9 +199,8 @@ function computeLayout(
   for (const s of sectors) velocities.set(s.id, { vx: 0, vy: 0 });
 
   const damping = 0.82;
-  const padding = NODE_RADIUS + 6;
-  const repulsionStrength = 2500;
-  const minSeparation = NODE_RADIUS * 2 + 10; // Minimum distance between node centers
+  const repulsionStrength = 5000;
+  const minSeparation = 70;
 
   for (let iter = 0; iter < ITERATIONS; iter++) {
     const temp = 1 - iter / ITERATIONS; // cooling factor
@@ -239,15 +254,15 @@ function computeLayout(
       cv.vy += (cy - cp.y) * 0.02 * temp;
     }
 
-    // Light gravity toward center for all nodes (prevents drifting)
+    // Very light gravity toward center for all nodes (prevents drifting)
     for (const s of sectors) {
       const p = positions.get(s.id)!;
       const v = velocities.get(s.id)!;
-      v.vx += (cx - p.x) * 0.005 * temp;
-      v.vy += (cy - p.y) * 0.005 * temp;
+      v.vx += (cx - p.x) * 0.001 * temp;
+      v.vy += (cy - p.y) * 0.001 * temp;
     }
 
-    // Apply velocities
+    // Apply velocities (no boundary clamping — spread + pan handle navigation)
     for (const s of sectors) {
       const v = velocities.get(s.id)!;
       const p = positions.get(s.id)!;
@@ -255,9 +270,6 @@ function computeLayout(
       v.vy *= damping;
       p.x += v.vx;
       p.y += v.vy;
-      // Boundary clamping
-      p.x = Math.max(padding, Math.min(WIDTH - padding, p.x));
-      p.y = Math.max(padding, Math.min(HEIGHT - padding, p.y));
     }
 
     // Hard overlap separation — push apart any nodes closer than minSeparation
@@ -278,11 +290,6 @@ function computeLayout(
           a.y -= ny * push;
           b.x += nx * push;
           b.y += ny * push;
-          // Re-clamp
-          a.x = Math.max(padding, Math.min(WIDTH - padding, a.x));
-          a.y = Math.max(padding, Math.min(HEIGHT - padding, a.y));
-          b.x = Math.max(padding, Math.min(WIDTH - padding, b.x));
-          b.y = Math.max(padding, Math.min(HEIGHT - padding, b.y));
         }
       }
     }
@@ -300,7 +307,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   const dragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
-  const [hoveredSector, setHoveredSector] = useState<{ id: number; type: string; x: number; y: number } | null>(null);
+  const [hoveredSector, setHoveredSector] = useState<{ id: number; type: string; x: number; y: number; sectorName?: string | null; owner?: { name: string; type: string } | null; isNpcStarmall?: boolean } | null>(null);
   const [showLegend, setShowLegend] = useState(false);
   const [parallax, setParallax] = useState({ x: 0, y: 0 });
   const mapBodyRef = useRef<HTMLDivElement>(null);
@@ -362,11 +369,13 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
     const rect = svgEl.getBoundingClientRect();
     const scaleX = WIDTH / rect.width;
     const scaleY = HEIGHT / rect.height;
-    const dx = (e.clientX - dragStart.current.x) * scaleX / z;
-    const dy = (e.clientY - dragStart.current.y) * scaleY / z;
-    // Pan limits: always allow a minimum pan range even at base zoom
-    const maxPanX = Math.max((WIDTH - vw) / 2, WIDTH * 0.3);
-    const maxPanY = Math.max((HEIGHT - vh) / 2, HEIGHT * 0.3);
+    const panAccel = Math.pow(z, 0.4);
+    const dx = (e.clientX - dragStart.current.x) * scaleX / z * panAccel;
+    const dy = (e.clientY - dragStart.current.y) * scaleY / z * panAccel;
+    // Pan limits: generous to cover unclamped layout positions after spread
+    const spreadAtZ = Math.pow(z, 0.7);
+    const maxPanX = WIDTH * spreadAtZ;
+    const maxPanY = HEIGHT * spreadAtZ;
     setPan({
       x: Math.max(-maxPanX, Math.min(maxPanX, panStart.current.x - dx)),
       y: Math.max(-maxPanY, Math.min(maxPanY, panStart.current.y - dy)),
@@ -397,17 +406,25 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
       } else {
         // Read current pan from ref to avoid stale closure
         const curPan = panRef.current;
-        // Shift pan toward/away from mouse cursor
+        // Shift pan toward/away from mouse cursor, accounting for spread change
         const oldVw = WIDTH / prev;
         const oldVh = HEIGHT / prev;
         const newVw = WIDTH / next;
         const newVh = HEIGHT / next;
+        // ViewBox position under cursor at old zoom
         const cursorVx = (WIDTH - oldVw) / 2 + curPan.x + oldVw * mx;
         const cursorVy = (HEIGHT - oldVh) / 2 + curPan.y + oldVh * my;
-        const newPanX = cursorVx - (WIDTH - newVw) / 2 - newVw * mx;
-        const newPanY = cursorVy - (HEIGHT - newVh) / 2 - newVh * my;
-        const maxPanX = Math.max((WIDTH - newVw) / 2, WIDTH * 0.3);
-        const maxPanY = Math.max((HEIGHT - newVh) / 2, HEIGHT * 0.3);
+        // Content under cursor moves due to spread change — track it
+        const spreadOld = Math.pow(prev, 0.7);
+        const spreadNew = Math.pow(next, 0.7);
+        const mcx = WIDTH / 2;
+        const mcy = HEIGHT / 2;
+        const targetVx = mcx + (cursorVx - mcx) * spreadNew / spreadOld;
+        const targetVy = mcy + (cursorVy - mcy) * spreadNew / spreadOld;
+        const newPanX = targetVx - (WIDTH - newVw) / 2 - newVw * mx;
+        const newPanY = targetVy - (HEIGHT - newVh) / 2 - newVh * my;
+        const maxPanX = WIDTH * spreadNew;
+        const maxPanY = HEIGHT * spreadNew;
         setPan({
           x: Math.max(-maxPanX, Math.min(maxPanX, newPanX)),
           y: Math.max(-maxPanY, Math.min(maxPanY, newPanY)),
@@ -440,6 +457,12 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
 
   const adjacentSet = new Set(adjacentSectorIds);
 
+  // NMS-style zoom: positions spread from center, nodes stay constant screen size
+  const spread = Math.pow(zoom, 0.7);
+  const renderScale = 1 / Math.pow(zoom, 0.35);
+  const mapCenterX = WIDTH / 2;
+  const mapCenterY = HEIGHT / 2;
+
   // Deduplicate bidirectional edges by canonical key
   const edgeMap = new Map<string, { from: number; to: number; oneWay: boolean }>();
   for (const e of mapData.edges) {
@@ -457,13 +480,6 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
   const vh = effectiveHeight / zoom;
   const vx = (effectiveWidth - vw) / 2 + pan.x;
   const vy = (effectiveHeight - vh) / 2 + pan.y;
-
-  const zoomControls = (
-    <span className="sector-map-controls">
-      <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} title="Zoom out">−</button>
-      <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} title="Zoom in">+</button>
-    </span>
-  );
 
   const svgContent = (
     <svg
@@ -489,25 +505,68 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
         >
           <polygon points="0 0, 8 3, 0 6" />
         </marker>
+
+        {/* Star glow gradients */}
+        <radialGradient id="star-glow-white">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="25%" stopColor="#fffbe8" stopOpacity="0.6" />
+          <stop offset="60%" stopColor="#d4c896" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="#d4c896" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="star-glow-green">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="25%" stopColor="#a0ffb0" stopOpacity="0.6" />
+          <stop offset="60%" stopColor="#40a050" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="#40a050" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="star-glow-blue">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="25%" stopColor="#a0c8ff" stopOpacity="0.6" />
+          <stop offset="60%" stopColor="#4080c0" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="#4080c0" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="star-glow-amber">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="25%" stopColor="#ffd080" stopOpacity="0.6" />
+          <stop offset="60%" stopColor="#c08830" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="#c08830" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="star-glow-cyan">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="25%" stopColor="#56d4dd" stopOpacity="0.7" />
+          <stop offset="60%" stopColor="#2a8a90" stopOpacity="0.2" />
+          <stop offset="100%" stopColor="#2a8a90" stopOpacity="0" />
+        </radialGradient>
+
+        {/* Bloom filter for current sector */}
+        <filter id="star-bloom" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
+        </filter>
       </defs>
 
       {/* Layer 1: Edges */}
       {dedupedEdges.map((e) => {
-        const from = positions.get(e.from);
-        const to = positions.get(e.to);
-        if (!from || !to) return null;
+        const fromBase = positions.get(e.from);
+        const toBase = positions.get(e.to);
+        if (!fromBase || !toBase) return null;
 
-        // Shorten line by NODE_RADIUS at each end
+        // Apply spread to positions
+        const from = { x: mapCenterX + (fromBase.x - mapCenterX) * spread, y: mapCenterY + (fromBase.y - mapCenterY) * spread };
+        const to = { x: mapCenterX + (toBase.x - mapCenterX) * spread, y: mapCenterY + (toBase.y - mapCenterY) * spread };
+
+        // Shorten line by scaled node radius at each end
         const dx = to.x - from.x;
         const dy = to.y - from.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 1) return null;
         const nx = dx / dist;
         const ny = dy / dist;
-        const x1 = from.x + nx * NODE_RADIUS;
-        const y1 = from.y + ny * NODE_RADIUS;
-        const x2 = to.x - nx * NODE_RADIUS;
-        const y2 = to.y - ny * NODE_RADIUS;
+        // Use small core radius so edges reach close to star cores
+        const coreOffset = 3 * renderScale;
+        const x1 = from.x + nx * coreOffset;
+        const y1 = from.y + ny * coreOffset;
+        const x2 = to.x - nx * coreOffset;
+        const y2 = to.y - ny * coreOffset;
 
         const key = `edge-${e.from}-${e.to}`;
         return (
@@ -518,19 +577,30 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
             x2={x2}
             y2={y2}
             className={`sector-map-edge${e.oneWay ? ' sector-map-edge--oneway' : ''}`}
+            strokeWidth={1 / zoom}
             markerEnd={e.oneWay ? 'url(#arrowhead)' : undefined}
           />
         );
       })}
 
-      {/* Layer 2: Nodes */}
+      {/* Layer 2: Star Nodes */}
       {mapData.sectors.map((s) => {
-        const pos = positions.get(s.id);
-        if (!pos) return null;
+        const basePos = positions.get(s.id);
+        if (!basePos) return null;
+        const pos = { x: mapCenterX + (basePos.x - mapCenterX) * spread, y: mapCenterY + (basePos.y - mapCenterY) * spread };
 
         const isCurrent = s.id === currentSectorId;
         const isAdjacent = adjacentSet.has(s.id);
-        const fill = TYPE_FILLS[s.type] || TYPE_FILLS.standard;
+        const colors = isCurrent
+          ? { gradient: 'cyan', core: '#56d4dd' }
+          : (STAR_COLORS[s.type] || STAR_COLORS.standard);
+        const glowRadius = getNodeRadius(s);
+
+        // Glow-only parallax: deterministic depth per sector, current=near, far=deeper
+        const depthRand = ((s.id * 7919 + 104729) % 1000) / 1000;
+        const depth = isCurrent ? 0.2 : (0.5 + depthRand * 0.5);
+        const glowOffsetX = parallax.x * depth * 3;
+        const glowOffsetY = parallax.y * depth * 3;
 
         let nodeClass = 'sector-map-node sector-map-node--twinkle';
         if (isCurrent) nodeClass += ' sector-map-node--current';
@@ -559,66 +629,110 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
               const ctm = svgEl.getScreenCTM();
               if (ctm) {
                 const screenPt = svgPt.matrixTransform(ctm);
-                setHoveredSector({ id: s.id, type: s.type, x: screenPt.x - rect.left, y: screenPt.y - rect.top });
+                setHoveredSector({ id: s.id, type: s.type, x: screenPt.x - rect.left, y: screenPt.y - rect.top, sectorName: s.sectorName, owner: s.owner, isNpcStarmall: s.isNpcStarmall });
               }
             }}
             onMouseLeave={() => setHoveredSector(null)}
           >
-            {/* Pulse ring for current sector */}
+            <g transform={`scale(${renderScale})`}>
+            {/* Invisible hit area for mouse events */}
+            <circle r={glowRadius} fill="transparent" />
+
+            {/* 1-2. Glow + Bloom with parallax offset */}
+            <g transform={`translate(${glowOffsetX}, ${glowOffsetY})`}>
+              {/* Glow halo — soft radial glow */}
+              <circle
+                r={glowRadius}
+                fill={`url(#star-glow-${colors.gradient})`}
+                className="sector-star-glow"
+              />
+
+              {/* Bloom — current sector only, larger + blur */}
+              {isCurrent && (
+                <circle
+                  r={glowRadius * 1.8}
+                  fill={`url(#star-glow-${colors.gradient})`}
+                  className="sector-star-bloom"
+                  filter="url(#star-bloom)"
+                />
+              )}
+            </g>
+
+            {/* 3. Pulse ring — current sector only */}
             {isCurrent && (
               <circle
-                r={NODE_RADIUS + 4}
+                r={glowRadius + 4}
                 className="sector-node-pulse"
               />
             )}
 
-            {/* Hover glow for adjacent */}
-            {isAdjacent && (
+            {/* 4. Star core — tiny bright dot, size varies by sector */}
+            <circle
+              r={getStarCoreRadius(s)}
+              fill={colors.core}
+              className="sector-star-core"
+            />
+
+            {/* 5. Owner ring — thin ring at half-glow radius */}
+            {s.owner && (
               <circle
-                r={NODE_RADIUS + 2}
-                className="sector-map-node-glow"
+                r={glowRadius * 0.5}
+                fill="none"
+                stroke={s.owner.type === 'player' ? 'var(--green)' : 'var(--purple)'}
+                strokeWidth={0.8}
+                opacity={0.35}
               />
             )}
 
-            {/* Main circle */}
-            <circle r={NODE_RADIUS} fill={fill} />
-
-            {/* Sector ID label */}
+            {/* 6. Sector ID label */}
             <text
-              className={`sector-node-label${isCurrent ? ' sector-node-label--current' : ''}`}
+              className={`sector-node-label${isCurrent ? ' sector-node-label--current' : isAdjacent ? ' sector-node-label--adjacent' : ''}`}
               textAnchor="middle"
-              dy="0.35em"
+              dy={s.sectorName ? "-2.6em" : "-1.4em"}
             >
               {s.id}
             </text>
 
-            {/* Star Mall icon */}
+            {/* 7. Sector name label (below ID, closer to star) */}
+            {s.sectorName && (
+              <text
+                className="sector-node-name"
+                textAnchor="middle"
+                dy="-1.4em"
+              >
+                {s.sectorName}
+              </text>
+            )}
+
+            {/* 8. Star Mall icon — subtle dot */}
             {s.hasStarMall && (
-              <polygon
+              <circle
                 className="sector-star-mall-icon"
-                points="0,-8 1.8,-3 7,-3 2.8,0.5 4.3,5.5 0,2.5 -4.3,5.5 -2.8,0.5 -7,-3 -1.8,-3"
-                transform={`translate(0, ${-NODE_RADIUS - 8}) scale(0.55)`}
+                cx={glowRadius * 0.6 + 4}
+                cy={-(glowRadius * 0.6 + 4)}
+                r={2}
               />
             )}
 
-            {/* Outpost icon — diamond below-left */}
+            {/* Outpost icon — tiny diamond */}
             {s.hasOutposts && (
               <polygon
                 className="sector-outpost-icon"
-                points="0,-4 4,0 0,4 -4,0"
-                transform={`translate(-6, ${NODE_RADIUS + 8})`}
+                points="0,-2.5 2.5,0 0,2.5 -2.5,0"
+                transform={`translate(-4, ${glowRadius * 0.5 + 6})`}
               />
             )}
 
-            {/* Planet icon — circle below-right */}
+            {/* Planet icon — tiny circle */}
             {s.hasPlanets && (
               <circle
                 className="sector-planet-icon"
-                cx={6}
-                cy={NODE_RADIUS + 8}
-                r={3.5}
+                cx={4}
+                cy={glowRadius * 0.5 + 6}
+                r={2}
               />
             )}
+            </g>
           </g>
         );
       })}
@@ -640,7 +754,7 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
       <div className="sector-map-full__header">
         <span className="sector-map-full__title">SECTOR MAP {currentSectorId != null ? `| ${currentSectorId}` : ''}</span>
         <span className="sector-map-controls">
-          <button className="sector-map-zoom-btn" onClick={() => setShowLegend(v => !v)} title="Toggle legend">{showLegend ? '×' : '?'}</button>
+          <button className="sector-map-zoom-btn sector-map-zoom-btn--legend" onClick={() => setShowLegend(v => !v)} title="Toggle legend">{showLegend ? '×' : '?'}</button>
           <button className="sector-map-zoom-btn" onClick={handleZoomOut} disabled={zoom <= ZOOM_MIN} title="Zoom out">−</button>
           <button className="sector-map-zoom-btn" onClick={handleZoomIn} disabled={zoom >= ZOOM_MAX} title="Zoom in">+</button>
         </span>
@@ -648,7 +762,27 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
       <div className="sector-map-body" style={{ padding: 4, position: 'relative' }} onMouseMove={handleParallaxMove} ref={mapBodyCallbackRef}>
         {/* Space background with parallax starfield + nebula */}
         <div className="space-bg">
+          <img
+            src="/logo.png"
+            alt=""
+            className="space-bg__logo"
+            style={{ transform: `translate(${parallax.x * 2}px, ${parallax.y * 2}px)` }}
+          />
+          <div className="space-bg__galaxies" style={{ transform: `translate(${parallax.x * 1.5}px, ${parallax.y * 1.5}px)` }}>
+            <div className="space-bg__galaxy space-bg__galaxy--1" />
+            <div className="space-bg__galaxy space-bg__galaxy--2" />
+            <div className="space-bg__galaxy space-bg__galaxy--3" />
+            <div className="space-bg__galaxy space-bg__galaxy--4" />
+          </div>
           <div className="space-bg__nebula" style={{ transform: `translate(${parallax.x * 8}px, ${parallax.y * 8}px)` }} />
+          <div className="space-bg__shooting-stars">
+            <div className="shooting-star shooting-star--1" />
+            <div className="shooting-star shooting-star--2" />
+            <div className="shooting-star shooting-star--3" />
+            <div className="shooting-star shooting-star--4" />
+            <div className="shooting-star shooting-star--5" />
+          </div>
+          <div className="space-bg__stars space-bg__stars--dust" style={{ boxShadow: STAR_LAYER_DUST, transform: `translate(${parallax.x * 3}px, ${parallax.y * 3}px)` }} />
           <div className="space-bg__stars space-bg__stars--far" style={{ boxShadow: STAR_LAYER_FAR, transform: `translate(${parallax.x * 6}px, ${parallax.y * 6}px)` }} />
           <div className="space-bg__stars space-bg__stars--mid" style={{ boxShadow: STAR_LAYER_MID, transform: `translate(${parallax.x * 15}px, ${parallax.y * 15}px)` }} />
           <div className="space-bg__stars space-bg__stars--near" style={{ boxShadow: STAR_LAYER_NEAR, transform: `translate(${parallax.x * 28}px, ${parallax.y * 28}px)` }} />
@@ -659,23 +793,30 @@ export default function SectorMap({ mapData, currentSectorId, adjacentSectorIds,
             className="sector-map-tooltip"
             style={{ left: hoveredSector.x, top: hoveredSector.y - 28 }}
           >
-            Sector {hoveredSector.id} [{hoveredSector.type}]
+            <div>Sector {hoveredSector.id} [{hoveredSector.type}]</div>
+            {hoveredSector.sectorName && <div style={{ color: 'var(--cyan)', fontWeight: 'bold' }}>{hoveredSector.sectorName}</div>}
+            {hoveredSector.isNpcStarmall && <div style={{ color: 'var(--yellow)' }}>NPC Star Mall</div>}
+            {hoveredSector.owner && (
+              <div style={{ color: hoveredSector.owner.type === 'player' ? 'var(--green)' : 'var(--purple)' }}>
+                Owner: {hoveredSector.owner.name} ({hoveredSector.owner.type})
+              </div>
+            )}
           </div>
         )}
         {showLegend && (
           <div className="sector-map-legend-overlay">
             <div className="sector-map-legend-overlay__title">LEGEND</div>
             <div className="sector-map-legend-overlay__items">
-              <span className="sector-map-legend-item"><span style={{ color: 'var(--magenta)' }}>●</span> Current</span>
-              <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)' }}>●</span> Adjacent (click to warp)</span>
-              <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)' }}>★</span> Star Mall</span>
-              <span className="sector-map-legend-item"><span style={{ color: 'var(--green)' }}>◆</span> Outpost</span>
-              <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)' }}>●</span> Planet</span>
-              <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)' }}>⤏</span> One-way route</span>
+              <span className="sector-map-legend-item"><span style={{ color: '#56d4dd', textShadow: '0 0 4px #56d4dd' }}>✦</span> Current</span>
+              <span className="sector-map-legend-item"><span style={{ color: '#a0c8ff', textShadow: '0 0 3px #a0c8ff' }}>✦</span> Adjacent (click to warp)</span>
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--yellow)', opacity: 0.7 }}>·</span> Star Mall</span>
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--green)', opacity: 0.5 }}>◆</span> Outpost</span>
+              <span className="sector-map-legend-item"><span style={{ color: 'var(--blue)', opacity: 0.5 }}>●</span> Planet</span>
+              <span className="sector-map-legend-item"><span style={{ color: '#d29922', opacity: 0.4 }}>⤏</span> One-way route</span>
               <div style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 4 }}>
-                <span className="sector-map-legend-item"><span className="sector-type-protected">■</span> Protected</span>
-                <span className="sector-map-legend-item"><span className="sector-type-harmony_enforced">■</span> Harmony</span>
-                <span className="sector-map-legend-item"><span className="sector-type-one_way">■</span> One-way</span>
+                <span className="sector-map-legend-item"><span style={{ color: '#a0ffb0', textShadow: '0 0 3px #40a050' }}>✦</span> Protected</span>
+                <span className="sector-map-legend-item"><span style={{ color: '#a0c8ff', textShadow: '0 0 3px #4080c0' }}>✦</span> Harmony</span>
+                <span className="sector-map-legend-item"><span style={{ color: '#ffd080', textShadow: '0 0 3px #c08830' }}>✦</span> One-way</span>
               </div>
             </div>
           </div>

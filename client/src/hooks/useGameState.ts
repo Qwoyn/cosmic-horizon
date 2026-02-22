@@ -23,8 +23,11 @@ export interface PlayerState {
   tutorialCompleted: boolean;
   hasSeenIntro: boolean;
   hasSeenPostTutorial: boolean;
+  hasNamingAuthority: boolean;
+  hasTransporter: boolean;
   walletAddress: string | null;
   dockedAtOutpostId: string | null;
+  landedAtPlanetId: string | null;
   spMissions?: { completed: number; total: number };
   currentShip: {
     id: string;
@@ -39,6 +42,7 @@ export interface PlayerState {
     foodCargo: number;
     techCargo: number;
     colonistsCargo: number;
+    colonistsByRace?: { race: string; count: number }[];
   } | null;
 }
 
@@ -262,7 +266,7 @@ export function useGameState() {
   const doMove = useCallback(async (sectorId: number) => {
     try {
       const { data } = await api.moveTo(sectorId);
-      setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null } : null);
+      setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null, landedAtPlanetId: null } : null);
 
       // Enqueue warp animation
       setSceneQueue(_prev => {
@@ -316,7 +320,7 @@ export function useGameState() {
   const doWarpTo = useCallback(async (sectorId: number) => {
     try {
       const { data } = await api.warpTo(sectorId);
-      setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null } : null);
+      setPlayer(prev => prev ? { ...prev, energy: data.energy, currentSectorId: data.sectorId, dockedAtOutpostId: null, landedAtPlanetId: null } : null);
 
       // Enqueue warp animation
       setSceneQueue(_prev => {
@@ -440,6 +444,26 @@ export function useGameState() {
     }
   }, [addLine, enqueueScene, player?.currentShip?.shipTypeId]);
 
+  const doLand = useCallback(async (planetId: string) => {
+    try {
+      const { data } = await api.landOnPlanet(planetId);
+      setPlayer(prev => prev ? { ...prev, landedAtPlanetId: data.planetId, dockedAtOutpostId: null } : null);
+      addLine(`Landed on ${data.name} [${data.className}]`, 'success');
+    } catch (err: any) {
+      addLine(err.response?.data?.error || 'Landing failed', 'error');
+    }
+  }, [addLine]);
+
+  const doLiftoff = useCallback(async () => {
+    try {
+      await api.liftoff();
+      setPlayer(prev => prev ? { ...prev, landedAtPlanetId: null } : null);
+      addLine('Lifted off from planet', 'info');
+    } catch (err: any) {
+      addLine(err.response?.data?.error || 'Liftoff failed', 'error');
+    }
+  }, [addLine]);
+
   const doFlee = useCallback(async () => {
     try {
       const { data } = await api.flee();
@@ -461,7 +485,7 @@ export function useGameState() {
     player, sector, lines, isLoggedIn, mapData,
     addLine, clearLines, refreshStatus, refreshSector, refreshMap,
     doLogin, doRegister, doLogout,
-    doMove, doWarpTo, doBuy, doSell, doFire, doFlee, doDock, doUndock,
+    doMove, doWarpTo, doBuy, doSell, doFire, doFlee, doDock, doUndock, doLand, doLiftoff,
     setPlayer, setSector,
     advanceTutorial, refreshTutorial, skipTutorial,
     markIntroSeen, markPostTutorialSeen,

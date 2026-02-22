@@ -25,10 +25,17 @@ interface MapPanelProps {
   onCommand?: (cmd: string) => void;
   onNPCClick?: (npcId: string) => void;
   onAlertClick?: (panel: string) => void;
+  isDocked?: boolean;
+  isLanded?: boolean;
+  hasPlanets?: boolean;
+  onDock?: () => void;
+  onUndock?: () => void;
+  onLandClick?: () => void;
+  onLiftoff?: () => void;
   bare?: boolean;
 }
 
-export default function MapPanel({ sector, onMoveToSector, onWarpTo, onCommand, onNPCClick, onAlertClick, bare }: MapPanelProps) {
+export default function MapPanel({ sector, onMoveToSector, onWarpTo, onCommand, onNPCClick, onAlertClick, isDocked, isLanded, hasPlanets, onDock, onUndock, onLandClick, onLiftoff, bare }: MapPanelProps) {
   const [warpGates, setWarpGates] = useState<WarpGate[]>([]);
   const [warpTarget, setWarpTarget] = useState('');
   const [resourceEvents, setResourceEvents] = useState<ResourceEvent[]>([]);
@@ -79,24 +86,35 @@ export default function MapPanel({ sector, onMoveToSector, onWarpTo, onCommand, 
       {/* Quick Actions */}
       <div className="action-buttons" style={{ marginBottom: 6 }}>
         <button className="btn-action" onClick={() => onCommand?.('look')}>LOOK</button>
-        <button className="btn-action" onClick={() => onCommand?.('scan')}>SCAN</button>
-        {sector.outposts.length > 0 && (
-          <button className="btn-action" onClick={() => onCommand?.('dock')}>DOCK</button>
+        {!isLanded && <button className="btn-action" onClick={() => onCommand?.('scan')}>SCAN</button>}
+        {sector.outposts.length > 0 && !isDocked && !isLanded && (
+          <button className="btn-action" onClick={() => onDock?.()}>DOCK</button>
+        )}
+        {isDocked && (
+          <button className="btn-action" onClick={() => onUndock?.()}>UNDOCK</button>
+        )}
+        {isLanded && (
+          <button className="btn-action" onClick={() => onLiftoff?.()} style={{ borderColor: 'var(--yellow)', color: 'var(--yellow)' }}>LIFTOFF</button>
+        )}
+        {hasPlanets && !isLanded && (
+          <button className="btn-action" onClick={() => onLandClick?.()} style={{ borderColor: 'var(--green)', color: 'var(--green)' }}>PLANETS</button>
         )}
       </div>
 
       {/* Warp input */}
-      <div className="nav-warp-row">
-        <input
-          className="nav-warp-input"
-          type="text"
-          value={warpTarget}
-          onChange={e => setWarpTarget(e.target.value)}
-          placeholder="Sector #"
-          onKeyDown={e => { if (e.key === 'Enter') handleWarpTo(); }}
-        />
-        <button className="btn-action" onClick={handleWarpTo}>WARP</button>
-      </div>
+      {!isLanded && (
+        <div className="nav-warp-row">
+          <input
+            className="nav-warp-input"
+            type="text"
+            value={warpTarget}
+            onChange={e => setWarpTarget(e.target.value)}
+            placeholder="Sector #"
+            onKeyDown={e => { if (e.key === 'Enter') handleWarpTo(); }}
+          />
+          <button className="btn-action" onClick={handleWarpTo}>WARP</button>
+        </div>
+      )}
 
       <div className="panel-row">
         <span className="panel-label">Type:</span>
@@ -149,20 +167,24 @@ export default function MapPanel({ sector, onMoveToSector, onWarpTo, onCommand, 
         </>
       )}
 
-      <div className="panel-subheader">Adjacent Sectors</div>
-      <div className="adjacent-sectors">
-        {sector.adjacentSectors.map(adj => (
-          <button
-            key={adj.sectorId}
-            className="sector-btn"
-            onClick={() => onMoveToSector(adj.sectorId)}
-            title={adj.oneWay ? 'One-way route' : 'Two-way route'}
-          >
-            {adj.sectorId}
-            {adj.oneWay && ' →'}
-          </button>
-        ))}
-      </div>
+      {!isLanded && (
+        <>
+          <div className="panel-subheader">Adjacent Sectors</div>
+          <div className="adjacent-sectors">
+            {sector.adjacentSectors.map(adj => (
+              <button
+                key={adj.sectorId}
+                className="sector-btn"
+                onClick={() => onMoveToSector(adj.sectorId)}
+                title={adj.oneWay ? 'One-way route' : 'Two-way route'}
+              >
+                {adj.sectorId}
+                {adj.oneWay && ' →'}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {warpGates.length > 0 && (
         <>

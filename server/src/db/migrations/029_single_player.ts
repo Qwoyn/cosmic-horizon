@@ -1,22 +1,21 @@
 import { Knex } from 'knex';
 
 export async function up(knex: Knex): Promise<void> {
+  // Use raw SQL to avoid Knex's table-recreate strategy which fails on SQLite
+  // when other tables have FK references to these tables.
+
   // Players: game mode and SP tracking
-  await knex.schema.alterTable('players', (table) => {
-    table.string('game_mode', 16).notNullable().defaultTo('multiplayer');
-    table.integer('sp_sector_offset').nullable();
-    table.timestamp('sp_last_tick_at').nullable();
-  });
+  await knex.raw(`ALTER TABLE players ADD COLUMN game_mode TEXT NOT NULL DEFAULT 'multiplayer'`);
+  await knex.raw(`ALTER TABLE players ADD COLUMN sp_sector_offset INTEGER DEFAULT NULL`);
+  await knex.raw(`ALTER TABLE players ADD COLUMN sp_last_tick_at TEXT DEFAULT NULL`);
 
   // Sectors: universe isolation and SP mall locking
-  await knex.schema.alterTable('sectors', (table) => {
-    table.string('universe', 16).notNullable().defaultTo('mp');
-    table.uuid('owner_id').nullable().references('id').inTable('players').onDelete('CASCADE');
-    table.boolean('sp_mall_locked').notNullable().defaultTo(false);
-  });
+  await knex.raw(`ALTER TABLE sectors ADD COLUMN universe TEXT NOT NULL DEFAULT 'mp'`);
+  await knex.raw(`ALTER TABLE sectors ADD COLUMN owner_id TEXT DEFAULT NULL REFERENCES players(id) ON DELETE CASCADE`);
+  await knex.raw(`ALTER TABLE sectors ADD COLUMN sp_mall_locked INTEGER NOT NULL DEFAULT 0`);
 
   // Index for efficient SP sector lookups
-  await knex.raw('CREATE INDEX idx_sectors_owner ON sectors(owner_id) WHERE owner_id IS NOT NULL');
+  await knex.raw('CREATE INDEX IF NOT EXISTS idx_sectors_owner ON sectors(owner_id) WHERE owner_id IS NOT NULL');
 }
 
 export async function down(knex: Knex): Promise<void> {

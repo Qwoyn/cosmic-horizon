@@ -23,6 +23,7 @@ interface Recipe {
   creditsCost: number;
   craftTimeMinutes: number;
   ingredients: Ingredient[];
+  discovered?: boolean;
 }
 
 interface OwnedPlanet {
@@ -61,7 +62,7 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
         setQueue(data.refineryQueue || []);
       })
       .catch(() => { setResources([]); setQueue([]); });
-    getRecipes()
+    getRecipes(showAll ? '?all=true' : '')
       .then(({ data }) => setRecipes(data.recipes || []))
       .catch(() => setRecipes([]));
     getOwnedPlanets()
@@ -77,7 +78,7 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
         }
       })
       .catch(() => setPlanets([]));
-  }, [refreshKey]);
+  }, [refreshKey, showAll]);
 
   const tierClass = (tier: number) => `crafting-resource--t${Math.min(tier, 5)}`;
 
@@ -128,8 +129,8 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
     } catch { /* silent */ } finally { setBusy(null); }
   };
 
-  const craftableRecipes = recipes.filter(r => canCraft(r));
-  const displayRecipes = showAll ? recipes : craftableRecipes;
+  const discoveredRecipes = recipes.filter(r => r.discovered !== false);
+  const displayRecipes = showAll ? recipes : discoveredRecipes;
 
   // Group displayed recipes by tier
   const groupedByTier = new Map<number, Recipe[]>();
@@ -164,7 +165,7 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
           className={`btn-sm ${showAll ? '' : 'btn-buy'}`}
           onClick={() => setShowAll(false)}
         >
-          Craftable ({craftableRecipes.length})
+          Discovered ({discoveredRecipes.length})
         </button>
         <button
           className={`btn-sm ${showAll ? 'btn-buy' : ''}`}
@@ -175,7 +176,7 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
       </div>
       {displayRecipes.length === 0 ? (
         <div className="text-muted" style={{ marginTop: 6 }}>
-          {showAll ? 'No recipes available' : 'No craftable recipes — gather more resources or toggle "All" to browse'}
+          {showAll ? 'No recipes available' : 'No discovered recipes — explore to discover new recipes or toggle "All" to browse'}
         </div>
       ) : (
         sortedTiers.map(tier => (
@@ -184,9 +185,13 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
               <span className={tierClass(tier)}>{TIER_LABELS[tier] || `Tier ${tier}`}</span>
             </div>
             {groupedByTier.get(tier)!.map(r => {
-              const craftable = canCraft(r);
+              const isUndiscovered = r.discovered === false;
+              const craftable = !isUndiscovered && canCraft(r);
+              const itemClass = isUndiscovered
+                ? 'recipe-item recipe-item--undiscovered'
+                : `recipe-item ${craftable ? 'recipe-item--craftable' : 'recipe-item--locked'}`;
               return (
-                <div key={r.id} className={`recipe-item ${craftable ? 'recipe-item--craftable' : 'recipe-item--locked'}`}>
+                <div key={r.id} className={itemClass}>
                   <div className="recipe-item__header">
                     <span className="recipe-item__name">{r.name}</span>
                     {r.craftTimeMinutes > 0 && (
@@ -198,6 +203,16 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
                   )}
                   <div className="recipe-item__ingredients">
                     {(r.ingredients || []).map((ing, i) => {
+                      if (isUndiscovered) {
+                        return (
+                          <span key={i} className="recipe-ingredient recipe-ingredient--need">
+                            {ing.name}
+                            <span className="recipe-ingredient__qty">
+                              ?/{ing.quantity}
+                            </span>
+                          </span>
+                        );
+                      }
                       const have = getHave(ing);
                       const enough = have >= ing.quantity;
                       return (
@@ -215,6 +230,9 @@ export default function CraftingPanel({ refreshKey, bare }: Props) {
                       </span>
                     )}
                   </div>
+                  {isUndiscovered && (
+                    <div className="recipe-item__desc">Discover resources to unlock</div>
+                  )}
                   {craftable && (
                     <div className="recipe-item__actions">
                       {planets.length > 0 && (

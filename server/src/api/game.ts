@@ -10,6 +10,7 @@ import { getNPCsInSector, getUnencounteredNPCsInSector } from '../engine/npcs';
 import { getResourceEventsInSector, getResourceEventsInSectors } from '../engine/rare-spawns';
 import { PLANET_TYPES } from '../config/planet-types';
 import { findShortestPath, type SectorEdge } from '../engine/universe';
+import { checkPrerequisite } from '../engine/missions';
 import {
   handleTutorialStatus,
   handleTutorialSector,
@@ -18,6 +19,7 @@ import {
   handleTutorialScan,
 } from '../services/tutorial-sandbox';
 import db from '../db/connection';
+import { incrementStat, logActivity, checkMilestones } from '../engine/profile-stats';
 
 const router = Router();
 
@@ -35,6 +37,15 @@ router.get('/status', requireAuth, async (req, res) => {
     const upgrades = ship ? await applyUpgradesToShip(ship.id) : null;
     const progress = await getPlayerProgress(player.id);
     const levelBonuses = await getPlayerLevelBonuses(player.id);
+
+    // Check naming authority
+    const hasNamingAuthority = await checkPrerequisite(player.id, GAME_CONFIG.NAMING_CONVENTION_MISSION_ID);
+
+    // Check for Mycelial Transporter item
+    const transporterItem = await db('game_events')
+      .where({ player_id: player.id, event_type: 'item:mycelial_transporter', read: false })
+      .first();
+    const hasTransporter = !!transporterItem;
 
     // SP mission summary
     let spMissions: { completed: number; total: number } | undefined;
@@ -54,6 +65,17 @@ router.get('/status', requireAuth, async (req, res) => {
       };
     }
 
+    // Load colonists by race for current ship
+    let colonistsByRace: { race: string; count: number }[] = [];
+    if (ship) {
+      try {
+        colonistsByRace = await db('ship_colonists')
+          .where({ ship_id: ship.id })
+          .where('count', '>', 0)
+          .select('race', 'count');
+      } catch { /* table may not exist yet */ }
+    }
+
     res.json({
       id: player.id,
       username: player.username,
@@ -67,8 +89,13 @@ router.get('/status', requireAuth, async (req, res) => {
       tutorialCompleted: !!player.tutorial_completed,
       hasSeenIntro: !!player.has_seen_intro,
       hasSeenPostTutorial: !!player.has_seen_post_tutorial,
+      hasNamingAuthority,
+      hasTransporter,
       walletAddress: player.wallet_address || null,
       dockedAtOutpostId: player.docked_at_outpost_id || null,
+      landedAtPlanetId: player.landed_at_planet_id || null,
+      pirateUntil: player.pirate_until || null,
+      isPirate: !!(player.pirate_until && new Date(player.pirate_until) > new Date()),
       level: progress.level,
       rank: progress.rank,
       xp: progress.totalXp,
@@ -86,6 +113,7 @@ router.get('/status', requireAuth, async (req, res) => {
         foodCargo: ship.food_cargo,
         techCargo: ship.tech_cargo,
         colonistsCargo: ship.colonist_cargo,
+        colonistsByRace,
       } : null,
     });
   } catch (err) {
@@ -140,6 +168,7 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
       energy: newEnergy,
       explored_sectors: JSON.stringify(explored),
       docked_at_outpost_id: null,
+      landed_at_planet_id: null,
     });
 
     // Move active ship too
@@ -176,7 +205,14 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
     if (isNewSector) {
       xpResult = await awardXP(player.id, GAME_CONFIG.XP_EXPLORE_NEW_SECTOR, 'explore');
       await checkAchievements(player.id, 'explore', { sectorId: targetSectorId, explored });
+
+      // Profile stats: new sector
+      incrementStat(player.id, 'sectors_explored', 1);
+      checkMilestones(player.id);
     }
+
+    // Profile stats: energy spent on move
+    incrementStat(player.id, 'energy_spent', getActionCost('move'));
 
     // NPCs in target sector
     let npcs: any[] = [];
@@ -293,6 +329,7 @@ router.post('/warp-to/:sectorId', requireAuth, async (req, res) => {
       energy: newEnergy,
       explored_sectors: JSON.stringify(explored),
       docked_at_outpost_id: null,
+      landed_at_planet_id: null,
     });
 
     // Move active ship
@@ -307,7 +344,14 @@ router.post('/warp-to/:sectorId', requireAuth, async (req, res) => {
       for (const sid of newSectors) {
         await checkAchievements(player.id, 'explore', { sectorId: sid, explored });
       }
+
+      // Profile stats: new sectors
+      incrementStat(player.id, 'sectors_explored', newSectors.length);
+      checkMilestones(player.id);
     }
+
+    // Profile stats: energy spent on warp
+    incrementStat(player.id, 'energy_spent', totalCost);
 
     // Mission progress for each hop
     for (let i = 1; i < path.length; i++) {
@@ -403,6 +447,24 @@ router.get('/sector', requireAuth, async (req, res) => {
       resourceEvents = await getResourceEventsInSector(sectorId);
     } catch { /* table may not exist yet */ }
 
+    // Caravans in sector
+    let caravansInSector: any[] = [];
+    try {
+      caravansInSector = await db('caravans')
+        .join('players', 'caravans.owner_id', 'players.id')
+        .where('caravans.current_sector_id', sectorId)
+        .where('caravans.status', 'in_transit')
+        .select(
+          'caravans.id',
+          'caravans.owner_id',
+          'players.username as owner_name',
+          'caravans.food_cargo',
+          'caravans.is_protected',
+          'caravans.escort_player_id',
+          'caravans.defense_hp'
+        );
+    } catch { /* table may not exist yet */ }
+
     res.json({
       sectorId,
       type: sector?.type,
@@ -438,6 +500,14 @@ router.get('/sector', requireAuth, async (req, res) => {
         guardianHp: e.guardianHp,
         claimedBy: e.claimedBy,
       })),
+      caravans: caravansInSector.map(c => ({
+        id: c.id,
+        ownerId: c.owner_id,
+        ownerName: c.owner_name,
+        foodCargo: c.food_cargo,
+        isProtected: !!c.is_protected || !!c.escort_player_id,
+        defenseHp: c.defense_hp,
+      })),
     });
   } catch (err) {
     console.error('Sector error:', err);
@@ -465,22 +535,60 @@ router.get('/map', requireAuth, async (req, res) => {
           .whereIn('to_sector_id', explored)
       : [];
 
-    // Find which explored sectors have outposts/planets
-    const outpostSectorRows = explored.length > 0
-      ? await db('outposts').distinct('sector_id').whereIn('sector_id', explored)
+    // Count outposts and planets per explored sector
+    const outpostCounts = explored.length > 0
+      ? await db('outposts').select('sector_id').count('id as count').whereIn('sector_id', explored).groupBy('sector_id')
       : [];
-    const planetSectorRows = explored.length > 0
-      ? await db('planets').distinct('sector_id').whereIn('sector_id', explored)
+    const planetCounts = explored.length > 0
+      ? await db('planets').select('sector_id').count('id as count').whereIn('sector_id', explored).groupBy('sector_id')
       : [];
-    const outpostSectorIds = new Set(outpostSectorRows.map((r: any) => r.sector_id));
-    const planetSectorIds = new Set(planetSectorRows.map((r: any) => r.sector_id));
+    const outpostCountMap = new Map(outpostCounts.map((r: any) => [r.sector_id, Number(r.count)]));
+    const planetCountMap = new Map(planetCounts.map((r: any) => [r.sector_id, Number(r.count)]));
+
+    // Get sector ownership data (sector_name, claimed_by, is_npc_starmall)
+    let sectorOwnerData = new Map<number, { sectorName: string | null; owner: { name: string; type: 'player' | 'syndicate' } | null; isNpcStarmall: boolean }>();
+    if (explored.length > 0) {
+      try {
+        const sectorDetails = await db('sectors')
+          .leftJoin('players', 'sectors.claimed_by_player_id', 'players.id')
+          .leftJoin('syndicates', 'sectors.claimed_by_syndicate_id', 'syndicates.id')
+          .whereIn('sectors.id', explored)
+          .select(
+            'sectors.id',
+            'sectors.sector_name',
+            'sectors.is_npc_starmall',
+            'sectors.claimed_by_player_id',
+            'sectors.claimed_by_syndicate_id',
+            'players.username as player_name',
+            'syndicates.name as syndicate_name'
+          );
+        for (const sd of sectorDetails) {
+          let owner: { name: string; type: 'player' | 'syndicate' } | null = null;
+          if (sd.claimed_by_player_id && sd.player_name) {
+            owner = { name: sd.player_name, type: 'player' };
+          } else if (sd.claimed_by_syndicate_id && sd.syndicate_name) {
+            owner = { name: sd.syndicate_name, type: 'syndicate' };
+          }
+          sectorOwnerData.set(sd.id, {
+            sectorName: sd.sector_name,
+            owner,
+            isNpcStarmall: !!sd.is_npc_starmall,
+          });
+        }
+      } catch { /* columns may not exist yet */ }
+    }
 
     res.json({
       currentSectorId: player.current_sector_id,
       sectors: sectors.map(s => ({
         id: s.id, type: s.type, regionId: s.region_id, hasStarMall: s.has_star_mall,
-        hasOutposts: outpostSectorIds.has(s.id),
-        hasPlanets: planetSectorIds.has(s.id),
+        hasOutposts: (outpostCountMap.get(s.id) || 0) > 0,
+        hasPlanets: (planetCountMap.get(s.id) || 0) > 0,
+        outpostCount: outpostCountMap.get(s.id) || 0,
+        planetCount: planetCountMap.get(s.id) || 0,
+        sectorName: sectorOwnerData.get(s.id)?.sectorName || null,
+        owner: sectorOwnerData.get(s.id)?.owner || null,
+        isNpcStarmall: sectorOwnerData.get(s.id)?.isNpcStarmall || false,
       })),
       edges: edges.map(e => ({
         from: e.from_sector_id, to: e.to_sector_id, oneWay: e.one_way,
@@ -563,6 +671,76 @@ router.post('/scan', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Scan error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Use planetary scanner probe to reveal detailed planet info in current sector
+router.post('/use-scanner', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    // Check for scanner probe in inventory (stored as game_events)
+    const scannerItem = await db('game_events')
+      .where({ player_id: player.id, event_type: 'item:scanner_probe', read: false })
+      .first();
+
+    if (!scannerItem) {
+      return res.status(400).json({ error: 'No Planetary Scanner Probe in inventory. Buy one at a Star Mall.' });
+    }
+
+    // Consume one scanner probe (mark event as read)
+    await db('game_events').where({ id: scannerItem.id }).update({ read: true });
+
+    // Get detailed info for all planets in current sector
+    const planets = await db('planets').where({ sector_id: player.current_sector_id });
+
+    const detailedPlanets = [];
+    for (const planet of planets) {
+      // Get planet resources
+      let planetResources: any[] = [];
+      try {
+        planetResources = await db('planet_resources')
+          .join('resource_definitions', 'planet_resources.resource_id', 'resource_definitions.id')
+          .where({ 'planet_resources.planet_id': planet.id })
+          .where('planet_resources.stock', '>', 0)
+          .select('resource_definitions.name', 'planet_resources.stock');
+      } catch { /* table may not exist */ }
+
+      // Get owner name if owned
+      let ownerName = null;
+      if (planet.owner_id) {
+        const owner = await db('players').where({ id: planet.owner_id }).first();
+        ownerName = owner?.username || null;
+      }
+
+      detailedPlanets.push({
+        id: planet.id,
+        name: planet.name,
+        planetClass: planet.planet_class,
+        sectorId: planet.sector_id,
+        ownerName,
+        owned: planet.owner_id === player.id,
+        upgradeLevel: planet.upgrade_level,
+        colonists: planet.colonists,
+        drones: planet.drones || 0,
+        cannonEnergy: planet.cannon_energy || 0,
+        shieldEnergy: planet.shield_energy || 0,
+        cyrilliumStock: planet.cyrillium_stock || 0,
+        foodStock: planet.food_stock || 0,
+        techStock: planet.tech_stock || 0,
+        resources: planetResources,
+      });
+    }
+
+    res.json({
+      scanned: true,
+      sectorId: player.current_sector_id,
+      planets: detailedPlanets,
+    });
+  } catch (err) {
+    console.error('Use scanner error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -743,6 +921,7 @@ router.post('/transition-to-mp', requireAuth, async (req, res) => {
       current_sector_id: mpStarMall.id,
       explored_sectors: JSON.stringify([mpStarMall.id]),
       docked_at_outpost_id: null,
+      landed_at_planet_id: null,
     });
 
     // Move active ship to MP sector
@@ -759,6 +938,65 @@ router.post('/transition-to-mp', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Transition to MP error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Land on a planet in the current sector
+router.post('/land', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const { planetId } = req.body;
+    if (!planetId) return res.status(400).json({ error: 'Missing planetId' });
+
+    const planet = await db('planets').where({ id: planetId }).first();
+    if (!planet) return res.status(404).json({ error: 'Planet not found' });
+
+    if (planet.sector_id !== player.current_sector_id) {
+      return res.status(400).json({ error: 'Planet is not in your current sector' });
+    }
+
+    await db('players').where({ id: player.id }).update({
+      landed_at_planet_id: planetId,
+      docked_at_outpost_id: null,
+    });
+
+    const planetType = PLANET_TYPES[planet.planet_class];
+
+    res.json({
+      landed: true,
+      planetId: planet.id,
+      name: planet.name,
+      planetClass: planet.planet_class,
+      className: planetType?.name || planet.planet_class,
+      ownerId: planet.owner_id || null,
+      upgradeLevel: planet.upgrade_level,
+    });
+  } catch (err) {
+    console.error('Land error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Liftoff from a planet
+router.post('/liftoff', requireAuth, async (req, res) => {
+  try {
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    if (!player.landed_at_planet_id) {
+      return res.status(400).json({ error: 'Not currently landed on a planet' });
+    }
+
+    await db('players').where({ id: player.id }).update({
+      landed_at_planet_id: null,
+    });
+
+    res.json({ lifted: true });
+  } catch (err) {
+    console.error('Liftoff error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

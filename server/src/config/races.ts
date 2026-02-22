@@ -24,6 +24,9 @@ export interface RaceConfig {
   startingMaxEnergyBonus: number;
   starterWeaponBonus: number;
   starterEngineBonus: number;
+
+  // Planet affinities: production multiplier per planet class (1.0 = neutral)
+  planetAffinities: Record<string, number>;
 }
 
 export const RACES: Record<RaceId, RaceConfig> = {
@@ -41,6 +44,7 @@ export const RACES: Record<RaceId, RaceConfig> = {
     startingMaxEnergyBonus: 0,
     starterWeaponBonus: 0,
     starterEngineBonus: 0,
+    planetAffinities: { H: 1.2, D: 0.8, O: 1.1, A: 1.0, F: 1.1, V: 0.7, G: 0.9 },
   },
   vedic: {
     id: 'vedic',
@@ -56,6 +60,7 @@ export const RACES: Record<RaceId, RaceConfig> = {
     startingMaxEnergyBonus: 100,
     starterWeaponBonus: 0,
     starterEngineBonus: 0,
+    planetAffinities: { H: 1.0, D: 1.0, O: 0.9, A: 1.2, F: 1.1, V: 0.8, G: 1.1 },
   },
   kalin: {
     id: 'kalin',
@@ -71,6 +76,7 @@ export const RACES: Record<RaceId, RaceConfig> = {
     startingMaxEnergyBonus: 0,
     starterWeaponBonus: 10,
     starterEngineBonus: 10,
+    planetAffinities: { H: 0.9, D: 1.2, O: 0.8, A: 1.0, F: 1.1, V: 1.2, G: 1.0 },
   },
   tarri: {
     id: 'tarri',
@@ -86,6 +92,7 @@ export const RACES: Record<RaceId, RaceConfig> = {
     startingMaxEnergyBonus: 0,
     starterWeaponBonus: 0,
     starterEngineBonus: 0,
+    planetAffinities: { H: 1.1, D: 0.9, O: 1.2, A: 0.9, F: 0.8, V: 1.0, G: 1.1 },
   },
 };
 

@@ -52,8 +52,11 @@ export const warpTo = (sectorId: number) => api.post(`/game/warp-to/${sectorId}`
 export const getSector = () => api.get('/game/sector');
 export const getMap = () => api.get('/game/map');
 export const scan = () => api.post('/game/scan');
+export const useScanner = () => api.post('/game/use-scanner');
 export const dock = () => api.post('/game/dock');
 export const undock = () => api.post('/game/undock');
+export const landOnPlanet = (planetId: string) => api.post('/game/land', { planetId });
+export const liftoff = () => api.post('/game/liftoff');
 
 // Trade
 export const getOutpost = (id: string) => api.get(`/trade/outpost/${id}`);
@@ -75,11 +78,25 @@ export const getOwnedPlanets = () => api.get('/planets/owned');
 export const getDiscoveredPlanets = () => api.get('/planets/discovered');
 export const getPlanet = (id: string) => api.get(`/planets/${id}`);
 export const claimPlanet = (id: string) => api.post(`/planets/${id}/claim`);
-export const colonizePlanet = (id: string, quantity: number) =>
-  api.post(`/planets/${id}/colonize`, { quantity });
-export const collectColonists = (id: string, quantity: number) =>
-  api.post(`/planets/${id}/collect-colonists`, { quantity });
+export const colonizePlanet = (id: string, quantity: number, race: string) =>
+  api.post(`/planets/${id}/colonize`, { quantity, race });
+export const collectColonists = (id: string, quantity: number, race: string) =>
+  api.post(`/planets/${id}/collect-colonists`, { quantity, race });
+export const depositFood = (id: string, quantity: number) =>
+  api.post(`/planets/${id}/deposit-food`, { quantity });
+export const getProductionHistory = (id: string, hours?: number) =>
+  api.get(`/planets/${id}/production-history`, { params: hours ? { hours } : {} });
 export const upgradePlanet = (id: string) => api.post(`/planets/${id}/upgrade`);
+export const namePlanet = (id: string, name: string) => api.post(`/planets/${id}/name`, { name });
+
+// Sectors
+export const getSectorInfo = (sectorId: number) => api.get(`/sectors/${sectorId}/info`);
+export const claimSector = (sectorId: number, claimType?: string) =>
+  api.post(`/sectors/${sectorId}/claim`, { claimType: claimType || 'player' });
+export const nameSector = (sectorId: number, name: string) =>
+  api.post(`/sectors/${sectorId}/name`, { name });
+export const conquerSector = (sectorId: number, claimType?: string) =>
+  api.post(`/sectors/${sectorId}/conquer`, { claimType: claimType || 'player' });
 
 // Combat
 export const fire = (targetPlayerId: string, energyToExpend: number) =>
@@ -223,6 +240,9 @@ export const getContacts = () => api.get('/npcs/contacts');
 export const getNPCDetail = (npcId: string) => api.get(`/npcs/${npcId}`);
 export const markNPCEncountered = (npcId: string) => api.post(`/npcs/${npcId}/encountered`);
 export const getFactionReps = () => api.get('/npcs/factions');
+export const getNPCVendor = (npcId: string) => api.get(`/npcs/${npcId}/vendor`);
+export const buyFromNPCVendor = (npcId: string, itemId: string) =>
+  api.post(`/npcs/${npcId}/vendor/buy`, { itemId });
 
 // Tablets
 export const getTablets = () => api.get('/tablets');
@@ -239,7 +259,7 @@ export const tradeTablet = (targetPlayerName: string, tabletId: string) =>
 // Crafting
 export const getPlayerResources = () => api.get('/crafting/resources');
 export const getPlanetCraftingResources = (planetId: string) => api.get(`/crafting/resources/planet/${planetId}`);
-export const getRecipes = () => api.get('/crafting/recipes');
+export const getRecipes = (query?: string) => api.get(`/crafting/recipes${query || ''}`);
 export const startCraft = (planetId: string, recipeId: string, batchSize?: number) =>
   api.post('/crafting/craft', { planetId, recipeId, batchSize });
 export const collectRefinery = (queueId: string) => api.post('/crafting/collect', { queueId });
@@ -352,5 +372,32 @@ export const castVote = (syndicateId: string, voteId: string, choice: string) =>
 // ── Governance Kick ─────────────────────────────────────────
 export const governanceKick = (syndicateId: string, playerId: string) =>
   api.post(`/syndicate-governance/${syndicateId}/kick`, { player_id: playerId });
+
+// ── Trade Routes & Caravans ───────────────────────────────
+export const getTradeRoutes = () => api.get('/trade-routes');
+export const createTradeRoute = (sourceType: string, sourceId: string, destPlanetId: string, fuelPaid: boolean) =>
+  api.post('/trade-routes', { sourceType, sourceId, destPlanetId, fuelPaid });
+export const deleteTradeRoute = (id: string) => api.delete(`/trade-routes/${id}`);
+export const toggleRouteFuel = (id: string, fuelPaid: boolean) =>
+  api.patch(`/trade-routes/${id}`, { fuelPaid });
+export const resumeRoute = (id: string) => api.post(`/trade-routes/${id}/resume`);
+export const getSectorCaravans = () => api.get('/trade-routes/caravans');
+export const ransackCaravan = (caravanId: string) =>
+  api.post('/trade-routes/ransack', { caravanId });
+export const escortCaravan = (caravanId: string) =>
+  api.post('/trade-routes/escort', { caravanId });
+export const getRouteLogs = (routeId: string) => api.get(`/trade-routes/${routeId}/logs`);
+export const scoutCaravans = () => api.post('/trade-routes/scout');
+
+// ── Profile ─────────────────────────────────────────────
+export const getPlayerProfile = () => api.get('/profile');
+export const getProfileActivity = (limit?: number, before?: string) => {
+  const params = new URLSearchParams();
+  if (limit) params.set('limit', String(limit));
+  if (before) params.set('before', before);
+  const qs = params.toString();
+  return api.get(`/profile/activity${qs ? '?' + qs : ''}`);
+};
+export const getProfileMilestones = () => api.get('/profile/milestones');
 
 export default api;

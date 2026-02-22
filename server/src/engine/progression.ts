@@ -1,6 +1,7 @@
 import db from '../db/connection';
 import { GAME_CONFIG } from '../config/game';
 import { levelForXp, xpForLevel, getRankTitle, getLevelUpBonusStat } from '../config/progression';
+import { logActivity } from './profile-stats';
 
 export interface LevelUpResult {
   levelsGained: number;
@@ -56,6 +57,9 @@ export async function awardXP(
   if (newLevel > oldLevel) {
     updateData.last_level_up = new Date().toISOString();
     levelUp = await applyLevelUpBonuses(playerId, oldLevel, newLevel);
+
+    // Profile: log level-up activity
+    logActivity(playerId, 'level_up', `Reached level ${newLevel} — ${getRankTitle(newLevel)}`, { oldLevel, newLevel, rank: getRankTitle(newLevel) });
   }
 
   await db('player_progression').where({ player_id: playerId }).update(updateData);

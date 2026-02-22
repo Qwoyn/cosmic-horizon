@@ -16,11 +16,11 @@ interface NPC {
 }
 
 interface Contact {
-  id: string;
+  npcId: string;
   name: string;
   race: string;
-  lastSectorId: number;
-  lastSeenAt: string;
+  sectorId: number;
+  lastVisited: string | null;
 }
 
 const TIER_COLORS: Record<string, string> = {
@@ -137,7 +137,7 @@ export function ContactsList({ refreshKey }: { refreshKey?: number }) {
     getContacts()
       .then(({ data }) => {
         const list = (data.contacts || []).sort((a: Contact, b: Contact) =>
-          new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+          new Date(b.lastVisited || 0).getTime() - new Date(a.lastVisited || 0).getTime()
         );
         setContacts(list);
       })
@@ -151,14 +151,18 @@ export function ContactsList({ refreshKey }: { refreshKey?: number }) {
   return (
     <>
       {contacts.map(c => {
-        const ago = Date.now() - new Date(c.lastSeenAt).getTime();
-        const mins = Math.floor(ago / 60000);
-        const hrs = Math.floor(mins / 60);
-        const timeStr = hrs > 0 ? `${hrs}h ago` : `${mins}m ago`;
+        let timeStr = '';
+        if (c.lastVisited) {
+          const ago = Date.now() - new Date(c.lastVisited).getTime();
+          const mins = Math.floor(ago / 60000);
+          const hrs = Math.floor(mins / 60);
+          const days = Math.floor(hrs / 24);
+          timeStr = days > 0 ? `${days}d ago` : hrs > 0 ? `${hrs}h ago` : `${mins}m ago`;
+        }
         return (
-          <div key={c.id} className="contact-item">
+          <div key={c.npcId} className="contact-item">
             <span className="contact-item__name">{c.name}</span>
-            <span className="contact-item__detail"> ({c.race}) - Sector {c.lastSectorId} - {timeStr}</span>
+            <span className="contact-item__detail"> ({c.race}) - Sector {c.sectorId}{timeStr ? ` - ${timeStr}` : ''}</span>
           </div>
         );
       })}

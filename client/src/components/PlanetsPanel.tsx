@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
 import CollapsiblePanel from './CollapsiblePanel';
-import { getOwnedPlanets, getDiscoveredPlanets, getPlanet, collectPlanetResources, collectAllRefinery, collectRefinery, upgradePlanet, colonizePlanet, claimPlanet } from '../services/api';
+import PlanetAnalytics from './PlanetAnalytics';
+import { getOwnedPlanets, getDiscoveredPlanets, getPlanet, collectPlanetResources, collectAllRefinery, collectRefinery, upgradePlanet, colonizePlanet, collectColonists, claimPlanet, useScanner, namePlanet, depositFood } from '../services/api';
+
+interface RacePopulation {
+  race: string;
+  count: number;
+}
 
 interface PlanetData {
   id: string;
@@ -12,7 +18,12 @@ interface PlanetData {
   cyrilliumStock: number;
   foodStock: number;
   techStock: number;
-  production: { cyrillium: number; food: number; tech: number };
+  droneCount: number;
+  happiness: number;
+  happinessTier: string;
+  foodConsumption: number;
+  racePopulations: RacePopulation[];
+  production: { cyrillium: number; tech: number; drones: number };
   canUpgrade?: boolean;
 }
 
@@ -33,8 +44,16 @@ interface DiscoveredPlanetData {
 interface Props {
   refreshKey?: number;
   currentSectorId?: number | null;
+  hasNamingAuthority?: boolean;
+  hasTransporter?: boolean;
+  playerRace?: string | null;
+  shipFoodCargo?: number;
+  colonistsByRace?: { race: string; count: number }[];
   onAction?: () => void;
   onCommand?: (cmd: string) => void;
+  onLand?: (planetId: string) => void;
+  onLiftoff?: () => void;
+  landedAtPlanetId?: string | null;
   bare?: boolean;
 }
 
@@ -49,9 +68,26 @@ const CLASS_LABELS: Record<string, string> = {
   S: 'Seed World',
 };
 
-type TabView = 'owned' | 'discovered';
+const RACE_LABELS: Record<string, string> = {
+  muscarian: 'Muscarian',
+  vedic: 'Vedic',
+  kalin: 'Kalin',
+  tarri: "Tar'ri",
+};
 
-export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, onCommand, bare }: Props) {
+const HAPPINESS_COLORS: Record<string, string> = {
+  miserable: '#f44',
+  unhappy: '#f80',
+  content: '#ff0',
+  happy: '#8f8',
+  thriving: '#0ff',
+};
+
+const VALID_RACES = ['muscarian', 'vedic', 'kalin', 'tarri'];
+
+type TabView = 'owned' | 'discovered' | 'analytics';
+
+export default function PlanetsPanel({ refreshKey, currentSectorId, hasNamingAuthority, hasTransporter, playerRace, shipFoodCargo, colonistsByRace, onAction, onCommand, onLand, onLiftoff, landedAtPlanetId, bare }: Props) {
   const [planets, setPlanets] = useState<PlanetData[]>([]);
   const [discovered, setDiscovered] = useState<DiscoveredPlanetData[]>([]);
   const [tab, setTab] = useState<TabView>('owned');
@@ -60,9 +96,19 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [colonizeQty, setColonizeQty] = useState<Record<string, number>>({});
+  const [colonizeRace, setColonizeRace] = useState<Record<string, string>>({});
+  const [collectColonistQty, setCollectColonistQty] = useState<Record<string, number>>({});
+  const [collectColonistRace, setCollectColonistRace] = useState<Record<string, string>>({});
+  const [depositFoodQty, setDepositFoodQty] = useState<Record<string, number>>({});
+  const [renameInput, setRenameInput] = useState<Record<string, string>>({});
+  const [scanResults, setScanResults] = useState<any[] | null>(null);
+  const [scanning, setScanning] = useState(false);
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
 
   const refresh = () => setLocalRefreshKey(k => k + 1);
+
+  // Default race for selectors
+  const defaultRace = playerRace && VALID_RACES.includes(playerRace) ? playerRace : 'muscarian';
 
   useEffect(() => {
     getOwnedPlanets()
@@ -119,10 +165,11 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
 
   const handleColonize = async (planetId: string) => {
     const qty = colonizeQty[planetId] || 10;
+    const race = colonizeRace[planetId] || defaultRace;
     setBusy(planetId + '-colonize');
     setError('');
     try {
-      await colonizePlanet(planetId, qty);
+      await colonizePlanet(planetId, qty, race);
       refresh();
       onAction?.();
     } catch (err: any) {
@@ -146,6 +193,82 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
     }
   };
 
+  const handleCollectColonists = async (planetId: string) => {
+    const qty = collectColonistQty[planetId] || 10;
+    const race = collectColonistRace[planetId] || defaultRace;
+    setBusy(planetId + '-collectcol');
+    setError('');
+    try {
+      await collectColonists(planetId, qty, race);
+      refresh();
+      onAction?.();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to collect colonists');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDepositFood = async (planetId: string) => {
+    const qty = depositFoodQty[planetId] || 10;
+    setBusy(planetId + '-depositfood');
+    setError('');
+    try {
+      await depositFood(planetId, qty);
+      refresh();
+      onAction?.();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to deposit food');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleRename = async (planetId: string) => {
+    const newName = renameInput[planetId]?.trim();
+    if (!newName) return;
+    setBusy(planetId + '-rename');
+    setError('');
+    try {
+      await namePlanet(planetId, newName);
+      setRenameInput(prev => ({ ...prev, [planetId]: '' }));
+      refresh();
+      onAction?.();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Rename failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleScan = async () => {
+    setScanning(true);
+    setError('');
+    try {
+      const { data } = await useScanner();
+      setScanResults(data.planets || []);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Scanner failed');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const raceSelect = (planetId: string, value: string, setter: React.Dispatch<React.SetStateAction<Record<string, string>>>) => (
+    <select
+      value={value}
+      onChange={e => setter(prev => ({ ...prev, [planetId]: e.target.value }))}
+      style={{
+        background: '#111', border: '1px solid #333', color: '#ccc',
+        padding: '2px 4px', fontSize: 10, width: 90,
+      }}
+    >
+      {VALID_RACES.map(r => (
+        <option key={r} value={r}>{RACE_LABELS[r] || r}</option>
+      ))}
+    </select>
+  );
+
   const tabBar = (
     <div className="group-panel-tabs">
       <span
@@ -157,6 +280,11 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
         onClick={() => setTab('discovered')}
         style={{ cursor: 'pointer', color: tab === 'discovered' ? '#0f0' : '#666' }}
       >{tab === 'discovered' ? '[Discovered]' : 'Discovered'}</span>
+      <span style={{ color: '#444', margin: '0 0.5rem' }}>|</span>
+      <span
+        onClick={() => setTab('analytics')}
+        style={{ cursor: 'pointer', color: tab === 'analytics' ? '#0f0' : '#666' }}
+      >{tab === 'analytics' ? '[Analytics]' : 'Analytics'}</span>
     </div>
   );
 
@@ -168,6 +296,10 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
       {planets.map(p => {
         const inSector = currentSectorId != null && p.sectorId === currentSectorId;
         const expanded = expandedId === p.id;
+        const happinessColor = HAPPINESS_COLORS[p.happinessTier] || '#888';
+        const ticksOfFood = p.foodConsumption > 0 ? Math.floor(p.foodStock / p.foodConsumption) : 999;
+        const foodColor = ticksOfFood > 20 ? '#8f8' : ticksOfFood > 5 ? '#ff0' : '#f44';
+        const hasShipFood = (shipFoodCargo || 0) > 0;
         return (
           <div key={p.id} className="planet-panel-item">
             <div className="planet-panel-item__header" style={{ cursor: 'pointer' }} onClick={() => setExpandedId(expanded ? null : p.id)}>
@@ -178,15 +310,21 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
               <span>Sector {p.sectorId}</span>
               <span>Level {p.upgradeLevel}</span>
               <span>{p.colonists.toLocaleString()} colonists</span>
+              <span style={{ color: happinessColor }}>{p.happinessTier} ({Math.round(p.happiness)})</span>
             </div>
             <div className="planet-panel-item__stocks">
               <span title="Cyrillium">Cyr: {p.cyrilliumStock}</span>
-              <span title="Food">Food: {p.foodStock}</span>
+              <span title="Food" style={{ color: foodColor }}>Food: {p.foodStock} ({p.foodConsumption > 0 ? `-${p.foodConsumption}/tick` : 'no consumption'})</span>
               <span title="Tech">Tech: {p.techStock}</span>
             </div>
             <div className="planet-panel-item__production">
-              Production: Cyr={p.production.cyrillium} Food={p.production.food} Tech={p.production.tech}
+              Production: Cyr={p.production.cyrillium} Tech={p.production.tech}
             </div>
+            {p.racePopulations && p.racePopulations.length > 0 && (
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                Pop: {p.racePopulations.map(rp => `${RACE_LABELS[rp.race] || rp.race}:${rp.count.toLocaleString()}`).join(', ')}
+              </div>
+            )}
             <div className="planet-actions">
               <button
                 className="btn-sm btn-buy"
@@ -202,16 +340,25 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
               >
                 {busy === p.id + '-upgrade' ? '...' : 'UPGRADE'}
               </button>
-              {inSector && onCommand && (
+              {inSector && landedAtPlanetId === p.id && onLiftoff && (
                 <button
                   className="btn-sm"
-                  onClick={() => onCommand(`land ${p.name}`)}
+                  onClick={() => onLiftoff()}
+                  style={{ color: 'var(--yellow)', borderColor: 'var(--yellow)' }}
+                >
+                  LIFTOFF
+                </button>
+              )}
+              {inSector && landedAtPlanetId !== p.id && onLand && (
+                <button
+                  className="btn-sm"
+                  onClick={() => onLand(p.id)}
                   style={{ color: 'var(--green)', borderColor: 'var(--green)' }}
                 >
                   LAND
                 </button>
               )}
-              {inSector && (
+              {inSector && (landedAtPlanetId === p.id || hasTransporter) && (
                 <span className="planet-colonize-group">
                   <input
                     type="number"
@@ -221,6 +368,7 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
                     onChange={e => setColonizeQty(prev => ({ ...prev, [p.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
                     style={{ width: '48px' }}
                   />
+                  {raceSelect(p.id, colonizeRace[p.id] || defaultRace, setColonizeRace)}
                   <button
                     className="btn-sm"
                     disabled={busy === p.id + '-colonize'}
@@ -228,6 +376,47 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
                     style={{ color: 'var(--cyan)', borderColor: 'var(--cyan)' }}
                   >
                     {busy === p.id + '-colonize' ? '...' : 'COLONIZE'}
+                  </button>
+                </span>
+              )}
+              {inSector && (landedAtPlanetId === p.id || hasTransporter) && hasShipFood && p.planetClass !== 'S' && (
+                <span className="planet-colonize-group">
+                  <input
+                    type="number"
+                    className="qty-input"
+                    min={1}
+                    value={depositFoodQty[p.id] || 10}
+                    onChange={e => setDepositFoodQty(prev => ({ ...prev, [p.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    style={{ width: '48px' }}
+                  />
+                  <button
+                    className="btn-sm"
+                    disabled={busy === p.id + '-depositfood'}
+                    onClick={() => handleDepositFood(p.id)}
+                    style={{ color: 'var(--green)', borderColor: 'var(--green)' }}
+                  >
+                    {busy === p.id + '-depositfood' ? '...' : 'DEPOSIT FOOD'}
+                  </button>
+                </span>
+              )}
+              {inSector && p.planetClass === 'S' && p.colonists > 0 && (
+                <span className="planet-colonize-group">
+                  <input
+                    type="number"
+                    className="qty-input"
+                    min={1}
+                    value={collectColonistQty[p.id] || 10}
+                    onChange={e => setCollectColonistQty(prev => ({ ...prev, [p.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    style={{ width: '48px' }}
+                  />
+                  {raceSelect(p.id, collectColonistRace[p.id] || defaultRace, setCollectColonistRace)}
+                  <button
+                    className="btn-sm"
+                    disabled={busy === p.id + '-collectcol'}
+                    onClick={() => handleCollectColonists(p.id)}
+                    style={{ color: 'var(--orange)', borderColor: 'var(--orange)' }}
+                  >
+                    {busy === p.id + '-collectcol' ? '...' : 'GATHER COLONISTS'}
                   </button>
                 </span>
               )}
@@ -259,6 +448,30 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
                     ))}
                   </div>
                 )}
+                {hasNamingAuthority && (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={renameInput[p.id] || ''}
+                        onChange={e => setRenameInput(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        placeholder="New planet name"
+                        maxLength={32}
+                        style={{
+                          background: '#111', border: '1px solid #333', color: '#ccc',
+                          padding: '2px 6px', fontSize: 11, flex: 1,
+                        }}
+                      />
+                      <button
+                        className="btn-sm btn-buy"
+                        onClick={() => handleRename(p.id)}
+                        disabled={busy === p.id + '-rename' || !(renameInput[p.id]?.trim())}
+                      >
+                        {busy === p.id + '-rename' ? '...' : 'RENAME'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -267,16 +480,52 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
     </>
   );
 
-  const discoveredContent = discovered.length === 0 ? (
-    <div className="text-muted">No planets discovered yet. Explore sectors to find planets.</div>
-  ) : (
+  const discoveredContent = (
     <>
+      <div style={{ marginBottom: 8 }}>
+        <button
+          className="btn-sm btn-primary"
+          onClick={handleScan}
+          disabled={scanning}
+          title="Use a Planetary Scanner Probe to reveal detailed planet info"
+        >
+          {scanning ? 'SCANNING...' : 'SCAN SECTOR'}
+        </button>
+      </div>
       {error && <div className="mall-error">{error}</div>}
+      {scanResults && scanResults.length > 0 && (
+        <div style={{ marginBottom: 8, padding: 6, background: 'var(--bg-tertiary)', border: '1px solid var(--cyan)', borderRadius: 4 }}>
+          <div style={{ fontSize: 10, color: 'var(--cyan)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Scanner Results</div>
+          {scanResults.map((p: any) => (
+            <div key={p.id} style={{ fontSize: 11, marginBottom: 4, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
+              <div><span style={{ color: 'var(--text-primary)' }}>{p.name}</span> <span style={{ color: 'var(--cyan)' }}>[{p.planetClass}]</span></div>
+              <div style={{ color: 'var(--text-secondary)' }}>
+                Owner: {p.ownerName || 'Unclaimed'} | Lv.{p.upgradeLevel} | {p.colonists} colonists
+              </div>
+              {(p.cannonEnergy > 0 || p.shieldEnergy > 0 || p.drones > 0) && (
+                <div style={{ color: 'var(--orange)' }}>
+                  Defenses: {p.cannonEnergy > 0 ? `Cannon:${p.cannonEnergy} ` : ''}{p.shieldEnergy > 0 ? `Shield:${p.shieldEnergy} ` : ''}{p.drones > 0 ? `Drones:${p.drones}` : ''}
+                </div>
+              )}
+              {p.resources && p.resources.length > 0 && (
+                <div style={{ color: 'var(--green)' }}>
+                  Resources: {p.resources.map((r: any) => `${r.name}:${r.stock}`).join(', ')}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {discovered.length === 0 ? (
+        <div className="text-muted">No planets discovered yet. Explore sectors to find planets.</div>
+      ) : (
+      <>
+      {error && !scanResults && <div className="mall-error">{error}</div>}
       {discovered.map(p => {
         const tag = p.owned ? ' [YOURS]' : (p.ownerName ? ` (${p.ownerName})` : ' *unclaimed*');
         const tagColor = p.owned ? '#0f0' : (p.ownerName ? '#f80' : '#888');
         const inSector = currentSectorId != null && p.sectorId === currentSectorId;
-        const canClaim = !p.owned && !p.ownerName && inSector;
+        const canClaim = !p.owned && !p.ownerName && inSector && p.planetClass !== 'S';
         return (
           <div key={p.id} className="planet-panel-item">
             <div className="planet-panel-item__header">
@@ -297,10 +546,19 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
               </div>
             )}
             <div className="planet-actions">
-              {inSector && onCommand && (
+              {inSector && landedAtPlanetId === p.id && onLiftoff && (
                 <button
                   className="btn-sm"
-                  onClick={() => onCommand(`land ${p.name}`)}
+                  onClick={() => onLiftoff()}
+                  style={{ color: 'var(--yellow)', borderColor: 'var(--yellow)' }}
+                >
+                  LIFTOFF
+                </button>
+              )}
+              {inSector && landedAtPlanetId !== p.id && onLand && (
+                <button
+                  className="btn-sm"
+                  onClick={() => onLand(p.id)}
                   style={{ color: 'var(--green)', borderColor: 'var(--green)' }}
                 >
                   LAND
@@ -315,10 +573,33 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
                   {busy === p.id + '-claim' ? '...' : 'CLAIM'}
                 </button>
               )}
+              {inSector && p.planetClass === 'S' && p.colonists > 0 && (
+                <span className="planet-colonize-group">
+                  <input
+                    type="number"
+                    className="qty-input"
+                    min={1}
+                    value={collectColonistQty[p.id] || 10}
+                    onChange={e => setCollectColonistQty(prev => ({ ...prev, [p.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    style={{ width: '48px' }}
+                  />
+                  {raceSelect(p.id, collectColonistRace[p.id] || defaultRace, setCollectColonistRace)}
+                  <button
+                    className="btn-sm"
+                    disabled={busy === p.id + '-collectcol'}
+                    onClick={() => handleCollectColonists(p.id)}
+                    style={{ color: 'var(--orange)', borderColor: 'var(--orange)' }}
+                  >
+                    {busy === p.id + '-collectcol' ? '...' : 'GATHER COLONISTS'}
+                  </button>
+                </span>
+              )}
             </div>
           </div>
         );
       })}
+      </>
+      )}
     </>
   );
 
@@ -327,6 +608,7 @@ export default function PlanetsPanel({ refreshKey, currentSectorId, onAction, on
       {tabBar}
       {tab === 'owned' && ownedContent}
       {tab === 'discovered' && discoveredContent}
+      {tab === 'analytics' && <PlanetAnalytics planets={planets} />}
     </>
   );
 

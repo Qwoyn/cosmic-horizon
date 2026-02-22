@@ -1,7 +1,10 @@
+import crypto from 'crypto';
 import { Server as SocketIOServer } from 'socket.io';
 import db from '../db/connection';
 import { GAME_CONFIG } from '../config/game';
-import { calculateProduction, calculateColonistGrowth } from './planets';
+import { calculateProduction, calculateColonistGrowth, calculateFoodConsumption } from './planets';
+import { calculateHappiness, calculateAverageAffinity, type RacePopulation } from './happiness';
+import { PLANET_TYPES } from '../config/planet-types';
 import { processDecay, processDefenseDecay, isDeployableExpired } from './decay';
 import { notifyPlayer, getConnectedPlayers } from '../ws/handlers';
 import { spawnSectorEvents, expireSectorEvents } from './events';
@@ -9,6 +12,7 @@ import { refreshLeaderboardCache } from './leaderboards';
 import { producePlanetUniqueResources } from './crafting';
 import { spawnResourceEvents, expireResourceEvents, produceRarePlanetResources } from './rare-spawns';
 import { processFactoryProduction, checkAndCompleteProjects } from './syndicate-economy';
+import { processCaravans, dispatchCaravans } from './caravans';
 
 let tickInterval: ReturnType<typeof setInterval> | null = null;
 let tickCount = 0;
@@ -60,18 +64,89 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       .whereNotNull('owner_id')
       .where('colonists', '>', 0)
       .whereIn('sector_id', db('sectors').where('universe', 'mp').select('id'));
+
     for (const planet of planets) {
-      const production = calculateProduction(planet.planet_class, planet.colonists);
-      const hasFoodSupply = (planet.food_stock || 0) > 0 || production.food > 0;
-      const newColonists = calculateColonistGrowth(planet.planet_class, planet.colonists, hasFoodSupply);
+      const planetConfig = PLANET_TYPES[planet.planet_class];
+      if (!planetConfig) continue;
+
+      // Load race populations for this planet
+      let racePopulations: RacePopulation[] = [];
+      try {
+        racePopulations = await db('planet_colonists')
+          .where({ planet_id: planet.id })
+          .select('race', 'count');
+      } catch { /* table may not exist yet */ }
+
+      // If no race populations yet, use legacy mode
+      if (racePopulations.length === 0) {
+        racePopulations = [{ race: 'unknown', count: planet.colonists }];
+      }
+
+      const totalColonists = racePopulations.reduce((sum, rp) => sum + rp.count, 0);
+      const avgAffinity = calculateAverageAffinity(racePopulations, planet.planet_class);
+
+      // Calculate happiness
+      const foodConsumption = calculateFoodConsumption(
+        planet.planet_class, totalColonists, planet.happiness || 50, planet.upgrade_level
+      );
+      const newHappiness = calculateHappiness(planet.happiness || 50, {
+        foodStock: planet.food_stock || 0,
+        colonists: totalColonists,
+        idealPopulation: planetConfig.idealPopulation,
+        upgradeLevel: planet.upgrade_level,
+        droneCount: planet.drone_count || 0,
+        foodConsumptionRate: planetConfig.foodConsumptionRate,
+        avgRaceAffinity: avgAffinity,
+      });
+
+      // Calculate production (no food output)
+      const production = calculateProduction(planet.planet_class, racePopulations, newHappiness);
+
+      // Calculate growth & food consumption
+      const growth = calculateColonistGrowth(
+        planet.planet_class, totalColonists, newHappiness,
+        planet.food_stock || 0, planet.upgrade_level
+      );
 
       await db('planets').where({ id: planet.id }).update({
         cyrillium_stock: (planet.cyrillium_stock || 0) + production.cyrillium,
-        food_stock: (planet.food_stock || 0) + production.food,
+        food_stock: Math.max(0, (planet.food_stock || 0) + growth.foodProduced - growth.foodConsumed),
         tech_stock: (planet.tech_stock || 0) + production.tech,
         drone_count: (planet.drone_count || 0) + production.drones,
-        colonists: newColonists,
+        colonists: growth.newColonists,
+        happiness: newHappiness,
       });
+
+      // Update planet_colonists proportionally if population changed
+      if (growth.newColonists !== totalColonists && racePopulations.length > 0 && totalColonists > 0) {
+        const ratio = growth.newColonists / totalColonists;
+        let assigned = 0;
+        for (let i = 0; i < racePopulations.length; i++) {
+          const rp = racePopulations[i];
+          const newCount = i === racePopulations.length - 1
+            ? growth.newColonists - assigned
+            : Math.floor(rp.count * ratio);
+          assigned += newCount;
+          await db('planet_colonists')
+            .where({ planet_id: planet.id, race: rp.race })
+            .update({ count: Math.max(0, newCount) });
+        }
+      }
+
+      // Insert production history row
+      try {
+        await db('planet_production_history').insert({
+          id: crypto.randomUUID(),
+          planet_id: planet.id,
+          tick_at: now.toISOString(),
+          cyrillium_produced: production.cyrillium,
+          tech_produced: production.tech,
+          drones_produced: production.drones,
+          food_consumed: growth.foodConsumed,
+          colonist_count: growth.newColonists,
+          happiness: newHappiness,
+        });
+      } catch { /* table may not exist yet */ }
     }
 
     // 2b. Planet unique resource production
@@ -177,6 +252,47 @@ export async function gameTick(io: SocketIOServer): Promise<void> {
       try {
         await checkAndCompleteProjects();
       } catch { /* syndicate economy tables may not exist yet */ }
+    }
+
+    // Caravan movement + dispatch
+    try {
+      await processCaravans(io);
+      await dispatchCaravans(io);
+    } catch { /* trade route tables may not exist yet */ }
+
+    // Pirate flag expiry
+    try {
+      await db('players')
+        .whereNotNull('pirate_until')
+        .where('pirate_until', '<', now.toISOString())
+        .update({ pirate_until: null });
+    } catch { /* column may not exist yet */ }
+
+    // Clean up old daily stats (retain 31 days)
+    try {
+      const cutoffDate = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      await db('player_stats_daily').where('stat_date', '<', cutoffDate).del();
+    } catch { /* table may not exist yet */ }
+
+    // Clean up old activity logs (retain 500 per player)
+    try {
+      await db.raw(`
+        DELETE FROM player_activity_log WHERE id IN (
+          SELECT pal.id FROM player_activity_log pal
+          WHERE (SELECT COUNT(*) FROM player_activity_log pal2
+                 WHERE pal2.player_id = pal.player_id AND pal2.created_at > pal.created_at) >= 500
+        )
+      `);
+    } catch { /* table may not exist yet */ }
+
+    // Production history cleanup every 60 ticks
+    if (tickCount % GAME_CONFIG.PRODUCTION_HISTORY_CLEANUP_INTERVAL === 0) {
+      try {
+        const cutoff = new Date(now.getTime() - GAME_CONFIG.PRODUCTION_HISTORY_RETENTION_TICKS * 60000);
+        await db('planet_production_history')
+          .where('tick_at', '<', cutoff.toISOString())
+          .del();
+      } catch { /* table may not exist yet */ }
     }
 
     // 4. Outpost economy - inject treasury (MP outposts only)

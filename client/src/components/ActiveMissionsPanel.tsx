@@ -7,8 +7,11 @@ import { getActiveMissions, getCompletedMissions, claimMission, abandonMission }
 interface MissionData {
   missionId: string;
   title: string;
+  description?: string;
   type: string;
   progress: Record<string, number>;
+  templateObjectives?: Record<string, number>;
+  objectivesDetail?: Array<{ label: string; current: number; target: number }>;
   rewardCredits: number;
   claimStatus?: string;
 }
@@ -118,6 +121,9 @@ export default function ActiveMissionsPanel({ refreshKey, atStarMall = false, on
       {missions.map(m => (
         <div key={m.missionId} className="mission-item">
           <div className="mission-item__title"><PixelSprite spriteKey={`mission_${m.type}`} size={12} />{m.title}</div>
+          {m.description && (
+            <div className="mission-item__desc">{m.description}</div>
+          )}
           <div className="mission-item__progress">
             {progressSummary(m.type, m.progress)}
             <span className="mission-item__reward">+{m.rewardCredits} cr</span>

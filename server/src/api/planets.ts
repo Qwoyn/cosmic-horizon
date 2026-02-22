@@ -1,16 +1,35 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { calculateProduction, canUpgrade } from '../engine/planets';
+import { calculateProduction, calculateProductionLegacy, calculateFoodConsumption, canUpgrade } from '../engine/planets';
+import { getHappinessTier, type RacePopulation } from '../engine/happiness';
 import { checkAndUpdateMissions } from '../services/mission-tracker';
+import { checkPrerequisite } from '../engine/missions';
 import { applyUpgradesToShip } from '../engine/upgrades';
 import { awardXP } from '../engine/progression';
 import { checkAchievements } from '../engine/achievements';
 import { GAME_CONFIG } from '../config/game';
 import { PLANET_TYPES } from '../config/planet-types';
+import { VALID_RACE_IDS } from '../config/races';
 import { getRefineryQueue, getRefinerySlots } from '../engine/crafting';
 import db from '../db/connection';
+import { incrementStat, logActivity, checkMilestones } from '../engine/profile-stats';
 
 const router = Router();
+
+/** Helper to load race populations for a planet */
+async function loadRacePopulations(planetId: string, fallbackColonists: number): Promise<RacePopulation[]> {
+  try {
+    const pops = await db('planet_colonists')
+      .where({ planet_id: planetId })
+      .select('race', 'count');
+    if (pops.length > 0) return pops;
+  } catch { /* table may not exist yet */ }
+  if (fallbackColonists > 0) {
+    return [{ race: 'unknown', count: fallbackColonists }];
+  }
+  return [];
+}
 
 // List planets owned by the player
 router.get('/owned', requireAuth, async (req, res) => {
@@ -53,8 +72,27 @@ router.get('/owned', requireAuth, async (req, res) => {
       }
     } catch { /* crafting tables may not exist yet */ }
 
+    // Load race populations for all owned planets
+    let racePopMap: Record<string, RacePopulation[]> = {};
+    try {
+      const allPlanetIds = planets.map((p: any) => p.id);
+      if (allPlanetIds.length > 0) {
+        const allPops = await db('planet_colonists')
+          .whereIn('planet_id', allPlanetIds)
+          .select('planet_id', 'race', 'count');
+        for (const pop of allPops) {
+          if (!racePopMap[pop.planet_id]) racePopMap[pop.planet_id] = [];
+          racePopMap[pop.planet_id].push({ race: pop.race, count: pop.count });
+        }
+      }
+    } catch { /* table may not exist yet */ }
+
     const result = planets.map((p: any) => {
-      const production = calculateProduction(p.planet_class, p.colonists || 0);
+      const racePops = racePopMap[p.id] || (p.colonists > 0 ? [{ race: 'unknown', count: p.colonists }] : []);
+      const happiness = p.happiness ?? 50;
+      const production = calculateProduction(p.planet_class, racePops, happiness);
+      const foodConsumption = calculateFoodConsumption(p.planet_class, p.colonists || 0, happiness, p.upgrade_level);
+      const tier = getHappinessTier(happiness);
       const pType = PLANET_TYPES[p.planet_class];
       return {
         id: p.id,
@@ -67,6 +105,10 @@ router.get('/owned', requireAuth, async (req, res) => {
         foodStock: p.food_stock || 0,
         techStock: p.tech_stock || 0,
         droneCount: p.drone_count || 0,
+        happiness,
+        happinessTier: tier.name,
+        foodConsumption,
+        racePopulations: racePops.filter(rp => rp.count > 0),
         production,
         uniqueResources: planetResourceMap[p.id] || [],
         refineryQueueCount: queueCountMap[p.id] || 0,
@@ -134,7 +176,11 @@ router.get('/:id', requireAuth, async (req, res) => {
     const planet = await db('planets').where({ id: req.params.id }).first();
     if (!planet) return res.status(404).json({ error: 'Planet not found' });
 
-    const production = calculateProduction(planet.planet_class, planet.colonists || 0);
+    const racePops = await loadRacePopulations(planet.id, planet.colonists || 0);
+    const happiness = planet.happiness ?? 50;
+    const production = calculateProduction(planet.planet_class, racePops, happiness);
+    const foodConsumption = calculateFoodConsumption(planet.planet_class, planet.colonists || 0, happiness, planet.upgrade_level);
+    const tier = getHappinessTier(happiness);
 
     // Load unique resources and refinery for owned planets
     let uniqueResources: any[] = [];
@@ -167,6 +213,10 @@ router.get('/:id', requireAuth, async (req, res) => {
       foodStock: planet.food_stock,
       techStock: planet.tech_stock,
       droneCount: planet.drone_count,
+      happiness,
+      happinessTier: tier.name,
+      foodConsumption,
+      racePopulations: racePops.filter(rp => rp.count > 0),
       production,
       uniqueResources,
       refineryQueue,
@@ -181,12 +231,99 @@ router.get('/:id', requireAuth, async (req, res) => {
             cyrilliumStock: planet.cyrillium_stock || 0,
             foodStock: planet.food_stock || 0,
             techStock: planet.tech_stock || 0,
-            ownerCredits: 0, // checked separately
+            ownerCredits: 0,
           })
         : false,
     });
   } catch (err) {
     console.error('Planet detail error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Deposit food from ship to planet
+router.post('/:id/deposit-food', requireAuth, async (req, res) => {
+  try {
+    const { quantity } = req.body;
+    if (!quantity || quantity < 1) return res.status(400).json({ error: 'Invalid quantity' });
+
+    const player = await db('players').where({ id: req.session.playerId }).first();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const planet = await db('planets').where({ id: req.params.id }).first();
+    if (!planet) return res.status(404).json({ error: 'Planet not found' });
+    if (planet.owner_id !== player.id) {
+      return res.status(400).json({ error: 'You do not own this planet' });
+    }
+    if (planet.sector_id !== player.current_sector_id) {
+      return res.status(400).json({ error: 'Planet is not in your sector' });
+    }
+
+    // Must be landed or have transporter
+    if (player.landed_at_planet_id !== req.params.id) {
+      const hasTransporter = await db('game_events')
+        .where({ player_id: player.id, event_type: 'item:mycelial_transporter', read: false })
+        .first();
+      if (!hasTransporter) {
+        return res.status(400).json({ error: 'You must land on the planet first, or acquire a Mycelial Transporter' });
+      }
+    }
+
+    const ship = await db('ships').where({ id: player.current_ship_id }).first();
+    if (!ship) return res.status(400).json({ error: 'No active ship' });
+
+    const available = ship.food_cargo || 0;
+    const toDeposit = Math.min(quantity, available);
+    if (toDeposit <= 0) return res.status(400).json({ error: 'No food on ship' });
+
+    await db('ships').where({ id: ship.id }).update({
+      food_cargo: available - toDeposit,
+    });
+    await db('planets').where({ id: planet.id }).update({
+      food_stock: (planet.food_stock || 0) + toDeposit,
+    });
+
+    // Profile stats: food deposit
+    incrementStat(player.id, 'food_deposited', toDeposit);
+    logActivity(player.id, 'deposit_food', `Deposited ${toDeposit} food on ${planet.name}`, { planetId: planet.id, amount: toDeposit });
+
+    res.json({
+      deposited: toDeposit,
+      planetFoodStock: (planet.food_stock || 0) + toDeposit,
+      shipFoodCargo: available - toDeposit,
+    });
+  } catch (err) {
+    console.error('Deposit food error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Name a planet
+router.post('/:id/name', requireAuth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || typeof name !== 'string' || name.trim().length < 3 || name.trim().length > 32) {
+      return res.status(400).json({ error: 'Name must be 3-32 characters' });
+    }
+
+    const planet = await db('planets').where({ id: req.params.id }).first();
+    if (!planet) return res.status(404).json({ error: 'Planet not found' });
+
+    const playerId = req.session.playerId!;
+    if (planet.owner_id !== playerId) {
+      return res.status(403).json({ error: 'You do not own this planet' });
+    }
+
+    // Check naming authority (Stellar Census mission)
+    const hasAuthority = await checkPrerequisite(playerId, GAME_CONFIG.NAMING_CONVENTION_MISSION_ID);
+    if (!hasAuthority) {
+      return res.status(403).json({ error: "Complete the 'Stellar Census' mission to unlock naming authority" });
+    }
+
+    await db('planets').where({ id: planet.id }).update({ name: name.trim() });
+    res.json({ success: true, name: name.trim() });
+  } catch (err) {
+    console.error('Planet name error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -224,11 +361,14 @@ router.post('/:id/claim', requireAuth, async (req, res) => {
   }
 });
 
-// Deposit colonists from ship to planet
+// Deposit colonists from ship to planet (race-aware)
 router.post('/:id/colonize', requireAuth, async (req, res) => {
   try {
-    const { quantity } = req.body;
+    const { quantity, race } = req.body;
     if (!quantity || quantity < 1) return res.status(400).json({ error: 'Invalid quantity' });
+    if (!race || !VALID_RACE_IDS.includes(race)) {
+      return res.status(400).json({ error: 'Invalid race. Must be one of: ' + VALID_RACE_IDS.join(', ') });
+    }
 
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -242,16 +382,62 @@ router.post('/:id/colonize', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'You do not own this planet' });
     }
 
+    // Must be landed on the planet, or have a Mycelial Transporter
+    if (player.landed_at_planet_id !== req.params.id) {
+      const hasTransporter = await db('game_events')
+        .where({ player_id: player.id, event_type: 'item:mycelial_transporter', read: false })
+        .first();
+      if (!hasTransporter) {
+        return res.status(400).json({ error: 'You must land on the planet first, or acquire a Mycelial Transporter' });
+      }
+    }
+
     const ship = await db('ships').where({ id: player.current_ship_id }).first();
     if (!ship) return res.status(400).json({ error: 'No active ship' });
 
-    const available = ship.colonist_cargo || 0;
-    const toDeposit = Math.min(quantity, available);
-    if (toDeposit <= 0) return res.status(400).json({ error: 'No colonists on ship' });
+    // Check ship_colonists for this race
+    let shipRaceRow: any = null;
+    try {
+      shipRaceRow = await db('ship_colonists')
+        .where({ ship_id: ship.id, race })
+        .first();
+    } catch { /* table may not exist yet */ }
 
+    const raceAvailable = shipRaceRow?.count || 0;
+    const totalAvailable = ship.colonist_cargo || 0;
+    const toDeposit = Math.min(quantity, raceAvailable || totalAvailable);
+    if (toDeposit <= 0) return res.status(400).json({ error: `No ${race} colonists on ship` });
+
+    // Deduct from ship_colonists
+    if (shipRaceRow) {
+      await db('ship_colonists')
+        .where({ ship_id: ship.id, race })
+        .update({ count: Math.max(0, raceAvailable - toDeposit) });
+    }
+
+    // Update denormalized ship total
     await db('ships').where({ id: ship.id }).update({
-      colonist_cargo: available - toDeposit,
+      colonist_cargo: Math.max(0, totalAvailable - toDeposit),
     });
+
+    // Add to planet_colonists
+    const existingPlanetRace = await db('planet_colonists')
+      .where({ planet_id: planet.id, race })
+      .first();
+    if (existingPlanetRace) {
+      await db('planet_colonists')
+        .where({ planet_id: planet.id, race })
+        .increment('count', toDeposit);
+    } else {
+      await db('planet_colonists').insert({
+        id: crypto.randomUUID(),
+        planet_id: planet.id,
+        race,
+        count: toDeposit,
+      });
+    }
+
+    // Update denormalized planet total
     await db('planets').where({ id: planet.id }).update({
       colonists: (planet.colonists || 0) + toDeposit,
     });
@@ -262,10 +448,16 @@ router.post('/:id/colonize', requireAuth, async (req, res) => {
     // Award XP for colonizing
     const xpResult = await awardXP(player.id, toDeposit * GAME_CONFIG.XP_COLONIZE, 'explore');
 
+    // Profile stats: colonize
+    incrementStat(player.id, 'planets_colonized', 1);
+    logActivity(player.id, 'colonize', `Colonized ${planet.name} with ${toDeposit} ${race} colonists`, { planetId: planet.id, race, count: toDeposit });
+    checkMilestones(player.id);
+
     res.json({
       deposited: toDeposit,
+      race,
       planetColonists: (planet.colonists || 0) + toDeposit,
-      shipColonists: available - toDeposit,
+      shipColonists: Math.max(0, totalAvailable - toDeposit),
       xp: { awarded: xpResult.xpAwarded, total: xpResult.totalXp, level: xpResult.level, rank: xpResult.rank, levelUp: xpResult.levelUp },
     });
   } catch (err) {
@@ -274,11 +466,14 @@ router.post('/:id/colonize', requireAuth, async (req, res) => {
   }
 });
 
-// Collect colonists from seed planet
+// Collect colonists from seed planet (race selection)
 router.post('/:id/collect-colonists', requireAuth, async (req, res) => {
   try {
-    const { quantity } = req.body;
+    const { quantity, race } = req.body;
     if (!quantity || quantity < 1) return res.status(400).json({ error: 'Invalid quantity' });
+    if (!race || !VALID_RACE_IDS.includes(race)) {
+      return res.status(400).json({ error: 'Invalid race. Must be one of: ' + VALID_RACE_IDS.join(', ') });
+    }
 
     const player = await db('players').where({ id: req.session.playerId }).first();
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -292,6 +487,16 @@ router.post('/:id/collect-colonists', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Planet is not in your sector' });
     }
 
+    // Must be landed or have transporter
+    if (player.landed_at_planet_id !== req.params.id) {
+      const hasTransporter = await db('game_events')
+        .where({ player_id: player.id, event_type: 'item:mycelial_transporter', read: false })
+        .first();
+      if (!hasTransporter) {
+        return res.status(400).json({ error: 'You must land on the planet first, or acquire a Mycelial Transporter' });
+      }
+    }
+
     const ship = await db('ships').where({ id: player.current_ship_id }).first();
     if (!ship) return res.status(400).json({ error: 'No active ship' });
 
@@ -303,20 +508,85 @@ router.post('/:id/collect-colonists', requireAuth, async (req, res) => {
     const toCollect = Math.min(quantity, available, freeSpace);
     if (toCollect <= 0) return res.status(400).json({ error: 'No colonists available or no cargo space' });
 
+    // Deduct from seed planet (raceless)
     await db('planets').where({ id: planet.id }).update({
       colonists: available - toCollect,
     });
+
+    // Add to ship_colonists as chosen race
+    const existingShipRace = await db('ship_colonists')
+      .where({ ship_id: ship.id, race })
+      .first();
+    if (existingShipRace) {
+      await db('ship_colonists')
+        .where({ ship_id: ship.id, race })
+        .increment('count', toCollect);
+    } else {
+      await db('ship_colonists').insert({
+        id: crypto.randomUUID(),
+        ship_id: ship.id,
+        race,
+        count: toCollect,
+      });
+    }
+
+    // Update denormalized ship total
     await db('ships').where({ id: ship.id }).update({
       colonist_cargo: (ship.colonist_cargo || 0) + toCollect,
     });
 
     res.json({
       collected: toCollect,
+      race,
       planetColonists: available - toCollect,
       shipColonists: (ship.colonist_cargo || 0) + toCollect,
     });
   } catch (err) {
     console.error('Collect colonists error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Production history
+router.get('/:id/production-history', requireAuth, async (req, res) => {
+  try {
+    const planet = await db('planets').where({ id: req.params.id }).first();
+    if (!planet) return res.status(404).json({ error: 'Planet not found' });
+    if (planet.owner_id !== req.session.playerId) {
+      return res.status(403).json({ error: 'You do not own this planet' });
+    }
+
+    const hours = Math.min(168, Math.max(1, parseInt(req.query.hours as string) || 24));
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+    const history = await db('planet_production_history')
+      .where({ planet_id: planet.id })
+      .where('tick_at', '>', cutoff.toISOString())
+      .orderBy('tick_at', 'asc')
+      .select('*');
+
+    // Sample if too many entries
+    let sampled = history;
+    if (history.length > 200) {
+      const step = Math.ceil(history.length / 200);
+      sampled = history.filter((_: any, i: number) => i % step === 0);
+    }
+
+    res.json({
+      planetId: planet.id,
+      hours,
+      history: sampled.map((h: any) => ({
+        tickAt: h.tick_at,
+        cyrilliumProduced: h.cyrillium_produced,
+        techProduced: h.tech_produced,
+        dronesProduced: h.drones_produced,
+        foodConsumed: h.food_consumed,
+        colonistCount: h.colonist_count,
+        happiness: h.happiness,
+      })),
+    });
+  } catch (err) {
+    console.error('Production history error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

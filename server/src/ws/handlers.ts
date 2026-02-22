@@ -2,6 +2,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { sectorRoom, playerRoom, syndicateRoom, allianceRoom } from './events';
 import db from '../db/connection';
 import { verifyJwt } from '../middleware/jwt';
+import { incrementStat } from '../engine/profile-stats';
 
 // Track connected players: socketId -> playerId
 const connectedPlayers = new Map<string, string>();
@@ -73,6 +74,9 @@ export function setupWebSocket(io: SocketIOServer): void {
         message: data.message.slice(0, 500), // limit message length
         timestamp: Date.now(),
       });
+
+      // Profile stats: chat
+      incrementStat(playerId, 'chat_messages_sent', 1);
     });
 
     // Syndicate chat
@@ -95,6 +99,9 @@ export function setupWebSocket(io: SocketIOServer): void {
         message: data.message.slice(0, 500),
         timestamp: Date.now(),
       });
+
+      // Profile stats: chat
+      incrementStat(playerId, 'chat_messages_sent', 1);
     });
 
     // Alliance chat (broadcast to both syndicate rooms in the alliance)

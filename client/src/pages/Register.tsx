@@ -90,7 +90,7 @@ export default function Register({ onRegister }: RegisterProps) {
   return (
     <div className="auth-page">
       <div className="auth-container" style={step === 2 ? { maxWidth: '720px' } : undefined}>
-        <h1 className="auth-title">COSMIC HORIZON</h1>
+        <img src="/logo.png" alt="Cosmic Horizon" className="auth-logo" />
         <p className="auth-subtitle">
           {step === 1 ? 'New Pilot Registration' : step === 2 ? 'Choose Your Race' : 'Connect Wallet'}
         </p>

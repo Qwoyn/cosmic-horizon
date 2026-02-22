@@ -325,9 +325,12 @@ export default function PixelScene({ scene, renderMode, onComplete, onSkip, widt
 
   const containerClass = `pixel-scene pixel-scene--${renderMode}`;
   const bgColor = scene.bgColor ?? 'var(--bg-primary)';
+  const bgTransparent = scene.bgColor
+    ? `color-mix(in srgb, ${scene.bgColor} 40%, transparent)`
+    : 'var(--bg-primary)';
 
   const containerStyle: React.CSSProperties = {
-    background: bgColor,
+    background: bgTransparent,
     ...(width && renderMode !== 'fullscreen' ? { width } : {}),
     ...(height && renderMode !== 'fullscreen' ? { height } : {}),
   };
@@ -341,7 +344,7 @@ export default function PixelScene({ scene, renderMode, onComplete, onSkip, widt
         style={{ imageRendering: 'pixelated' }}
       >
         {/* Background fill */}
-        <rect x={0} y={0} width={scene.stageWidth} height={scene.stageHeight} fill={bgColor} />
+        <rect x={0} y={0} width={scene.stageWidth} height={scene.stageHeight} style={{ fill: bgTransparent }} />
 
         {/* Effects behind actors */}
         {renderEffects()}

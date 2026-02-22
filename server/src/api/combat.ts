@@ -13,6 +13,7 @@ import { GAME_CONFIG } from '../config/game';
 import { onCombatKill } from '../engine/npcs';
 import db from '../db/connection';
 import { sendPushToPlayer } from '../services/push';
+import { incrementStat, logActivity, checkPersonalBest, checkMilestones } from '../engine/profile-stats';
 
 const router = Router();
 
@@ -110,6 +111,12 @@ router.post('/fire', requireAuth, async (req, res) => {
     // Award combat XP for volley
     let xpResult = await awardXP(player.id, GAME_CONFIG.XP_COMBAT_VOLLEY, 'combat');
 
+    // Profile stats: damage
+    incrementStat(player.id, 'damage_dealt', result.damageDealt);
+    incrementStat(target.id, 'damage_taken', result.damageDealt);
+    incrementStat(player.id, 'energy_spent', getActionCost('combat_volley'));
+    checkPersonalBest(player.id, 'highest_damage_single', result.damageDealt, `Hit ${target.username} for ${result.damageDealt} damage`);
+
     let bountiesClaimed: { bountyId: string; reward: number }[] = [];
 
     if (result.defenderDestroyed) {
@@ -160,6 +167,11 @@ router.post('/fire', requireAuth, async (req, res) => {
         }
         // Award bounty rewards to attacker
         await db('players').where({ id: player.id }).increment('credits', totalBountyReward);
+
+        // Profile stats: bounty claims
+        incrementStat(player.id, 'bounties_claimed', activeBounties.length);
+        incrementStat(player.id, 'credits_from_bounties', totalBountyReward);
+        logActivity(player.id, 'bounty_claimed', `Claimed ${activeBounties.length} bounty(ies) on ${target.username} for ${totalBountyReward} credits`);
       }
     }
 
@@ -168,6 +180,14 @@ router.post('/fire', requireAuth, async (req, res) => {
       xpResult = await awardXP(player.id, GAME_CONFIG.XP_COMBAT_DESTROY, 'combat');
       await checkAchievements(player.id, 'combat_destroy', {});
       checkAndUpdateMissions(player.id, 'combat_destroy', {});
+
+      // Profile stats: kill/death
+      incrementStat(player.id, 'combat_kills', 1);
+      incrementStat(target.id, 'combat_deaths', 1);
+      incrementStat(target.id, 'dodge_pod_uses', 1);
+      logActivity(player.id, 'combat_kill', `Destroyed ${target.username}'s ship in sector ${player.current_sector_id}`, { targetId: target.id, sectorId: player.current_sector_id });
+      logActivity(target.id, 'combat_death', `Ship destroyed by ${player.username} in sector ${player.current_sector_id}`, { attackerId: player.id, sectorId: player.current_sector_id });
+      checkMilestones(player.id);
 
       // Faction infamy for killing in a sector with NPC factions
       try { await onCombatKill(player.id, player.current_sector_id); } catch { /* non-critical */ }
@@ -237,6 +257,7 @@ router.post('/flee', requireAuth, async (req, res) => {
         await db('players').where({ id: player.id }).update({
           current_sector_id: randomEdge.to_sector_id,
           docked_at_outpost_id: null,
+          landed_at_planet_id: null,
         });
         if (player.current_ship_id) {
           await db('ships').where({ id: player.current_ship_id }).update({

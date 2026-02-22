@@ -3,6 +3,7 @@ import db from '../db/connection';
 import { GAME_CONFIG } from '../config/game';
 import { PLANET_TYPES } from '../config/planet-types';
 import { awardXP } from './progression';
+import { incrementStat, logActivity, checkMilestones } from './profile-stats';
 
 // === Query helpers ===
 
@@ -174,6 +175,11 @@ export async function startCraft(
     : recipe.tier === 3 ? GAME_CONFIG.XP_CRAFT_TIER3
     : GAME_CONFIG.XP_CRAFT_TIER4;
   const xpResult = await awardXP(playerId, xpAmount * batchSize, 'craft');
+
+  // Profile stats: craft
+  incrementStat(playerId, 'items_crafted', batchSize);
+  logActivity(playerId, 'craft', `Crafted ${batchSize}x ${recipe.name}`, { recipeId, batchSize });
+  checkMilestones(playerId);
 
   if (recipe.craft_time_minutes > 0) {
     const now = new Date();
@@ -415,5 +421,60 @@ export async function adjustPlayerResource(playerId: string, resourceId: string,
       resource_id: resourceId,
       quantity: amount,
     });
+  }
+
+  // Check for recipe discovery when gaining resources
+  if (amount > 0) {
+    try {
+      await checkRecipeDiscovery(playerId, resourceId);
+    } catch { /* non-critical */ }
+  }
+}
+
+/**
+ * Check if acquiring a resource unlocks any new recipes for the player.
+ * Called from all resource-acquisition paths.
+ */
+export async function checkRecipeDiscovery(
+  playerId: string,
+  resourceId: string,
+): Promise<string[]> {
+  try {
+    // Find all recipes that use this resource as an ingredient
+    const recipesUsingResource = await db('recipe_ingredients')
+      .where({ resource_id: resourceId })
+      .select('recipe_id');
+
+    if (recipesUsingResource.length === 0) return [];
+
+    const recipeIds = recipesUsingResource.map(r => r.recipe_id);
+
+    // Find which of these the player hasn't discovered yet
+    const alreadyDiscovered = await db('player_discovered_recipes')
+      .where({ player_id: playerId })
+      .whereIn('recipe_id', recipeIds)
+      .select('recipe_id');
+
+    const discoveredSet = new Set(alreadyDiscovered.map(r => r.recipe_id));
+    const newRecipeIds = recipeIds.filter(id => !discoveredSet.has(id));
+
+    if (newRecipeIds.length === 0) return [];
+
+    // Insert newly discovered recipes
+    const now = new Date().toISOString();
+    await db('player_discovered_recipes').insert(
+      newRecipeIds.map(recipeId => ({
+        player_id: playerId,
+        recipe_id: recipeId,
+        discovered_at: now,
+      }))
+    );
+
+    // Get recipe names for notification
+    const recipes = await db('recipes').whereIn('id', newRecipeIds).select('name');
+    return recipes.map(r => r.name);
+  } catch (err) {
+    console.error('Recipe discovery check error:', err);
+    return [];
   }
 }

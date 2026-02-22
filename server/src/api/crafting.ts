@@ -54,20 +54,56 @@ router.get('/resources/planet/:planetId', requireAuth, async (req, res) => {
   }
 });
 
-// Available recipes
+// Available recipes (with discovery filtering)
 router.get('/recipes', requireAuth, async (req, res) => {
   try {
     const planetLevel = parseInt(req.query.planetLevel as string) || 7;
+    const showAll = req.query.all === 'true';
+    const playerId = req.session.playerId!;
+
     const recipes = await getAvailableRecipes(planetLevel);
+
+    // Get player's discovered recipes
+    let discoveredIds: Set<string>;
+    try {
+      const discovered = await db('player_discovered_recipes')
+        .where({ player_id: playerId })
+        .select('recipe_id');
+      discoveredIds = new Set(discovered.map(d => d.recipe_id));
+    } catch {
+      // Table may not exist yet, treat all as discovered
+      discoveredIds = new Set(recipes.map(r => r.id));
+    }
+
+    const result = recipes.map(r => {
+      const isDiscovered = discoveredIds.has(r.id);
+      if (!showAll && !isDiscovered) return null;
+
+      if (!isDiscovered) {
+        // Mask undiscovered recipe
+        return {
+          ...r,
+          discovered: false,
+          name: '??? Unknown Recipe ???',
+          description: 'Discover new resources to unlock this recipe.',
+          ingredients: r.ingredients.length > 0
+            ? [{ ...r.ingredients[0] }, ...r.ingredients.slice(1).map((ing: any) => ({ ...ing, name: '???', resourceId: '???' }))]
+            : [],
+        };
+      }
+
+      return { ...r, discovered: true };
+    }).filter(Boolean);
 
     // Group by tier
     const grouped: Record<number, any[]> = {};
-    for (const r of recipes) {
+    for (const r of result) {
+      if (!r) continue;
       if (!grouped[r.tier]) grouped[r.tier] = [];
       grouped[r.tier].push(r);
     }
 
-    res.json({ recipes, grouped });
+    res.json({ recipes: result, grouped });
   } catch (err) {
     console.error('Recipes error:', err);
     res.status(500).json({ error: 'Internal server error' });

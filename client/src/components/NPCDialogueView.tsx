@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { talkToNPC } from '../services/api';
+import { talkToNPC, getNPCVendor, buyFromNPCVendor } from '../services/api';
 
 interface DialogueOption {
   text: string;
@@ -16,6 +16,16 @@ interface DialogueState {
   ended?: boolean;
 }
 
+interface VendorItem {
+  id: string;
+  name: string;
+  price: number;
+  description?: string;
+  available: boolean;
+  requiredFame?: number;
+  currentFame?: number;
+}
+
 interface Props {
   npcId: string;
   npcName: string;
@@ -28,6 +38,11 @@ export default function NPCDialogueView({ npcId, npcName, npcTitle, onClose, onA
   const [dialogue, setDialogue] = useState<DialogueState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showShop, setShowShop] = useState(false);
+  const [vendorItems, setVendorItems] = useState<VendorItem[]>([]);
+  const [shopBusy, setShopBusy] = useState(false);
+  const [shopError, setShopError] = useState('');
+  const [shopSuccess, setShopSuccess] = useState('');
 
   const startDialogue = async (choiceIndex?: number) => {
     setLoading(true);
@@ -61,6 +76,82 @@ export default function NPCDialogueView({ npcId, npcName, npcTitle, onClose, onA
   const handleChoice = (index: number) => {
     startDialogue(index);
   };
+
+  const openShop = async () => {
+    setShowShop(true);
+    setShopBusy(true);
+    setShopError('');
+    setShopSuccess('');
+    try {
+      const { data } = await getNPCVendor(npcId);
+      setVendorItems(data.items || []);
+    } catch (err: any) {
+      setShopError(err.response?.data?.error || 'Failed to load vendor items');
+    } finally {
+      setShopBusy(false);
+    }
+  };
+
+  const handleBuy = async (itemId: string) => {
+    setShopBusy(true);
+    setShopError('');
+    setShopSuccess('');
+    try {
+      await buyFromNPCVendor(npcId, itemId);
+      setShopSuccess('Purchase successful!');
+      const { data } = await getNPCVendor(npcId);
+      setVendorItems(data.items || []);
+      onAction?.();
+    } catch (err: any) {
+      setShopError(err.response?.data?.error || 'Purchase failed');
+    } finally {
+      setShopBusy(false);
+    }
+  };
+
+  const closeShop = () => {
+    setShowShop(false);
+    setShopError('');
+    setShopSuccess('');
+  };
+
+  if (showShop) {
+    return (
+      <div className="npc-dialogue">
+        <div className="npc-dialogue__header">
+          <div className="npc-dialogue__name">{npcName} — Shop</div>
+          {npcTitle && <div className="npc-dialogue__title">{npcTitle}</div>}
+        </div>
+        {shopError && <div className="mall-error">{shopError}</div>}
+        {shopSuccess && <div className="text-success" style={{ fontSize: '11px', marginBottom: '4px' }}>{shopSuccess}</div>}
+        {shopBusy && vendorItems.length === 0 && <div className="text-muted">Loading...</div>}
+        <div className="npc-vendor-list">
+          {vendorItems.map(item => (
+            <div key={item.id} className={`npc-vendor-item${!item.available ? ' npc-vendor-item--locked' : ''}`}>
+              <div>
+                <span className="npc-vendor-item__name">{item.name}</span>
+                <span className="npc-vendor-item__price"> — {item.price} credits</span>
+                {item.description && <div className="text-muted" style={{ fontSize: '11px' }}>{item.description}</div>}
+                {!item.available && item.requiredFame != null && (
+                  <div className="npc-vendor-item__fame-req">
+                    Requires {item.requiredFame} fame{item.currentFame != null ? ` (current: ${item.currentFame})` : ''}
+                  </div>
+                )}
+              </div>
+              {item.available ? (
+                <button className="btn-sm btn-buy" disabled={shopBusy} onClick={() => handleBuy(item.id)}>BUY</button>
+              ) : (
+                <span className="text-muted" style={{ fontSize: '11px' }}>Locked</span>
+              )}
+            </div>
+          ))}
+        </div>
+        <button className="btn-sm" onClick={closeShop} style={{ marginTop: '8px', color: 'var(--text-secondary)', borderColor: 'var(--text-secondary)' }}>
+          [Back to dialogue]
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="npc-dialogue">
@@ -96,6 +187,9 @@ export default function NPCDialogueView({ npcId, npcName, npcTitle, onClose, onA
                 {opt.text}
               </button>
             ))}
+            <button className="npc-dialogue__option" onClick={openShop}>
+              [Shop]
+            </button>
           </div>
         </>
       )}

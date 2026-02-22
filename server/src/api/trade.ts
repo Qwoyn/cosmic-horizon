@@ -15,6 +15,7 @@ import {
   handleTutorialSell,
 } from '../services/tutorial-sandbox';
 import db from '../db/connection';
+import { incrementStat, logActivity, checkPersonalBest, checkMilestones } from '../engine/profile-stats';
 
 const router = Router();
 
@@ -160,6 +161,14 @@ router.post('/buy', requireAuth, async (req, res) => {
     // Faction fame for significant trades
     try { await onTradeComplete(player.id, adjustedCost); } catch { /* non-critical */ }
 
+    // Profile stats: buy
+    incrementStat(player.id, 'trades_completed', 1);
+    incrementStat(player.id, 'trade_credits_spent', adjustedCost);
+    incrementStat(player.id, 'energy_spent', getActionCost('trade'));
+    logActivity(player.id, 'trade', `Bought ${result.quantity} ${commodity} for ${adjustedCost} credits`, { commodity, quantity: result.quantity, cost: adjustedCost, type: 'buy' });
+    checkPersonalBest(player.id, 'biggest_trade', adjustedCost, `Bought ${result.quantity} ${commodity} for ${adjustedCost} credits`);
+    checkMilestones(player.id);
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -269,6 +278,14 @@ router.post('/sell', requireAuth, async (req, res) => {
 
     // Faction fame for significant trades
     try { await onTradeComplete(player.id, adjustedRevenue); } catch { /* non-critical */ }
+
+    // Profile stats: sell
+    incrementStat(player.id, 'trades_completed', 1);
+    incrementStat(player.id, 'trade_credits_earned', adjustedRevenue);
+    incrementStat(player.id, 'energy_spent', getActionCost('trade'));
+    logActivity(player.id, 'trade', `Sold ${result.quantity} ${commodity} for ${adjustedRevenue} credits`, { commodity, quantity: result.quantity, revenue: adjustedRevenue, type: 'sell' });
+    checkPersonalBest(player.id, 'biggest_trade', adjustedRevenue, `Sold ${result.quantity} ${commodity} for ${adjustedRevenue} credits`);
+    checkMilestones(player.id);
 
     res.json({
       commodity,
