@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import { checkPrerequisite } from '../engine/missions';
 import { GAME_CONFIG } from '../config/game';
 import db from '../db/connection';
+import { syncPlayer } from '../ws/sync';
 
 const router = Router();
 
@@ -78,6 +79,10 @@ router.post('/:id/claim', requireAuth, async (req, res) => {
       });
     }
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:sector', req.headers['x-socket-id'] as string | undefined);
+
     res.json({ success: true, message: `Sector ${sectorId} claimed` });
   } catch (err) {
     console.error('Sector claim error:', err);
@@ -123,6 +128,11 @@ router.post('/:id/name', requireAuth, async (req, res) => {
     }
 
     await db('sectors').where({ id: sectorId }).update({ sector_name: name.trim() });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, playerId, 'sync:sector', req.headers['x-socket-id'] as string | undefined);
+
     res.json({ success: true, sectorName: name.trim() });
   } catch (err) {
     console.error('Sector name error:', err);
@@ -186,6 +196,9 @@ router.post('/:id/conquer', requireAuth, async (req, res) => {
         claimed_at: new Date().toISOString(),
       });
     }
+
+    // Multi-session sync
+    if (io) syncPlayer(io, player.id, 'sync:sector', req.headers['x-socket-id'] as string | undefined);
 
     res.json({ success: true, message: `Sector ${sectorId} conquered` });
   } catch (err) {

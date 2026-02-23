@@ -138,6 +138,34 @@ export default function Game({ onLogout }: GameProps) {
     }
   }, [game.player?.hasSeenIntro, game.player?.hasSeenPostTutorial, game.player?.tutorialCompleted, game.sector?.sectorId]);
 
+  // Multi-session sync: debounced refresh on sync:* events
+  const syncTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  useEffect(() => {
+    if (!game.player) return;
+
+    function debouncedSync(key: string, fn: () => void) {
+      if (syncTimers.current[key]) clearTimeout(syncTimers.current[key]);
+      syncTimers.current[key] = setTimeout(fn, 300);
+    }
+
+    const syncUnsubs = [
+      on('sync:status', () => debouncedSync('status', game.refreshStatus)),
+      on('sync:sector', () => debouncedSync('sector', game.refreshSector)),
+      on('sync:map', () => debouncedSync('map', game.refreshMap)),
+      on('sync:full', () => {
+        debouncedSync('status', game.refreshStatus);
+        debouncedSync('sector', game.refreshSector);
+        debouncedSync('map', game.refreshMap);
+      }),
+    ];
+
+    return () => {
+      syncUnsubs.forEach(unsub => unsub?.());
+      Object.values(syncTimers.current).forEach(clearTimeout);
+      syncTimers.current = {};
+    };
+  }, [game.player?.id, on, game.refreshStatus, game.refreshSector, game.refreshMap]);
+
   // Listen for WebSocket events
   useEffect(() => {
     if (!game.player) return;

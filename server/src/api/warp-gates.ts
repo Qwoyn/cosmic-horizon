@@ -6,6 +6,8 @@ import { canAffordAction, deductEnergy } from '../engine/energy';
 import { canBuildGate, calculateToll } from '../engine/warp-gates';
 import db from '../db/connection';
 import { incrementStat, logActivity, checkMilestones } from '../engine/profile-stats';
+import { syncPlayer } from '../ws/sync';
+import { handleSectorChange } from '../ws/handlers';
 
 const router = Router();
 
@@ -102,6 +104,10 @@ router.post('/build', requireAuth, async (req, res) => {
       health: 100,
     });
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       gateId,
       sectorA: player.current_sector_id,
@@ -197,6 +203,14 @@ router.post('/use/:gateId', requireAuth, async (req, res) => {
     if (isNewSector) {
       incrementStat(player.id, 'sectors_explored', 1);
       checkMilestones(player.id);
+    }
+
+    // Multi-session sync: sector change + full refresh
+    const io = req.app.get('io');
+    if (io) {
+      const excludeSocket = req.headers['x-socket-id'] as string | undefined;
+      handleSectorChange(io, player.id, player.current_sector_id, destinationSectorId, player.username);
+      syncPlayer(io, player.id, 'sync:full', excludeSocket);
     }
 
     res.json({

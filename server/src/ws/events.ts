@@ -16,6 +16,11 @@ export interface ServerEvents {
   'syndicate:vote_resolved': { voteId: string; result: string };
   'syndicate:member_joined': { playerId: string; username: string };
   'syndicate:member_left': { playerId: string; username: string };
+  // Multi-session sync — no payload, client calls its own refresh
+  'sync:status': void;
+  'sync:sector': void;
+  'sync:map': void;
+  'sync:full': void;
 }
 
 // Client -> Server events

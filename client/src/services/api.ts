@@ -7,6 +7,18 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// Allow the socket hook to tell us which socket is ours so the server
+// can exclude us from sync broadcasts (prevents double-refresh).
+let _socketId: string | null = null;
+export function setSocketId(id: string | null) { _socketId = id; }
+
+api.interceptors.request.use((config) => {
+  if (_socketId) {
+    config.headers['X-Socket-Id'] = _socketId;
+  }
+  return config;
+});
+
 // Persist JWT token so all requests include it as a Bearer header.
 // This works alongside session cookies — whichever auth method reaches
 // the server first wins.

@@ -4,6 +4,7 @@ import { createPublicClient, http, formatEther } from 'viem';
 import { mainnet } from 'viem/chains';
 import { requireAuth } from '../middleware/auth';
 import db from '../db/connection';
+import { syncPlayer } from '../ws/sync';
 
 const router = Router();
 
@@ -66,6 +67,10 @@ router.post('/verify', async (req, res) => {
       wallet_connected_at: db.fn.now(),
     });
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, req.session.playerId!, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({ walletAddress });
   } catch (err) {
     console.error('Wallet verify error:', err);
@@ -80,6 +85,10 @@ router.post('/disconnect', async (req, res) => {
       wallet_address: null,
       wallet_connected_at: null,
     });
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, req.session.playerId!, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({ success: true });
   } catch (err) {
     console.error('Wallet disconnect error:', err);

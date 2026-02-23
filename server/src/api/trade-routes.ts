@@ -12,6 +12,7 @@ import {
   scoutCaravans,
 } from '../engine/caravans';
 import db from '../db/connection';
+import { syncPlayer } from '../ws/sync';
 
 const router = Router();
 
@@ -199,6 +200,10 @@ router.post('/', requireAuth, async (req, res) => {
     // Award XP
     await awardXP(playerId, GAME_CONFIG.XP_ESTABLISH_TRADE_ROUTE, 'trade');
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, playerId, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       success: true,
       routeId,
@@ -333,6 +338,9 @@ router.post('/ransack', requireAuth, async (req, res) => {
     const newEnergy = deductEnergy(player.energy, 'ransack');
     await db('players').where({ id: playerId }).update({ energy: newEnergy });
 
+    // Multi-session sync
+    if (io) syncPlayer(io, playerId, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       success: true,
       energy: newEnergy,
@@ -368,6 +376,9 @@ router.post('/escort', requireAuth, async (req, res) => {
 
     const newEnergy = deductEnergy(player.energy, 'escort');
     await db('players').where({ id: playerId }).update({ energy: newEnergy });
+
+    // Multi-session sync
+    if (io) syncPlayer(io, playerId, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({ success: true, energy: newEnergy });
   } catch (err) {

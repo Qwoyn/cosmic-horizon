@@ -4,6 +4,7 @@ import { STORE_ITEMS, getStoreItem } from '../config/store-items';
 import { SHIP_TYPES } from '../config/ship-types';
 import { GAME_CONFIG } from '../config/game';
 import db from '../db/connection';
+import { syncPlayer } from '../ws/sync';
 
 const router = Router();
 
@@ -109,6 +110,9 @@ router.post('/buy/:itemId', requireAuth, async (req, res) => {
           credits: Number(player.credits) - item.price,
           energy: newEnergy,
         });
+        // Multi-session sync
+        const io = req.app.get('io');
+        if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
         return res.json({
           item: item.id,
           used: true,
@@ -133,6 +137,10 @@ router.post('/buy/:itemId', requireAuth, async (req, res) => {
     await db('players').where({ id: player.id }).update({
       credits: Number(player.credits) - item.price,
     });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({
       item: item.id,
@@ -199,6 +207,10 @@ router.post('/use/:itemId', requireAuth, async (req, res) => {
       await db('players').where({ id: player.id }).update({ energy: newEnergy });
       effect.newEnergy = newEnergy;
     }
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json(effect);
   } catch (err) {
@@ -277,6 +289,10 @@ router.post('/refuel', requireAuth, async (req, res) => {
       credits: Number(player.credits) - actualCost,
       energy: newEnergy,
     });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({
       refueled: actualRefueled,

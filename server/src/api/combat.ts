@@ -14,6 +14,8 @@ import { onCombatKill } from '../engine/npcs';
 import db from '../db/connection';
 import { sendPushToPlayer } from '../services/push';
 import { incrementStat, logActivity, checkPersonalBest, checkMilestones } from '../engine/profile-stats';
+import { syncPlayer } from '../ws/sync';
+import { handleSectorChange } from '../ws/handlers';
 
 const router = Router();
 
@@ -263,6 +265,14 @@ router.post('/flee', requireAuth, async (req, res) => {
           await db('ships').where({ id: player.current_ship_id }).update({
             sector_id: randomEdge.to_sector_id,
           });
+        }
+
+        // Multi-session sync: sector change + full refresh
+        const io = req.app.get('io');
+        if (io) {
+          const excludeSocket = req.headers['x-socket-id'] as string | undefined;
+          handleSectorChange(io, player.id, player.current_sector_id, randomEdge.to_sector_id, player.username);
+          syncPlayer(io, player.id, 'sync:full', excludeSocket);
         }
       }
     }

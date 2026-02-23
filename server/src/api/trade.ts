@@ -16,6 +16,7 @@ import {
 } from '../services/tutorial-sandbox';
 import db from '../db/connection';
 import { incrementStat, logActivity, checkPersonalBest, checkMilestones } from '../engine/profile-stats';
+import { syncPlayer } from '../ws/sync';
 
 const router = Router();
 
@@ -169,6 +170,10 @@ router.post('/buy', requireAuth, async (req, res) => {
     checkPersonalBest(player.id, 'biggest_trade', adjustedCost, `Bought ${result.quantity} ${commodity} for ${adjustedCost} credits`);
     checkMilestones(player.id);
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       commodity,
       quantity: result.quantity,
@@ -286,6 +291,10 @@ router.post('/sell', requireAuth, async (req, res) => {
     logActivity(player.id, 'trade', `Sold ${result.quantity} ${commodity} for ${adjustedRevenue} credits`, { commodity, quantity: result.quantity, revenue: adjustedRevenue, type: 'sell' });
     checkPersonalBest(player.id, 'biggest_trade', adjustedRevenue, `Sold ${result.quantity} ${commodity} for ${adjustedRevenue} credits`);
     checkMilestones(player.id);
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({
       commodity,

@@ -5,6 +5,7 @@ import { GAME_CONFIG } from '../config/game';
 import { generateMissionPool, isMissionExpired, buildObjectivesDetail, checkPrerequisite } from '../engine/missions';
 import { awardMissionRewards } from '../services/mission-tracker';
 import db from '../db/connection';
+import { syncPlayer } from '../ws/sync';
 
 const router = Router();
 
@@ -121,6 +122,10 @@ router.post('/accept/:templateId', requireAuth, async (req, res) => {
       objectives_detail: JSON.stringify(objectivesDetail),
       claim_status: claimStatus,
     });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({
       missionId,
@@ -301,6 +306,10 @@ router.post('/claim/:missionId', requireAuth, async (req, res) => {
 
     const updatedPlayer = await db('players').where({ id: player.id }).first();
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       claimed: true,
       title: mission.title,
@@ -324,6 +333,11 @@ router.post('/abandon/:missionId', requireAuth, async (req, res) => {
     if (!mission) return res.status(404).json({ error: 'Active mission not found' });
 
     await db('player_missions').where({ id: mission.id }).update({ status: 'abandoned' });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, req.session.playerId!, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({ abandoned: mission.id });
   } catch (err) {
     console.error('Abandon mission error:', err);

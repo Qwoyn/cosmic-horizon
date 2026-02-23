@@ -5,6 +5,7 @@ import { SHIP_TYPES } from '../config/ship-types';
 import { canAccessShipType } from '../engine/progression';
 import { GAME_CONFIG } from '../config/game';
 import db from '../db/connection';
+import { syncPlayer } from '../ws/sync';
 
 const router = Router();
 
@@ -98,6 +99,10 @@ router.post('/buy/:shipTypeId', requireAuth, async (req, res) => {
       current_ship_id: shipId,
     });
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       shipId,
       shipType: shipType.id,
@@ -123,6 +128,10 @@ router.post('/switch/:shipId', requireAuth, async (req, res) => {
 
     await db('players').where({ id: player.id }).update({ current_ship_id: ship.id });
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({ currentShipId: ship.id, shipType: ship.ship_type_id });
   } catch (err) {
     console.error('Ship switch error:', err);
@@ -146,6 +155,10 @@ router.post('/cloak', requireAuth, async (req, res) => {
 
     const newCloaked = !ship.is_cloaked;
     await db('ships').where({ id: ship.id }).update({ is_cloaked: newCloaked });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({ cloaked: newCloaked });
   } catch (err) {
@@ -177,6 +190,10 @@ router.post('/eject-cargo', requireAuth, async (req, res) => {
     if (toEject <= 0) return res.status(400).json({ error: 'No cargo to eject' });
 
     await db('ships').where({ id: ship.id }).update({ [cargoField]: current - toEject });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({ commodity, ejected: toEject, remaining: current - toEject });
   } catch (err) {

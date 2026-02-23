@@ -5,6 +5,7 @@ import { canAffordAction, deductEnergy } from '../engine/energy';
 import { SHIP_TYPES } from '../config/ship-types';
 import { getStoreItem } from '../config/store-items';
 import db from '../db/connection';
+import { syncPlayer } from '../ws/sync';
 
 const router = Router();
 
@@ -105,6 +106,10 @@ router.post('/deploy', requireAuth, async (req, res) => {
       });
     }
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       deployableId,
       type: item.deployableType,
@@ -175,6 +180,11 @@ router.delete('/:id', requireAuth, async (req, res) => {
     }
 
     await db('deployables').where({ id: req.params.id }).del();
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, req.session.playerId!, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({ removed: req.params.id });
   } catch (err) {
     console.error('Remove deployable error:', err);
@@ -201,6 +211,10 @@ router.post('/:id/maintain', requireAuth, async (req, res) => {
       last_maintained_at: new Date(),
       health: 100,
     });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, req.session.playerId!, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({ maintained: req.params.id, health: 100 });
   } catch (err) {

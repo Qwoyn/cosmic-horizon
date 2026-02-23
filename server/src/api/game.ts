@@ -20,6 +20,8 @@ import {
 } from '../services/tutorial-sandbox';
 import db from '../db/connection';
 import { incrementStat, logActivity, checkMilestones } from '../engine/profile-stats';
+import { syncPlayer } from '../ws/sync';
+import { handleSectorChange } from '../ws/handlers';
 
 const router = Router();
 
@@ -225,6 +227,14 @@ router.post('/move/:sectorId', requireAuth, async (req, res) => {
       npcEncounters = (await getUnencounteredNPCsInSector(targetSectorId, player.id)).slice(0, 1);
     } catch { /* table may not exist yet */ }
 
+    // Multi-session sync: sector change + full refresh
+    const io = req.app.get('io');
+    if (io) {
+      const excludeSocket = req.headers['x-socket-id'] as string | undefined;
+      handleSectorChange(io, player.id, player.current_sector_id, targetSectorId, player.username);
+      syncPlayer(io, player.id, 'sync:full', excludeSocket);
+    }
+
     res.json({
       sectorId: targetSectorId,
       sectorType: sector?.type,
@@ -377,6 +387,14 @@ router.post('/warp-to/:sectorId', requireAuth, async (req, res) => {
     try {
       npcs = await getNPCsInSector(targetSectorId, player.id);
     } catch { /* table may not exist yet */ }
+
+    // Multi-session sync: sector change + full refresh
+    const io = req.app.get('io');
+    if (io) {
+      const excludeSocket = req.headers['x-socket-id'] as string | undefined;
+      handleSectorChange(io, player.id, player.current_sector_id, targetSectorId, player.username);
+      syncPlayer(io, player.id, 'sync:full', excludeSocket);
+    }
 
     res.json({
       sectorId: targetSectorId,
@@ -827,6 +845,10 @@ router.post('/dock', requireAuth, async (req, res) => {
       },
     };
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       docked: true,
       outpostId: outpost.id,
@@ -853,6 +875,10 @@ router.post('/undock', requireAuth, async (req, res) => {
     await db('players').where({ id: player.id }).update({
       docked_at_outpost_id: null,
     });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({ undocked: true });
   } catch (err) {
@@ -1004,6 +1030,10 @@ router.post('/land', requireAuth, async (req, res) => {
 
     const planetType = PLANET_TYPES[planet.planet_class];
 
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+
     res.json({
       landed: true,
       planetId: planet.id,
@@ -1032,6 +1062,10 @@ router.post('/liftoff', requireAuth, async (req, res) => {
     await db('players').where({ id: player.id }).update({
       landed_at_planet_id: null,
     });
+
+    // Multi-session sync
+    const io = req.app.get('io');
+    if (io) syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
 
     res.json({ lifted: true });
   } catch (err) {

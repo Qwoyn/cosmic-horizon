@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth';
 import db from '../db/connection';
 import { incrementStat, logActivity } from '../engine/profile-stats';
+import { syncPlayer } from '../ws/sync';
+import { handleSyndicateJoin, handleSyndicateLeave } from '../ws/handlers';
 
 const router = Router();
 
@@ -128,7 +130,7 @@ router.post('/syndicate/invite/:playerId', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Only leaders and officers can invite' });
     }
 
-    const targetId = req.params.playerId;
+    const targetId = req.params.playerId as string;
     const target = await db('players').where({ id: targetId }).first();
     if (!target) return res.status(404).json({ error: 'Target player not found' });
 
@@ -140,6 +142,13 @@ router.post('/syndicate/invite/:playerId', requireAuth, async (req, res) => {
       player_id: targetId,
       role: 'member',
     });
+
+    // Wire socket room + multi-session sync for invited player
+    const io = req.app.get('io');
+    if (io) {
+      handleSyndicateJoin(io, targetId, membership.syndicate_id);
+      syncPlayer(io, targetId, 'sync:status');
+    }
 
     res.json({ invited: targetId, syndicateId: membership.syndicate_id });
   } catch (err) {
@@ -238,6 +247,13 @@ router.post('/syndicate/kick/:playerId', requireAuth, async (req, res) => {
       .where({ syndicate_id: membership.syndicate_id, player_id: targetId })
       .del();
 
+    // Wire socket room + multi-session sync for kicked player
+    const io = req.app.get('io');
+    if (io) {
+      handleSyndicateLeave(io, targetId, membership.syndicate_id);
+      syncPlayer(io, targetId, 'sync:status');
+    }
+
     res.json({ kicked: targetId });
   } catch (err) {
     console.error('Syndicate kick error:', err);
@@ -257,11 +273,19 @@ router.post('/syndicate/leave', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Leader must disband or transfer leadership first' });
     }
 
+    const syndicateId = membership.syndicate_id;
     await db('syndicate_members')
-      .where({ syndicate_id: membership.syndicate_id, player_id: player.id })
+      .where({ syndicate_id: syndicateId, player_id: player.id })
       .del();
 
-    res.json({ left: membership.syndicate_id });
+    // Wire socket room + multi-session sync
+    const io = req.app.get('io');
+    if (io) {
+      handleSyndicateLeave(io, player.id, syndicateId);
+      syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+    }
+
+    res.json({ left: syndicateId });
   } catch (err) {
     console.error('Syndicate leave error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -831,7 +855,7 @@ router.post('/syndicate/:id/join', requireAuth, async (req, res) => {
     const existing = await db('syndicate_members').where({ player_id: player.id }).first();
     if (existing) return res.status(400).json({ error: 'Already in a syndicate' });
 
-    const syndicateId = req.params.id;
+    const syndicateId = req.params.id as string;
     const syndicate = await db('syndicates').where({ id: syndicateId }).first();
     if (!syndicate) return res.status(404).json({ error: 'Syndicate not found' });
 
@@ -852,6 +876,12 @@ router.post('/syndicate/:id/join', requireAuth, async (req, res) => {
         player_id: player.id,
         role: 'member',
       });
+      // Wire socket room + multi-session sync
+      const io = req.app.get('io');
+      if (io) {
+        handleSyndicateJoin(io, player.id, syndicateId);
+        syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+      }
       return res.json({ action: 'joined', syndicateId });
     }
 
@@ -903,6 +933,13 @@ router.post('/syndicate/join-code', requireAuth, async (req, res) => {
     await db('syndicate_invite_codes').where({ id: invite.id }).update({
       uses_remaining: invite.uses_remaining - 1,
     });
+
+    // Wire socket room + multi-session sync
+    const io = req.app.get('io');
+    if (io) {
+      handleSyndicateJoin(io, player.id, invite.syndicate_id);
+      syncPlayer(io, player.id, 'sync:status', req.headers['x-socket-id'] as string | undefined);
+    }
 
     res.json({ action: 'joined', syndicateId: invite.syndicate_id });
   } catch (err) {
@@ -977,6 +1014,12 @@ router.post('/syndicate/:id/requests/:reqId/review', requireAuth, async (req, re
         role: 'member',
       });
       await db('syndicate_join_requests').where({ id: request.id }).update({ status: 'accepted', reviewed_by: player.id });
+      // Wire socket room + multi-session sync for accepted player
+      const io = req.app.get('io');
+      if (io) {
+        handleSyndicateJoin(io, request.player_id, request.syndicate_id);
+        syncPlayer(io, request.player_id, 'sync:status');
+      }
       res.json({ action: 'accepted', playerId: request.player_id });
     } else {
       await db('syndicate_join_requests').where({ id: request.id }).update({ status: 'rejected', reviewed_by: player.id });
