@@ -15,7 +15,7 @@ const router = Router();
 
 router.post('/register', async (req, res) => {
   try {
-    const { username, email, password, race, gameMode: rawGameMode } = req.body;
+    const { username, email, password, race, gameMode: rawGameMode, matrixUserId } = req.body;
     const gameMode = rawGameMode === 'singleplayer' ? 'singleplayer' : 'multiplayer';
     if (!username || !email || !password) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -64,7 +64,7 @@ router.post('/register', async (req, res) => {
     // SQLite doesn't support .returning(), so generate ID and insert
     const playerId = crypto.randomUUID();
 
-    await db('players').insert({
+    const insertData: Record<string, any> = {
       id: playerId,
       username,
       email,
@@ -79,7 +79,9 @@ router.post('/register', async (req, res) => {
       energy_regen_bonus_until: bonusUntil,
       last_login: new Date(),
       tutorial_state: JSON.stringify(getDefaultTutorialState(startingCredits, startingMaxEnergy)),
-    });
+    };
+    if (matrixUserId) insertData.matrix_user_id = matrixUserId;
+    await db('players').insert(insertData);
 
     // Create starter ship with racial bonuses
     const shipId = crypto.randomUUID();

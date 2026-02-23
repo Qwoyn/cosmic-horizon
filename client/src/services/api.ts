@@ -57,6 +57,11 @@ export const logout = async () => {
   return res;
 };
 
+// Matrix widget token login — accepts a pre-issued JWT from the widget auth flow
+export const loginWithToken = (token: string) => {
+  setToken(token);
+};
+
 // Game
 export const getStatus = () => api.get('/game/status');
 export const moveTo = (sectorId: number) => api.post(`/game/move/${sectorId}`);

@@ -34,6 +34,7 @@ import sectorsRouter from './api/sectors';
 import tradeRoutesRouter from './api/trade-routes';
 import profileRouter from './api/profile';
 import adminRouter from './api/admin';
+import authMatrixRouter from './api/auth-matrix';
 import { setupWebSocket } from './ws/handlers';
 import { startGameTick } from './engine/game-tick';
 import { loadTutorialState, blockDuringTutorial } from './middleware/tutorial-sandbox';
@@ -87,6 +88,7 @@ app.get('/api/health', (_req, res) => {
 
 // API routes
 app.use('/api/auth', authRouter);
+app.use('/api/auth/matrix', authMatrixRouter);
 app.use('/api/game', loadTutorialState, loadSPContext, gameRouter);
 app.use('/api/trade', loadTutorialState, loadSPContext, tradeRouter);
 app.use('/api/wallet', walletRouter);
